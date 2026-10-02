@@ -67,6 +67,9 @@ class ServiceTest(unittest.TestCase):
             self.addCleanup(patch.stop)
         self.svc = service_mod.Service(store=Store(self.tmp / "db.sqlite"), config_path=self.tmp / "config.toml")
         self.svc.running = False  # no background ticks
+        self.svc.agent_enabled = False  # never call Claude from tests
+        self.svc.command({"cmd": "profile-save", "profile": {"experience": "beginner", "goals": ["general fitness"],
+                                                             "equipment": ["chair", "table", "bench", "doorway"]}})
 
     def at(self, hhmm):
         hours, minutes = map(int, hhmm.split(":"))
@@ -185,6 +188,18 @@ class ServiceTest(unittest.TestCase):
         self.assertTrue(self.finish_session()["ok"])
         self.assertFalse(self.at("12:00")["locked"])
         self.assertTrue(self.at("18:00")["locked"])
+
+
+    def test_scheduled_locks_wait_for_onboarding(self):
+        self.svc.store.delete("profile")
+        self.assertFalse(self.at("18:00")["locked"])
+        self.assertFalse(self.svc.state["setup"]["profile"])
+        self.svc.command({"cmd": "profile-save", "profile": {"experience": "beginner", "goals": ["strength"]}})
+        self.assertTrue(self.at("18:05")["locked"])
+
+    def test_profile_validation(self):
+        bad = self.svc.command({"cmd": "profile-save", "profile": {"experience": "expert", "goals": []}})
+        self.assertFalse(bad["ok"])
 
 
 if __name__ == "__main__":

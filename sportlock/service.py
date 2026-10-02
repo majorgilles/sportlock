@@ -22,6 +22,8 @@ from . import config as config_mod
 from . import system
 from .schedule import Window, config_frozen, decide
 from .store import Store
+from . import profile as profile_mod
+from .agent import Agent, AgentError
 from .training import Training, TrainingError
 
 RUNTIME_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "sportlock"
@@ -67,6 +69,9 @@ class Service:
         self.mutex = threading.RLock()
         self.store = store or Store()
         self.training = Training(self.store)
+        self.agent_thread: threading.Thread | None = None
+        self.agent_retry_at: datetime | None = None
+        self.agent_enabled = True
         self.config_path = config_path or config_mod.CONFIG_PATH
         self.config = config_mod.Config()
         self.config_mtime = 0.0
@@ -125,7 +130,7 @@ class Service:
             else:
                 self.store.delete("manual_lock")
 
-        if decision.active:
+        if decision.active and self.setup_complete():
             candidates.append(ActiveLock(decision.active.key, decision.active, "scheduled"))
 
         # Stay under the lock already on screen while it is still due; overlaps don't swap sessions.
@@ -133,6 +138,37 @@ class Service:
             if self.current and lock.key == self.current.key:
                 return lock
         return candidates[0] if candidates else None
+
+    def setup_complete(self) -> bool:
+        return profile_mod.load(self.store) is not None
+
+    def equipment(self) -> set[str]:
+        return profile_mod.equipment(self.store, self.config.equipment)
+
+    # -- agent ---------------------------------------------------------------------------------
+
+    def _maybe_run_agent(self, now: datetime) -> None:
+        if not self.agent_enabled or (self.agent_thread and self.agent_thread.is_alive()):
+            return
+        if self.agent_retry_at and now < self.agent_retry_at:
+            return
+        agent = Agent(self.store, self.training.library, self.config.notebook_id)
+        if not agent.needs_run():
+            return
+        equipment = self.equipment()
+        self.agent_thread = threading.Thread(target=self._run_agent, args=(agent, now, equipment), daemon=True)
+        self.agent_thread.start()
+
+    def _run_agent(self, agent: Agent, now: datetime, equipment: set[str]) -> None:
+        # Claude can take minutes: run without holding the mutex; the store is safe to share.
+        try:
+            plan = agent.run(now, equipment)
+            self.agent_retry_at = None
+            system.notify("Next session planned", plan.get("rationale") or plan["hard"]["title"])
+        except AgentError as error:
+            self.agent_retry_at = now_local() + timedelta(minutes=30)
+            system.notify("Coach couldn't plan your next session",
+                          f"{error}. Using the built-in planner; retrying in 30 min.")
 
     def tick(self) -> None:
         with self.mutex:
@@ -153,6 +189,7 @@ class Service:
                 self._ensure_locker()
 
             self._write_state(now, decision)
+            self._maybe_run_agent(now)
 
     def _settle_override(self, now: datetime) -> None:
         if not self.current or not self.current.overridable:
@@ -192,8 +229,10 @@ class Service:
 
         if not lock.test:
             self.store.lock_began(lock.key, lock.window.start, lock.window.end, now)
+        agent = Agent(self.store, self.training.library, self.config.notebook_id)
         self.training.begin(now=now, kind=lock.kind, lock_key=lock.key,
-                            minutes=(lock.window.end - now).total_seconds() / 60, equipment=self.config.equipment)
+                            minutes=(lock.window.end - now).total_seconds() / 60, equipment=self.equipment(),
+                            generated=agent.fresh_plan())
         self.current = lock
 
     def _leave_lock(self, now: datetime) -> None:
@@ -260,6 +299,9 @@ class Service:
             "trained_today": now.date() in self.store.trained_days(),
             "training": self.training.snapshot() if lock else None,
             "theme": system.theme(),
+            "setup": {"profile": self.setup_complete(),
+                      "agent_running": bool(self.agent_thread and self.agent_thread.is_alive()),
+                      "plan_ready": Agent(self.store, self.training.library, self.config.notebook_id).fresh_plan() is not None},
             "config_error": self.config_error,
             "config_pending": self.config_pending,
         }
@@ -321,6 +363,26 @@ class Service:
 
             if cmd == "train":
                 return self._train(request, now)
+
+            if cmd == "profile-get":
+                return {"ok": True, "profile": profile_mod.load(self.store),
+                        "choices": {"experience": profile_mod.EXPERIENCE, "goals": profile_mod.GOALS,
+                                    "equipment": profile_mod.EQUIPMENT, "locations": profile_mod.LOCATIONS}}
+
+            if cmd == "profile-save":
+                try:
+                    saved = profile_mod.save(self.store, request.get("profile") or {}, now)
+                except profile_mod.ProfileError as error:
+                    return {"ok": False, "error": str(error)}
+                self.agent_retry_at = None
+                self._schedule_tick()
+                return {"ok": True, "profile": saved}
+
+            if cmd == "agent-status":
+                agent = Agent(self.store, self.training.library, self.config.notebook_id)
+                return {"ok": True, "plan": agent.fresh_plan(), "stale_plan": self.store.get("next_session"),
+                        "runs": self.store.get("agent_runs", []),
+                        "running": bool(self.agent_thread and self.agent_thread.is_alive())}
 
             if cmd == "log":
                 return {"ok": True, "locks": self.store.recent_locks(int(request.get("limit", 20)))}

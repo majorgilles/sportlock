@@ -144,6 +144,58 @@ def cmd_ladders(args) -> None:
               f"{position['reason'] or 'starting point'}")
 
 
+def cmd_app(args) -> None:
+    import os
+    import subprocess
+    from pathlib import Path
+
+    from .service import STATE_PATH
+
+    repo = Path(__file__).resolve().parent.parent
+    env = dict(os.environ, SPORTLOCK_STATE=str(STATE_PATH), SPORTLOCK_BIN=str(repo / "bin" / "sportlock"))
+    subprocess.Popen(["qs", "-p", str(repo / "app")], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+
+
+def _print_plan(plan: dict) -> None:
+    print(f"Coach: {plan.get('rationale', '')}")
+    for key in ("hard", "recovery"):
+        version = plan[key]
+        print(f"\n{key}: {version['title']} ({version['day_type']})")
+        for item in version["plan"]:
+            print(f"  {item['exercise']:<26} {_target_text(item):<16} {item.get('progress', '')}")
+
+
+def cmd_agent(args) -> None:
+    if args.agent_command == "status":
+        response = _check(request({"cmd": "agent-status"}))
+        if response["running"]:
+            print("planning now…")
+        if response["plan"]:
+            _print_plan(response["plan"])
+        elif response["stale_plan"]:
+            print("plan is out of date (a session or the profile changed since); a new one is due")
+        else:
+            print("no plan yet")
+        for run in response["runs"][-5:]:
+            print(f"{run['at']}  {run['seconds']:>4}s  {'ok' if run['ok'] else 'failed: ' + str(run['error'])}")
+        return
+
+    from datetime import datetime
+
+    from . import config as config_mod
+    from . import profile as profile_mod
+    from .agent import Agent
+    from .library import Library
+    from .store import Store
+
+    config = config_mod.load()
+    store = Store()
+    plan = Agent(store, Library(), config.notebook_id).run(datetime.now().replace(microsecond=0),
+                                                            profile_mod.equipment(store, config.equipment))
+    _print_plan(plan)
+
+
 def cmd_log(args) -> None:
     for lock in _check(request({"cmd": "log", "limit": args.limit}))["locks"]:
         print(f"{lock['start']}  →  {lock['end'][11:]}   {lock['outcome'] or 'active'}")
@@ -205,6 +257,13 @@ def main(argv: list[str] | None = None) -> None:
     library.set_defaults(run=cmd_library)
 
     sub.add_parser("ladders", help="where you are on each progression chain").set_defaults(run=cmd_ladders)
+    sub.add_parser("app", help="open the sportlock window (profile / onboarding)").set_defaults(run=cmd_app)
+
+    agent = sub.add_parser("agent", help="the coaching agent that plans your next session")
+    agent_sub = agent.add_subparsers(dest="agent_command", required=True)
+    agent_sub.add_parser("status", help="the current plan and recent runs")
+    agent_sub.add_parser("run", help="plan the next session now (foreground, for debugging)")
+    agent.set_defaults(run=cmd_agent)
 
     args = parser.parse_args(argv)
     if args.command == "service":

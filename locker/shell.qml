@@ -457,6 +457,14 @@ ShellRoot {
             color: root.muted
             font.pixelSize: 15
           }
+          Text {
+            width: Math.min(surface.width - 64, 1180) - 260
+            visible: root.tr !== null && !!root.tr.note && root.phase !== "summary"
+            wrapMode: Text.WordWrap
+            text: root.tr && root.tr.note ? "Coach: " + root.tr.note : ""
+            color: root.muted
+            font.pixelSize: 15
+          }
         }
         Column {
           anchors.right: parent.right

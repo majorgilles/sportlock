@@ -1,0 +1,312 @@
+"""The coaching agent: headless Claude Code writes the next session from the user's history.
+
+Runs after every session (and after onboarding) in the background. It sees the profile, the
+ladder positions, recent sessions in detail, the rule proposals the last session triggered and
+the exercise catalogue, and may look things up in the NotebookLM notebook through the
+read-only passage search (tools/nlm_search.py) — no other tool. It returns two plans, `hard`
+and `recovery`, so the 48-hour rule can still be enforced when the lock actually starts, plus
+optional ladder overrides with reasons. Everything is validated before it is stored; on any
+failure the local planner is used instead.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+from datetime import datetime, timedelta
+from pathlib import Path
+
+from .ladders import START, Ladders
+from .library import NLM_SEARCH, Library
+from .store import Store, _iso
+
+PLAN_KEY = "next_session"
+RUNS_KEY = "agent_runs"
+HISTORY_DAYS = 28
+HISTORY_SESSIONS = 12
+TIMEOUT_SECONDS = 900
+
+_ITEM = {
+    "type": "object",
+    "properties": {
+        "exercise": {"type": "string"},
+        "sets": {"type": "integer"},
+        "reps_low": {"type": ["integer", "null"]},
+        "reps_high": {"type": ["integer", "null"]},
+        "seconds": {"type": ["integer", "null"]},
+        "rest": {"type": "integer"},
+        "note": {"type": "string"},
+    },
+    "required": ["exercise", "sets", "reps_low", "reps_high", "seconds", "rest", "note"],
+}
+_PLAN = {
+    "type": "object",
+    "properties": {"title": {"type": "string"}, "exercises": {"type": "array", "items": _ITEM}},
+    "required": ["title", "exercises"],
+}
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "rationale": {"type": "string"},
+        "hard": _PLAN,
+        "recovery": {**_PLAN, "properties": {**_PLAN["properties"],
+                                             "day_type": {"type": "string", "enum": ["light", "mobility"]}},
+                     "required": ["title", "day_type", "exercises"]},
+        "ladder_overrides": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"chain": {"type": "string"}, **{k: _ITEM["properties"][k] for k in
+                           ("exercise", "sets", "reps_low", "reps_high", "seconds", "rest")},
+                           "reason": {"type": "string"}},
+            "required": ["chain", "exercise", "sets", "reps_low", "reps_high", "seconds", "rest", "reason"],
+        }},
+    },
+    "required": ["rationale", "hard", "recovery", "ladder_overrides"],
+}
+
+PROMPT = """You are the coach inside "sportlock", a desktop app that locks the user's computer until they
+finish a home training session (bodyweight calisthenics and mobility). Write their NEXT session.
+
+Knowledge: the user's own training books are in a NotebookLM notebook. You may search them with
+  {search} {notebook} "<query>" --limit 6
+(read-only passage search, JSON output). Use it when you need the books' guidance, e.g. on
+programming for their level, recovery, or a limitation they mention. Base decisions on the books
+and on the data below; don't invent exercises outside the catalogue.
+
+Produce two versions of the next session — the app picks one when the lock starts:
+- "hard": used when the last hard session was 48 h or more ago. Normally: warm-up
+  (dynamic-warmup), 3–6 main exercises covering different movement patterns, cool-down
+  (static-stretch). Build it around the ladder positions, which already include the rule
+  engine's adjustments; deviate when the history gives a reason (skips, pain, notes, fatigue,
+  repeated grinding, long breaks) and say why in that exercise's note.
+- "recovery": used within 48 h of a hard session. "mobility" (stretching/mobility only) or
+  "light" (easy volume on patterns NOT trained hard in the last 48 h, plus mobility).
+Plans are trimmed automatically to the lock's length (often 20–30 min), from the end of the main
+work, so order exercises by priority. The first and last item are kept.
+
+Each exercise: "exercise" is a catalogue id; "reps"-kind exercises use reps_low/reps_high
+(seconds null); "hold" and "timed" use seconds (reps null). Sets 1–6, rest in seconds. "note" is
+shown to the user on the exercise card: one short sentence on why this exercise at this level.
+
+"ladder_overrides": only when you disagree with where the rule engine put a chain for the
+future (e.g. it moved them up but notes report pain). Each needs a concrete reason. Usually [].
+
+"rationale": 1–2 sentences for the user about the overall idea of the next session.
+
+Only use exercises whose equipment the user has. Respect injuries and limitations in the profile.
+
+DATA
+{context}
+"""
+
+
+class AgentError(RuntimeError):
+    pass
+
+
+class Agent:
+    def __init__(self, store: Store, library: Library, notebook_id: str):
+        self.store = store
+        self.library = library
+        self.ladders = Ladders(store, library)
+        self.notebook_id = notebook_id
+
+    # -- freshness -----------------------------------------------------------------------------
+
+    def basis(self) -> str:
+        """Identifies the data a plan was written from: the latest counted session and the profile."""
+        row = self.store.db.execute(
+            "SELECT MAX(id) AS id FROM sessions WHERE status != 'in_progress' AND kind NOT IN ('test', 'placeholder')"
+        ).fetchone()
+        profile = self.store.get("profile") or {}
+        return f"session:{row['id'] or 0}/profile:{profile.get('updated_at', '-')}"
+
+    def fresh_plan(self) -> dict | None:
+        plan = self.store.get(PLAN_KEY)
+        return plan if plan and plan.get("basis") == self.basis() else None
+
+    def needs_run(self) -> bool:
+        return self.store.get("profile") is not None and self.fresh_plan() is None
+
+    # -- context -------------------------------------------------------------------------------
+
+    def context(self, now: datetime, equipment: set[str]) -> dict:
+        profile = self.store.get("profile") or {}
+        ladders = []
+        for position in self.ladders.all():
+            spec = self.library.get(position["exercise"])
+            ladders.append({"chain": position["chain"], "exercise": position["exercise"], "name": spec["name"],
+                            "step": f"{spec.get('step')}/{len(spec.get('chain_ids', []))}",
+                            "target": position["target"], "why": position["reason"]})
+
+        since = (now - timedelta(days=HISTORY_DAYS)).date().isoformat()
+        sessions = []
+        for s in self.store.db.execute(
+            "SELECT * FROM sessions WHERE day >= ? AND kind NOT IN ('test', 'placeholder') AND status != 'in_progress'"
+            " ORDER BY id DESC LIMIT ?", (since, HISTORY_SESSIONS)).fetchall():
+            exercises = []
+            for e in self.store.db.execute("SELECT * FROM session_exercises WHERE session_id = ? ORDER BY id", (s["id"],)):
+                sets = [{k: v for k, v in dict(x).items() if k in ("reps", "seconds", "load_kg", "rest_seconds") and v is not None}
+                        for x in self.store.db.execute("SELECT * FROM sets WHERE session_exercise_id = ? ORDER BY set_no", (e["id"],))]
+                exercises.append({k: v for k, v in {
+                    "exercise": e["exercise"], "status": e["status"], "target": json.loads(e["target"]),
+                    "sets": sets, "rpe": e["rpe"], "note": e["note"], "skip_reason": e["skip_reason"]}.items() if v})
+            sessions.append({k: v for k, v in {
+                "date": s["day"], "started": s["started_at"], "kind": s["kind"], "day_type": s["day_type"],
+                "status": s["status"], "rpe": s["rpe"], "notes": s["notes"], "exercises": exercises}.items() if v})
+
+        last = sessions[0] if sessions else None
+        proposals = []
+        if last:
+            row = self.store.db.execute("SELECT MAX(id) AS id FROM sessions WHERE kind NOT IN ('test','placeholder')"
+                                        " AND status != 'in_progress'").fetchone()
+            proposals = [{"chain": p["chain"], "rule": p["rule"], "from": p["from_exercise"], "to": p["to_exercise"],
+                          "target": json.loads(p["to_target"]), "reason": p["reason"]}
+                         for p in self.store.db.execute("SELECT * FROM proposals WHERE session_id = ? ORDER BY id", (row["id"],))]
+
+        last_hard = self.ladders.last_hard_session(now)
+        catalogue = [{"id": i, "name": spec["name"], "chain": spec["chain"], "step": spec["step"], "kind": spec["kind"],
+                      "equipment": spec.get("equipment", []), "available": set(spec.get("equipment", [])) <= equipment}
+                     for i, spec in self.library.seed.items()]
+        return {
+            "now": _iso(now), "profile": {k: v for k, v in profile.items() if k != "updated_at"},
+            "equipment": sorted(equipment),
+            "last_hard_session": last_hard and _iso(last_hard),
+            "ladders": ladders, "rule_proposals_from_last_session": proposals,
+            "recent_sessions": sessions, "catalogue": catalogue,
+        }
+
+    # -- running -------------------------------------------------------------------------------
+
+    def run(self, now: datetime, equipment: set[str]) -> dict:
+        """Ask the agent, validate, store the plan and apply overrides. Raises AgentError."""
+        basis = self.basis()
+        started = datetime.now()
+        try:
+            context = self.context(now, equipment)
+            prompt = PROMPT.format(search=NLM_SEARCH, notebook=self.notebook_id,
+                                   context=json.dumps(context, ensure_ascii=False, indent=1))
+            output = self._claude(prompt)
+            plan = self.validate(output, equipment)
+        except AgentError as error:
+            self._log(started, ok=False, error=str(error))
+            raise
+
+        plan["basis"] = basis
+        plan["generated_at"] = _iso(now)
+        self._apply_overrides(plan.pop("overrides"), now)
+        self.store.put(PLAN_KEY, plan)
+        self._log(started, ok=True, error=None)
+        return plan
+
+    def _claude(self, prompt: str) -> dict:
+        claude = shutil.which("claude") or str(Path.home() / ".local/bin/claude")
+        search = f"Bash({NLM_SEARCH} *)"
+        try:
+            result = subprocess.run(
+                [claude, "-p", prompt, "--output-format", "json", "--no-session-persistence",
+                 "--json-schema", json.dumps(SCHEMA), "--tools", "Bash", "--allowedTools", search],
+                capture_output=True, text=True, timeout=TIMEOUT_SECONDS, cwd=Path(NLM_SEARCH).parent,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise AgentError(f"could not run Claude: {error}") from None
+        try:
+            response = json.loads(result.stdout)
+        except ValueError:
+            raise AgentError(f"Claude failed: {(result.stderr or result.stdout).strip()[-300:]}") from None
+        output = response.get("structured_output")
+        if response.get("is_error") or not isinstance(output, dict):
+            raise AgentError(f"no usable answer: {str(response.get('result'))[:300]}")
+        return output
+
+    def _log(self, started: datetime, *, ok: bool, error: str | None) -> None:
+        runs = self.store.get(RUNS_KEY, [])
+        runs.append({"at": _iso(started), "seconds": round((datetime.now() - started).total_seconds()),
+                     "ok": ok, "error": error})
+        self.store.put(RUNS_KEY, runs[-20:])
+
+    # -- validation ----------------------------------------------------------------------------
+
+    def validate(self, output: dict, equipment: set[str]) -> dict:
+        def items(plan: dict, label: str) -> list[dict]:
+            result = []
+            for raw in plan.get("exercises", []):
+                item = self._item(raw, equipment, label)
+                result.append(item)
+            if len(result) < 2:
+                raise AgentError(f"{label} plan has fewer than 2 exercises")
+            return result
+
+        hard = items(output["hard"], "hard")
+        recovery = items(output["recovery"], "recovery")
+        overrides = []
+        for raw in output.get("ladder_overrides", []):
+            if raw.get("chain") not in START:
+                raise AgentError(f"override for unknown chain {raw.get('chain')!r}")
+            item = self._item(raw, equipment, "override")
+            if self.library.get(item["exercise"]).get("chain") != raw["chain"]:
+                raise AgentError(f"override puts {item['exercise']} on the {raw['chain']} chain")
+            if not str(raw.get("reason", "")).strip():
+                raise AgentError("override without a reason")
+            item.pop("progress", None)
+            overrides.append({"chain": raw["chain"], "reason": raw["reason"].strip(), **item})
+        return {
+            "rationale": str(output.get("rationale", "")).strip(),
+            "hard": {"title": output["hard"]["title"].strip() or "Full body", "day_type": "hard", "plan": hard},
+            "recovery": {"title": output["recovery"]["title"].strip() or "Recovery",
+                         "day_type": output["recovery"]["day_type"], "plan": recovery},
+            "overrides": overrides,
+        }
+
+    def _item(self, raw: dict, equipment: set[str], label: str) -> dict:
+        exercise = raw.get("exercise")
+        if exercise not in self.library.seed:
+            raise AgentError(f"{label}: unknown exercise {exercise!r}")
+        spec = self.library.get(exercise)
+        missing = set(spec.get("equipment", [])) - equipment
+        if missing:
+            raise AgentError(f"{label}: {exercise} needs {', '.join(sorted(missing))}")
+        sets, rest = raw.get("sets"), raw.get("rest")
+        if not isinstance(sets, int) or not 1 <= sets <= 6:
+            raise AgentError(f"{label}: {exercise} has {sets!r} sets")
+        if not isinstance(rest, int) or not 0 <= rest <= 300:
+            raise AgentError(f"{label}: {exercise} has rest {rest!r}")
+        item = {"exercise": exercise, "sets": sets, "rest": rest}
+        if spec["kind"] == "reps":
+            lo, hi = raw.get("reps_low"), raw.get("reps_high")
+            if not (isinstance(lo, int) and isinstance(hi, int) and 1 <= lo <= hi <= 30):
+                raise AgentError(f"{label}: {exercise} has reps {lo!r}–{hi!r}")
+            item["reps"] = [lo, hi]
+        else:
+            seconds = raw.get("seconds")
+            if not isinstance(seconds, int) or not 5 <= seconds <= 900:
+                raise AgentError(f"{label}: {exercise} has {seconds!r} seconds")
+            item["seconds"] = seconds
+        if str(raw.get("note", "")).strip():
+            item["progress"] = str(raw["note"]).strip()
+        return item
+
+    def _apply_overrides(self, overrides: list[dict], now: datetime) -> None:
+        for o in overrides:
+            target = {k: o[k] for k in ("sets", "reps", "seconds", "rest") if k in o}
+            current = self.ladders.get(o["chain"])
+            self.store.db.execute(
+                "UPDATE proposals SET status = 'overridden', override_reason = ? WHERE id = ("
+                " SELECT MAX(id) FROM proposals WHERE chain = ? AND status = 'applied')",
+                (o["reason"], o["chain"]),
+            )
+            self.store.db.execute(
+                "INSERT INTO proposals (session_id, chain, rule, from_exercise, from_target, to_exercise, to_target,"
+                " reason, status, decided_by, created_at) VALUES ("
+                " (SELECT COALESCE(MAX(id), 0) FROM sessions), ?, 'override', ?, ?, ?, ?, ?, 'applied', 'agent', ?)",
+                (o["chain"], current["exercise"], json.dumps(current["target"]), o["exercise"], json.dumps(target),
+                 o["reason"], _iso(now)),
+            )
+            self.ladders._set(o["chain"], o["exercise"], target, f"Coach: {o['reason']}", now)
+
+
+def choose(plan: dict, *, last_hard: datetime | None, now: datetime) -> dict:
+    """Pick the hard or recovery version by the 48-hour rule."""
+    from .ladders import HARD_GAP
+
+    return plan["recovery"] if last_hard and now - last_hard < HARD_GAP else plan["hard"]

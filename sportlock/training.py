@@ -112,21 +112,32 @@ class Training:
     # -- lifecycle -----------------------------------------------------------------------------
 
     def begin(self, *, now: datetime, kind: str, lock_key: str | None, minutes: float,
-              equipment: frozenset[str] | set[str] = frozenset({"chair", "table", "bench", "doorway"})) -> None:
+              equipment: frozenset[str] | set[str] = frozenset({"chair", "table", "bench", "doorway"}),
+              generated: dict | None = None) -> None:
+        """`generated`: a fresh agent plan (hard + recovery); without one the local planner is used."""
         if self.run is not None:
             return
-        planned = self.ladders.plan(now, set(equipment))
+        if generated:
+            from .agent import choose
+
+            planned = dict(choose(generated, last_hard=self.ladders.last_hard_session(now), now=now))
+            planned["note"] = generated.get("rationale", "")
+            source = "generated"
+        else:
+            planned = self.ladders.plan(now, set(equipment))
+            source = "local"
         plan = fit_plan(planned["plan"], minutes)
         # finished_at is NOT NULL from the first schema; it is rewritten when the session closes.
         cursor = self.store.db.execute(
             "INSERT INTO sessions (day, started_at, finished_at, kind, lock_key, status, title, day_type, plan_source,"
-            " notes) VALUES (?, ?, ?, ?, ?, 'in_progress', ?, ?, 'local', '')",
-            (now.date().isoformat(), _iso(now), _iso(now), kind, lock_key, planned["title"], planned["day_type"]),
+            " notes) VALUES (?, ?, ?, ?, ?, 'in_progress', ?, ?, ?, '')",
+            (now.date().isoformat(), _iso(now), _iso(now), kind, lock_key, planned["title"], planned["day_type"], source),
         )
         session_id = cursor.lastrowid
         order = [self._insert_exercise(session_id, item["exercise"], {k: v for k, v in item.items() if k != "exercise"})
                  for item in plan]
         self._save({"session_id": session_id, "order": order, "current": 0, "phase": "ready",
+                    "note": planned.get("note", ""), "source": source,
                     "set_started_at": None, "set_ended_at": None, "last_set_end": None, "rest_until": None})
 
     def close(self, *, now: datetime, status: str) -> None:
@@ -275,6 +286,7 @@ class Training:
             pending = (datetime.fromisoformat(run["set_ended_at"]) - datetime.fromisoformat(run["set_started_at"])).total_seconds()
         return {
             "id": run["session_id"], "title": session["title"], "day_type": session["day_type"], "kind": session["kind"],
+            "note": run.get("note", ""), "source": run.get("source", "local"),
             "phase": run["phase"], "current": run["current"], "exercises": exercises,
             "set_started_at": _ms(run["set_started_at"]), "rest_until": _ms(run["rest_until"]),
             "pending_seconds": pending,
