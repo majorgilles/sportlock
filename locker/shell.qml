@@ -43,6 +43,10 @@ ShellRoot {
   readonly property int setNo: ex ? ex.sets.length + 1 : 0
   readonly property double elapsedMs: tr && tr.set_started_at && phase === "running" ? nowMs - tr.set_started_at : 0
   readonly property double restLeftMs: tr && tr.rest_until && phase === "resting" ? tr.rest_until - nowMs : 0
+  readonly property double leftMs: unlockAt - nowMs
+  readonly property bool isTest: st !== null && st.lock !== null && st.lock !== undefined && st.lock.test === true
+  // The lock never outlasts its time: warn well before it ends so nothing is cut off by surprise.
+  readonly property bool endingSoon: st !== null && !st.override && unlockAt > 0 && leftMs < (isTest ? 30000 : 120000)
   readonly property double unlockAt: {
     if (!st || !st.lock) return 0
     var end = st.lock.end
@@ -433,458 +437,490 @@ ShellRoot {
       }
     }
 
-    Column {
-      anchors.centerIn: parent
-      width: Math.min(parent.width - 64, 1180)
-      spacing: 22
+    // Scrolls when the content is taller than the screen, so nothing is ever cut off.
+    Flickable {
+      id: page
+      anchors.fill: parent
+      contentHeight: Math.max(height, mainColumn.implicitHeight + 48)
+      boundsBehavior: Flickable.StopAtBounds
+      clip: true
+      Column {
+        id: mainColumn
+        x: (page.width - width) / 2
+        y: Math.max(24, (page.height - implicitHeight) / 2)
+        width: Math.min(page.width - 64, 1180)
+        spacing: 22
 
-      // Header: session title and lock countdown
-      Item {
-        width: parent.width
-        height: titleCol.implicitHeight
-        Column {
-          id: titleCol
-          spacing: 4
+        Rectangle {
+          width: parent.width
+          height: testText.implicitHeight + 20
+          radius: 8
+          visible: root.isTest
+          color: Qt.rgba(1, 1, 1, 0.06)
+          border.width: 1
+          border.color: root.urgent
           Text {
-            text: root.st && root.st.lock && root.st.lock.test ? "Test lock" : (root.tr ? root.tr.title : "Time to train")
-            color: root.fg
-            font.pixelSize: 30
-            font.weight: Font.DemiBold
-          }
-          Text {
-            text: root.tr ? (root.phase === "summary" ? "All exercises done"
-                  : "Exercise " + (root.tr.current + 1) + " of " + root.tr.exercises.length
-                    + (root.tr.day_type ? "  ·  " + root.tr.day_type + " day" : "")) : ""
-            color: root.muted
-            font.pixelSize: 15
-          }
-          Text {
-            width: Math.min(surface.width - 64, 1180) - 260
-            visible: root.tr !== null && !!root.tr.note && root.phase !== "summary"
+            id: testText
+            anchors.centerIn: parent
+            width: parent.width - 32
             wrapMode: Text.WordWrap
-            text: root.tr && root.tr.note ? "Coach: " + root.tr.note : ""
-            color: root.muted
+            text: "Test lock — it ends after 1 minute, whatever you're doing, and never counts as training. "
+                  + "For a real session use “sportlock start --minutes 20”."
+            color: root.fg
             font.pixelSize: 15
           }
         }
-        Column {
-          anchors.right: parent.right
-          spacing: 4
-          Text {
-            anchors.right: parent.right
-            text: root.clock(root.unlockAt - root.nowMs)
-            color: root.st && root.st.override ? root.urgent : root.fg
-            font.pixelSize: 30
-            font.family: "monospace"
-          }
-          Text {
-            anchors.right: parent.right
-            text: root.st && root.st.override ? "override: unlocking" : "until unlock"
-            color: root.st && root.st.override ? root.urgent : root.muted
-            font.pixelSize: 13
-          }
-        }
-      }
 
-      // Progress strip
-      Row {
-        spacing: 6
-        visible: root.tr !== null
-        Repeater {
-          model: root.tr ? root.tr.exercises : []
-          delegate: Rectangle {
-            required property var modelData
-            required property int index
-            readonly property bool isCurrent: root.tr && index === root.tr.current
-            width: Math.max(28, (Math.min(surface.width - 64, 1180) - 6 * ((root.tr ? root.tr.exercises.length : 1) - 1)) / (root.tr ? root.tr.exercises.length : 1))
-            height: 6
-            radius: 3
-            visible: modelData.status !== "swapped"
-            color: modelData.status === "done" ? root.accent
-                   : modelData.status === "skipped" ? root.urgent
-                   : isCurrent ? root.fg : root.line
-          }
-        }
-      }
-
-      // Exercise card, with the picture and instructions beside it
-      Row {
-        width: parent.width
-        spacing: 20
-        visible: root.ex !== null
-
-      Rectangle {
-        width: parent.width - side.width - 20
-        height: card.implicitHeight + 48
-        radius: 10
-        color: root.panel
-        border.width: 1
-        border.color: root.line
-        visible: root.ex !== null
-
-        Column {
-          id: card
-          x: 24; y: 24
-          width: parent.width - 48
-          spacing: 16
-
-          Row {
-            spacing: 12
+        // Header: session title and lock countdown
+        Item {
+          width: parent.width
+          height: titleCol.implicitHeight
+          Column {
+            id: titleCol
+            spacing: 4
             Text {
-              text: root.ex ? root.ex.name : ""
+              text: root.st && root.st.lock && root.st.lock.test ? "Test lock" : (root.tr ? root.tr.title : "Time to train")
               color: root.fg
-              font.pixelSize: 34
+              font.pixelSize: 30
               font.weight: Font.DemiBold
             }
-            Rectangle {
-              anchors.verticalCenter: parent.verticalCenter
-              width: patternText.implicitWidth + 16; height: 24; radius: 12
-              color: "transparent"; border.width: 1; border.color: root.muted
-              Text { id: patternText; anchors.centerIn: parent; text: root.ex ? root.ex.pattern : ""; color: root.muted; font.pixelSize: 12 }
-            }
-          }
-
-          Text {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: root.targetText(root.ex) + (root.ex && root.ex.target.sets > 1 ? "   —   set " + Math.min(root.setNo, root.ex.target.sets) + " of " + root.ex.target.sets : "")
-            color: root.accent
-            font.pixelSize: 18
-          }
-
-          Text {
-            width: parent.width
-            visible: root.ex !== null && !!root.ex.target.progress
-            wrapMode: Text.WordWrap
-            text: root.ex && root.ex.target.progress ? "Why this level: " + root.ex.target.progress : ""
-            color: root.muted
-            font.pixelSize: 14
-          }
-
-          Text {
-            text: (surface.showCues ? "▾ Hide" : "▸ Show") + " full instructions  (D)"
-            color: root.muted
-            font.pixelSize: 14
-            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: surface.showCues = !surface.showCues }
-          }
-
-          // Sets done so far
-          Flow {
-            width: parent.width
-            spacing: 8
-            visible: root.ex && root.ex.sets.length > 0
-            Repeater {
-              model: root.ex ? root.ex.sets : []
-              delegate: Rectangle {
-                required property var modelData
-                required property int index
-                width: setLabel.implicitWidth + 20; height: 30; radius: 6
-                color: Qt.rgba(1, 1, 1, 0.05)
-                Text { id: setLabel; anchors.centerIn: parent; text: (index + 1) + ":  " + root.setText(modelData); color: root.fg; font.pixelSize: 14 }
-              }
-            }
-          }
-
-          // Big clock: set stopwatch, or rest countdown
-          Column {
-            width: parent.width
-            spacing: 4
-            visible: root.phase === "ready" || root.phase === "running" || root.phase === "resting"
             Text {
-              anchors.horizontalCenter: parent.horizontalCenter
-              text: root.phase === "running" ? root.clock(root.elapsedMs)
-                    : root.phase === "resting" ? (root.restLeftMs > 0 ? root.clock(root.restLeftMs + 999) : "Go")
-                    : "0:00"
-              color: root.phase === "running" ? (root.targetMs > 0 && root.elapsedMs >= root.targetMs ? root.accent : root.fg)
-                     : root.phase === "resting" ? (root.restLeftMs > 0 ? root.muted : root.accent) : root.line
-              font.pixelSize: 96
-              font.family: "monospace"
+              text: root.tr ? (root.phase === "summary" ? "All exercises done"
+                    : "Exercise " + (root.tr.current + 1) + " of " + root.tr.exercises.length
+                      + (root.tr.day_type ? "  ·  " + root.tr.day_type + " day" : "")) : ""
+              color: root.muted
+              font.pixelSize: 15
             }
             Text {
-              anchors.horizontalCenter: parent.horizontalCenter
-              text: root.phase === "running" ? (root.targetMs > 0 ? "target " + root.clock(root.targetMs) : "set " + root.setNo + " running")
-                    : root.phase === "resting" ? "rest" : "press Start when you begin"
+              width: Math.min(surface.width - 64, 1180) - 260
+              visible: root.tr !== null && !!root.tr.note && root.phase !== "summary"
+              wrapMode: Text.WordWrap
+              text: root.tr && root.tr.note ? "Coach: " + root.tr.note : ""
               color: root.muted
               font.pixelSize: 15
             }
           }
-
-          // Logging a finished set
           Column {
-            width: parent.width
-            spacing: 12
-            visible: root.phase === "logging"
+            anchors.right: parent.right
+            spacing: 4
             Text {
-              text: "Set " + root.setNo + " took " + root.clock((root.tr && root.tr.pending_seconds || 0) * 1000)
-              color: root.fg
-              font.pixelSize: 20
+              anchors.right: parent.right
+              text: root.clock(root.unlockAt - root.nowMs)
+              color: (root.st && root.st.override) || root.endingSoon ? root.urgent : root.fg
+              font.pixelSize: 30
+              font.family: "monospace"
             }
+            Text {
+              anchors.right: parent.right
+              text: root.st && root.st.override ? "override: unlocking"
+                    : root.endingSoon ? (root.leftMs < 10000 ? "time's up — lock ending" : "lock ends soon — log what you can")
+                    : "until unlock"
+              color: (root.st && root.st.override) || root.endingSoon ? root.urgent : root.muted
+              font.pixelSize: 13
+            }
+          }
+        }
+
+        // Progress strip
+        Row {
+          spacing: 6
+          visible: root.tr !== null
+          Repeater {
+            model: root.tr ? root.tr.exercises : []
+            delegate: Rectangle {
+              required property var modelData
+              required property int index
+              readonly property bool isCurrent: root.tr && index === root.tr.current
+              width: Math.max(28, (Math.min(surface.width - 64, 1180) - 6 * ((root.tr ? root.tr.exercises.length : 1) - 1)) / (root.tr ? root.tr.exercises.length : 1))
+              height: 6
+              radius: 3
+              visible: modelData.status !== "swapped"
+              color: modelData.status === "done" ? root.accent
+                     : modelData.status === "skipped" ? root.urgent
+                     : isCurrent ? root.fg : root.line
+            }
+          }
+        }
+
+        // Exercise card, with the picture and instructions beside it
+        Row {
+          width: parent.width
+          spacing: 20
+          visible: root.ex !== null
+
+        Rectangle {
+          width: parent.width - side.width - 20
+          height: card.implicitHeight + 48
+          radius: 10
+          color: root.panel
+          border.width: 1
+          border.color: root.line
+          visible: root.ex !== null
+
+          Column {
+            id: card
+            x: 24; y: 24
+            width: parent.width - 48
+            spacing: 16
+
+            Row {
+              spacing: 12
+              Text {
+                text: root.ex ? root.ex.name : ""
+                color: root.fg
+                font.pixelSize: 34
+                font.weight: Font.DemiBold
+              }
+              Rectangle {
+                anchors.verticalCenter: parent.verticalCenter
+                width: patternText.implicitWidth + 16; height: 24; radius: 12
+                color: "transparent"; border.width: 1; border.color: root.muted
+                Text { id: patternText; anchors.centerIn: parent; text: root.ex ? root.ex.pattern : ""; color: root.muted; font.pixelSize: 12 }
+              }
+            }
+
+            Text {
+              width: parent.width
+              wrapMode: Text.WordWrap
+              text: root.targetText(root.ex) + (root.ex && root.ex.target.sets > 1 ? "   —   set " + Math.min(root.setNo, root.ex.target.sets) + " of " + root.ex.target.sets : "")
+              color: root.accent
+              font.pixelSize: 18
+            }
+
+            Text {
+              width: parent.width
+              visible: root.ex !== null && !!root.ex.target.progress
+              wrapMode: Text.WordWrap
+              text: root.ex && root.ex.target.progress ? "Why this level: " + root.ex.target.progress : ""
+              color: root.muted
+              font.pixelSize: 14
+            }
+
+            Text {
+              text: (surface.showCues ? "▾ Hide" : "▸ Show") + " full instructions  (D)"
+              color: root.muted
+              font.pixelSize: 14
+              MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: surface.showCues = !surface.showCues }
+            }
+
+            // Sets done so far
+            Flow {
+              width: parent.width
+              spacing: 8
+              visible: root.ex && root.ex.sets.length > 0
+              Repeater {
+                model: root.ex ? root.ex.sets : []
+                delegate: Rectangle {
+                  required property var modelData
+                  required property int index
+                  width: setLabel.implicitWidth + 20; height: 30; radius: 6
+                  color: Qt.rgba(1, 1, 1, 0.05)
+                  Text { id: setLabel; anchors.centerIn: parent; text: (index + 1) + ":  " + root.setText(modelData); color: root.fg; font.pixelSize: 14 }
+                }
+              }
+            }
+
+            // Big clock: set stopwatch, or rest countdown
+            Column {
+              width: parent.width
+              spacing: 4
+              visible: root.phase === "ready" || root.phase === "running" || root.phase === "resting"
+              Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: root.phase === "running" ? root.clock(root.elapsedMs)
+                      : root.phase === "resting" ? (root.restLeftMs > 0 ? root.clock(root.restLeftMs + 999) : "Go")
+                      : "0:00"
+                color: root.phase === "running" ? (root.targetMs > 0 && root.elapsedMs >= root.targetMs ? root.accent : root.fg)
+                       : root.phase === "resting" ? (root.restLeftMs > 0 ? root.muted : root.accent) : root.line
+                font.pixelSize: 96
+                font.family: "monospace"
+              }
+              Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: root.phase === "running" ? (root.targetMs > 0 ? "target " + root.clock(root.targetMs) : "set " + root.setNo + " running")
+                      : root.phase === "resting" ? "rest" : "press Start when you begin"
+                color: root.muted
+                font.pixelSize: 15
+              }
+            }
+
+            // Logging a finished set
+            Column {
+              width: parent.width
+              spacing: 12
+              visible: root.phase === "logging"
+              Text {
+                text: "Set " + root.setNo + " took " + root.clock((root.tr && root.tr.pending_seconds || 0) * 1000)
+                color: root.fg
+                font.pixelSize: 20
+              }
+              Flow {
+                width: parent.width
+                spacing: 12
+                Field {
+                  id: repsField
+                  visible: root.ex && root.ex.kind === "reps"
+                  placeholder: root.ex && root.ex.kind === "reps" ? "reps (" + root.ex.target.reps[0] + "–" + root.ex.target.reps[1] + ")" : ""
+                  input.validator: IntValidator { bottom: 0; top: 500 }
+                  onAccepted: saveSet.clicked()
+                  Keys.onTabPressed: loadField.input.forceActiveFocus()
+                }
+                Field {
+                  id: loadField
+                  placeholder: "added load"
+                  suffix: "kg"
+                  input.validator: DoubleValidator { bottom: 0; top: 500; decimals: 1 }
+                  onAccepted: saveSet.clicked()
+                }
+                Btn {
+                  id: saveSet
+                  label: "Save set"
+                  hint: "Enter"
+                  primary: true
+                  onClicked: {
+                    var args = {}
+                    if (repsField.visible) args.reps = parseInt(repsField.text)
+                    if (loadField.text.length > 0) args.load_kg = parseFloat(loadField.text.replace(",", "."))
+                    root.train("save_set", args)
+                    loadField.text = ""
+                  }
+                }
+              }
+            }
+
+            // Rating the exercise
+            Column {
+              width: parent.width
+              spacing: 12
+              visible: root.phase === "rating"
+              Text { text: "How hard was " + (root.ex ? root.ex.name : "") + "?  (1 easy – 10 max)"; color: root.fg; font.pixelSize: 20 }
+              RpePicker { id: ratePicker }
+              Flow {
+                width: parent.width
+                spacing: 12
+                NotesField { id: rateNote; width: parent.width; minHeight: 80; placeholder: "note (optional): form, pain, what to change next time…"; onAccepted: if (rateNext.enabled) rateNext.clicked() }
+                Btn {
+                  id: rateNext
+                  label: "Next exercise"
+                  hint: "Enter"
+                  primary: true
+                  enabled: ratePicker.value > 0
+                  onClicked: { root.train("rate", { rpe: ratePicker.value, note: rateNote.text }); rateNote.text = "" }
+                }
+              }
+            }
+
+            // Actions
             Flow {
               width: parent.width
               spacing: 12
-              Field {
-                id: repsField
-                visible: root.ex && root.ex.kind === "reps"
-                placeholder: root.ex && root.ex.kind === "reps" ? "reps (" + root.ex.target.reps[0] + "–" + root.ex.target.reps[1] + ")" : ""
-                input.validator: IntValidator { bottom: 0; top: 500 }
-                onAccepted: saveSet.clicked()
-                Keys.onTabPressed: loadField.input.forceActiveFocus()
-              }
-              Field {
-                id: loadField
-                placeholder: "added load"
-                suffix: "kg"
-                input.validator: DoubleValidator { bottom: 0; top: 500; decimals: 1 }
-                onAccepted: saveSet.clicked()
+              visible: root.phase === "ready" || root.phase === "running" || root.phase === "resting"
+              Btn {
+                label: root.phase === "running" ? "Stop" : "Start set " + root.setNo
+                hint: "Space"
+                primary: true
+                big: true
+                onClicked: root.train(root.phase === "running" ? "stop_set" : "start_set")
               }
               Btn {
-                id: saveSet
-                label: "Save set"
-                hint: "Enter"
-                primary: true
-                onClicked: {
-                  var args = {}
-                  if (repsField.visible) args.reps = parseInt(repsField.text)
-                  if (loadField.text.length > 0) args.load_kg = parseFloat(loadField.text.replace(",", "."))
-                  root.train("save_set", args)
-                  loadField.text = ""
+                visible: root.phase === "resting" || (root.phase === "ready" && root.ex && root.ex.sets.length > 0)
+                label: "Finish exercise"
+                onClicked: root.train("end_sets")
+              }
+              Btn {
+                visible: root.ex && root.ex.has_easier
+                label: "Too hard"
+                onClicked: root.train("swap_easier")
+              }
+              Btn {
+                label: surface.skipOpen ? "Never mind" : "Skip…"
+                onClicked: { surface.skipOpen = !surface.skipOpen; if (surface.skipOpen) skipReason.input.forceActiveFocus(); else surface.forceActiveFocus() }
+              }
+            }
+
+            Flow {
+              width: parent.width
+              spacing: 12
+              visible: surface.skipOpen && root.phase !== "summary"
+              Field { id: skipReason; implicitWidth: Math.min(420, card.width - 200); placeholder: "why skip? (e.g. no bar, wrist pain)"; onAccepted: skipGo.clicked() }
+              Btn {
+                id: skipGo
+                label: "Skip exercise"
+                enabled: skipReason.text.trim().length >= 3
+                onClicked: { root.train("skip", { reason: skipReason.text }); skipReason.text = "" }
+              }
+            }
+          }
+        }
+
+          // Picture and instructions
+          Column {
+            id: side
+            width: Math.min(420, Math.max(300, parent.width * 0.36))
+            spacing: 10
+
+            Rectangle {
+              width: parent.width
+              height: width * 0.72
+              radius: 10
+              visible: root.ex !== null && root.ex.image !== ""
+              color: root.ex && root.ex.image_source === "stick figure" ? root.panel : "#f5f5f2"
+              border.width: 1
+              border.color: root.line
+              clip: true
+              Image {
+                anchors.fill: parent
+                anchors.margins: 8
+                source: root.ex && root.ex.image ? "file://" + root.ex.image : ""
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+                smooth: true
+                mipmap: true
+                sourceSize.width: 840
+              }
+            }
+            Text {
+              width: parent.width
+              visible: root.ex !== null && root.ex.image !== ""
+              text: root.ex ? root.ex.image_source.replace(/^book: /, "").replace(/\.(epub|pdf)$/, "").replace(/_/g, ":") : ""
+              elide: Text.ElideRight
+              color: root.muted
+              font.pixelSize: 12
+            }
+
+            Rectangle {
+              width: parent.width
+              height: Math.min(instructions.implicitHeight + 32, surface.height * (root.ex && root.ex.image ? 0.42 : 0.7))
+              radius: 10
+              color: root.panel
+              border.width: 1
+              border.color: root.line
+              visible: root.ex !== null
+
+              Flickable {
+                anchors.fill: parent
+                anchors.margins: 16
+                contentHeight: instructions.implicitHeight
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
+                Column {
+                  id: instructions
+                  width: parent.width
+                  spacing: 14
+                  InfoList { title: "Steps"; items: root.ex ? root.ex.steps : []; numbered: true; visible: surface.showCues && items.length > 0 }
+                  InfoList { title: "Cues"; items: root.ex ? root.ex.cues : [] }
+                  InfoList { title: "Common mistakes"; items: root.ex ? root.ex.mistakes : []; visible: surface.showCues && items.length > 0 }
+                  InfoList {
+                    title: "Breathing"
+                    items: root.ex && root.ex.breathing ? [root.ex.breathing] : []
+                    visible: surface.showCues && items.length > 0
+                  }
+                  InfoList {
+                    title: "Variations"
+                    items: root.ex ? [].concat(root.ex.easier_name ? ["Easier: " + root.ex.easier_name] : [],
+                                               root.ex.harder_name ? ["Harder: " + root.ex.harder_name] : []) : []
+                    visible: surface.showCues && items.length > 0
+                  }
+                  Text {
+                    width: parent.width
+                    visible: surface.showCues && root.ex && root.ex.sources.length > 0
+                    wrapMode: Text.WordWrap
+                    text: root.ex ? "From: " + root.ex.sources.join(" · ") : ""
+                    color: root.muted
+                    font.pixelSize: 12
+                  }
                 }
               }
             }
           }
+        }
 
-          // Rating the exercise
+        // Session summary
+        Rectangle {
+          width: parent.width
+          height: summary.implicitHeight + 48
+          radius: 10
+          color: root.panel
+          border.width: 1
+          border.color: root.line
+          visible: root.phase === "summary"
+
           Column {
-            width: parent.width
-            spacing: 12
-            visible: root.phase === "rating"
-            Text { text: "How hard was " + (root.ex ? root.ex.name : "") + "?  (1 easy – 10 max)"; color: root.fg; font.pixelSize: 20 }
-            RpePicker { id: ratePicker }
+            id: summary
+            x: 24; y: 24
+            width: parent.width - 48
+            spacing: 14
+            Text { text: "Session done — how hard was it overall?"; color: root.fg; font.pixelSize: 24; font.weight: Font.DemiBold }
+            RpePicker { id: sessionPicker }
+            NotesField { id: sessionNotes; width: parent.width; placeholder: "notes: how it felt, pain, energy, sleep…"; onAccepted: if (finishSession.enabled) finishSession.clicked() }
+            Text { text: "From your watch (optional)"; color: root.muted; font.pixelSize: 14 }
             Flow {
               width: parent.width
               spacing: 12
-              NotesField { id: rateNote; width: parent.width; minHeight: 80; placeholder: "note (optional): form, pain, what to change next time…"; onAccepted: if (rateNext.enabled) rateNext.clicked() }
-              Btn {
-                id: rateNext
-                label: "Next exercise"
-                hint: "Enter"
-                primary: true
-                enabled: ratePicker.value > 0
-                onClicked: { root.train("rate", { rpe: ratePicker.value, note: rateNote.text }); rateNote.text = "" }
-              }
+              Field { id: calories; placeholder: "calories"; suffix: "kcal"; input.validator: IntValidator { bottom: 0; top: 5000 } }
+              Field { id: avgHr; placeholder: "avg HR"; suffix: "bpm"; input.validator: IntValidator { bottom: 30; top: 230 } }
+              Field { id: bodyWeight; placeholder: "body weight"; suffix: "kg"; input.validator: DoubleValidator { bottom: 20; top: 300; decimals: 1 } }
             }
-          }
-
-          // Actions
-          Flow {
-            width: parent.width
-            spacing: 12
-            visible: root.phase === "ready" || root.phase === "running" || root.phase === "resting"
             Btn {
-              label: root.phase === "running" ? "Stop" : "Start set " + root.setNo
-              hint: "Space"
+              id: finishSession
+              label: "Finish session"
               primary: true
               big: true
-              onClicked: root.train(root.phase === "running" ? "stop_set" : "start_set")
-            }
-            Btn {
-              visible: root.phase === "resting" || (root.phase === "ready" && root.ex && root.ex.sets.length > 0)
-              label: "Finish exercise"
-              onClicked: root.train("end_sets")
-            }
-            Btn {
-              visible: root.ex && root.ex.has_easier
-              label: "Too hard"
-              onClicked: root.train("swap_easier")
-            }
-            Btn {
-              label: surface.skipOpen ? "Never mind" : "Skip…"
-              onClicked: { surface.skipOpen = !surface.skipOpen; if (surface.skipOpen) skipReason.input.forceActiveFocus(); else surface.forceActiveFocus() }
-            }
-          }
-
-          Flow {
-            width: parent.width
-            spacing: 12
-            visible: surface.skipOpen && root.phase !== "summary"
-            Field { id: skipReason; implicitWidth: Math.min(420, card.width - 200); placeholder: "why skip? (e.g. no bar, wrist pain)"; onAccepted: skipGo.clicked() }
-            Btn {
-              id: skipGo
-              label: "Skip exercise"
-              enabled: skipReason.text.trim().length >= 3
-              onClicked: { root.train("skip", { reason: skipReason.text }); skipReason.text = "" }
-            }
-          }
-        }
-      }
-
-        // Picture and instructions
-        Column {
-          id: side
-          width: Math.min(420, Math.max(300, parent.width * 0.36))
-          spacing: 10
-
-          Rectangle {
-            width: parent.width
-            height: width * 0.72
-            radius: 10
-            visible: root.ex !== null && root.ex.image !== ""
-            color: root.ex && root.ex.image_source === "stick figure" ? root.panel : "#f5f5f2"
-            border.width: 1
-            border.color: root.line
-            clip: true
-            Image {
-              anchors.fill: parent
-              anchors.margins: 8
-              source: root.ex && root.ex.image ? "file://" + root.ex.image : ""
-              fillMode: Image.PreserveAspectFit
-              asynchronous: true
-              smooth: true
-              mipmap: true
-              sourceSize.width: 840
-            }
-          }
-          Text {
-            width: parent.width
-            visible: root.ex !== null && root.ex.image !== ""
-            text: root.ex ? root.ex.image_source.replace(/^book: /, "").replace(/\.(epub|pdf)$/, "").replace(/_/g, ":") : ""
-            elide: Text.ElideRight
-            color: root.muted
-            font.pixelSize: 12
-          }
-
-          Rectangle {
-            width: parent.width
-            height: Math.min(instructions.implicitHeight + 32, surface.height * (root.ex && root.ex.image ? 0.42 : 0.7))
-            radius: 10
-            color: root.panel
-            border.width: 1
-            border.color: root.line
-            visible: root.ex !== null
-
-            Flickable {
-              anchors.fill: parent
-              anchors.margins: 16
-              contentHeight: instructions.implicitHeight
-              clip: true
-              boundsBehavior: Flickable.StopAtBounds
-
-              Column {
-                id: instructions
-                width: parent.width
-                spacing: 14
-                InfoList { title: "Steps"; items: root.ex ? root.ex.steps : []; numbered: true; visible: surface.showCues && items.length > 0 }
-                InfoList { title: "Cues"; items: root.ex ? root.ex.cues : [] }
-                InfoList { title: "Common mistakes"; items: root.ex ? root.ex.mistakes : []; visible: surface.showCues && items.length > 0 }
-                InfoList {
-                  title: "Breathing"
-                  items: root.ex && root.ex.breathing ? [root.ex.breathing] : []
-                  visible: surface.showCues && items.length > 0
-                }
-                InfoList {
-                  title: "Variations"
-                  items: root.ex ? [].concat(root.ex.easier_name ? ["Easier: " + root.ex.easier_name] : [],
-                                             root.ex.harder_name ? ["Harder: " + root.ex.harder_name] : []) : []
-                  visible: surface.showCues && items.length > 0
-                }
-                Text {
-                  width: parent.width
-                  visible: surface.showCues && root.ex && root.ex.sources.length > 0
-                  wrapMode: Text.WordWrap
-                  text: root.ex ? "From: " + root.ex.sources.join(" · ") : ""
-                  color: root.muted
-                  font.pixelSize: 12
-                }
+              enabled: sessionPicker.value > 0
+              onClicked: {
+                var args = { rpe: sessionPicker.value, notes: sessionNotes.text }
+                if (calories.text) args.calories = parseInt(calories.text)
+                if (avgHr.text) args.avg_hr = parseInt(avgHr.text)
+                if (bodyWeight.text) args.body_weight = parseFloat(bodyWeight.text.replace(",", "."))
+                root.train("finish", args)
               }
             }
           }
         }
-      }
 
-      // Session summary
-      Rectangle {
-        width: parent.width
-        height: summary.implicitHeight + 48
-        radius: 10
-        color: root.panel
-        border.width: 1
-        border.color: root.line
-        visible: root.phase === "summary"
-
-        Column {
-          id: summary
-          x: 24; y: 24
-          width: parent.width - 48
-          spacing: 14
-          Text { text: "Session done — how hard was it overall?"; color: root.fg; font.pixelSize: 24; font.weight: Font.DemiBold }
-          RpePicker { id: sessionPicker }
-          NotesField { id: sessionNotes; width: parent.width; placeholder: "notes: how it felt, pain, energy, sleep…"; onAccepted: if (finishSession.enabled) finishSession.clicked() }
-          Text { text: "From your watch (optional)"; color: root.muted; font.pixelSize: 14 }
-          Flow {
-            width: parent.width
-            spacing: 12
-            Field { id: calories; placeholder: "calories"; suffix: "kcal"; input.validator: IntValidator { bottom: 0; top: 5000 } }
-            Field { id: avgHr; placeholder: "avg HR"; suffix: "bpm"; input.validator: IntValidator { bottom: 30; top: 230 } }
-            Field { id: bodyWeight; placeholder: "body weight"; suffix: "kg"; input.validator: DoubleValidator { bottom: 20; top: 300; decimals: 1 } }
+        // Override
+        Flow {
+          width: parent.width
+          spacing: 12
+          visible: root.st && root.st.lock && root.st.lock.overridable
+          Btn {
+            visible: root.st && !root.st.override
+            label: root.overrideOpen ? "Never mind" : "Override…"
+            onClicked: { root.overrideOpen = !root.overrideOpen; root.message = ""; if (root.overrideOpen) phrase.input.forceActiveFocus(); else surface.forceActiveFocus() }
           }
           Btn {
-            id: finishSession
-            label: "Finish session"
-            primary: true
-            big: true
-            enabled: sessionPicker.value > 0
-            onClicked: {
-              var args = { rpe: sessionPicker.value, notes: sessionNotes.text }
-              if (calories.text) args.calories = parseInt(calories.text)
-              if (avgHr.text) args.avg_hr = parseInt(avgHr.text)
-              if (bodyWeight.text) args.body_weight = parseFloat(bodyWeight.text.replace(",", "."))
-              root.train("finish", args)
-            }
+            visible: root.st && root.st.override
+            label: "Cancel override"
+            onClicked: root.send({ cmd: "cancel-override" })
           }
         }
-      }
 
-      // Override
-      Flow {
-        width: parent.width
-        spacing: 12
-        visible: root.st && root.st.lock && root.st.lock.overridable
-        Btn {
-          visible: root.st && !root.st.override
-          label: root.overrideOpen ? "Never mind" : "Override…"
-          onClicked: { root.overrideOpen = !root.overrideOpen; root.message = ""; if (root.overrideOpen) phrase.input.forceActiveFocus(); else surface.forceActiveFocus() }
-        }
-        Btn {
-          visible: root.st && root.st.override
-          label: "Cancel override"
-          onClicked: root.send({ cmd: "cancel-override" })
-        }
-      }
-
-      Column {
-        visible: root.overrideOpen && root.st && !root.st.override
-        width: parent.width
-        spacing: 10
-        Text {
+        Column {
+          visible: root.overrideOpen && root.st && !root.st.override
           width: parent.width
-          wrapMode: Text.WordWrap
-          text: "Type this to start a " + Math.round((root.st ? root.st.override_wait_seconds : 300) / 60)
-                + "-minute countdown:\n“" + (root.st ? root.st.override_phrase : "") + "”"
-          color: root.muted
+          spacing: 10
+          Text {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: "Type this to start a " + Math.round((root.st ? root.st.override_wait_seconds : 300) / 60)
+                  + "-minute countdown:\n“" + (root.st ? root.st.override_phrase : "") + "”"
+            color: root.muted
+            font.pixelSize: 15
+          }
+          Field {
+            id: phrase
+            width: parent.width
+            onAccepted: { root.send({ cmd: "override", phrase: text }); text = ""; root.overrideOpen = false }
+          }
+        }
+
+        Text {
+          visible: root.message.length > 0
+          text: root.message
+          color: root.urgent
           font.pixelSize: 15
         }
-        Field {
-          id: phrase
-          width: parent.width
-          onAccepted: { root.send({ cmd: "override", phrase: text }); text = ""; root.overrideOpen = false }
-        }
-      }
-
-      Text {
-        visible: root.message.length > 0
-        text: root.message
-        color: root.urgent
-        font.pixelSize: 15
       }
     }
   }
