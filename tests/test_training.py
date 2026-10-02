@@ -3,6 +3,7 @@ import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from sportlock.library import Library, load_seed, stick_figure
 from sportlock.store import Store
 from sportlock.training import Training, TrainingError, estimate_seconds, fit_plan, load_starter
 
@@ -31,8 +32,9 @@ class FitPlanTest(unittest.TestCase):
 
 class TrainingTest(unittest.TestCase):
     def setUp(self):
-        self.store = Store(Path(tempfile.mkdtemp()) / "db.sqlite")
-        self.training = Training(self.store)
+        tmp = Path(tempfile.mkdtemp())
+        self.store = Store(tmp / "db.sqlite")
+        self.training = Training(self.store, library=Library(root=tmp / "library"))
         self.training.begin(now=T0, kind="scheduled", lock_key="2026-10-05T18:00", minutes=60)
 
     def t(self, seconds):
@@ -108,6 +110,38 @@ class TrainingTest(unittest.TestCase):
         snap = self.training.snapshot()
         self.assertEqual(snap["phase"], "running")
         self.assertEqual(snap["set_started_at"], int(self.t(5).timestamp() * 1000))
+
+
+class LibraryTest(unittest.TestCase):
+    def test_seed_chains_link_easier_and_harder(self):
+        seed = load_seed()
+        self.assertEqual(seed["incline-push-up"]["easier"], "wall-push-up")
+        self.assertEqual(seed["incline-push-up"]["harder"], "knee-push-up")
+        self.assertIsNone(seed["wall-push-up"]["easier"])
+
+    def test_starter_plan_uses_seed_exercises(self):
+        seed = load_seed()
+        for item in load_starter()["plan"]:
+            self.assertIn(item["exercise"], seed)
+
+    def test_built_details_merge_over_seed(self):
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "plank").mkdir()
+        (tmp / "plank" / "exercise.json").write_text('{"steps": ["a", "b"], "cues": ["x"], "image": "picture.jpg", "image_source": "book: B"}')
+        entry = Library(root=tmp).get("plank")
+        self.assertEqual(entry["steps"], ["a", "b"])
+        self.assertEqual(entry["cues"], ["x"])
+        self.assertEqual(entry["image"], str(tmp / "plank" / "picture.jpg"))
+        self.assertEqual(entry["pattern"], "core")
+
+    def test_unbuilt_exercise_keeps_seed_cues(self):
+        entry = Library(root=Path(tempfile.mkdtemp())).get("plank")
+        self.assertEqual(len(entry["cues"]), 3)
+        self.assertEqual(entry["image"], "")
+
+    def test_stick_figures_are_svg(self):
+        for pattern in ("push", "pull", "squat", "hinge", "core", "mobility", "warmup", "unknown"):
+            self.assertTrue(stick_figure(pattern).startswith("<svg"))
 
 
 if __name__ == "__main__":

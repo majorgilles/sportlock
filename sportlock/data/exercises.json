@@ -1,0 +1,83 @@
+{
+  "_comment": "Seed library. Chains are ordered easiest → hardest; easier/harder variations follow the chain. 'fedb' is the matching free-exercise-db name (fallback photo). Details, instructions and pictures are filled in by `sportlock library build` from the NotebookLM notebook.",
+  "chains": {
+    "warmup": {"pattern": "warmup", "exercises": [
+      {"id": "dynamic-warmup", "name": "Dynamic warm-up", "kind": "timed", "equipment": [],
+       "cues": ["Arm circles, leg swings, hip circles, cat-cow", "Easy pace, gradually bigger range", "No static stretching yet"]}
+    ]},
+    "push-horizontal": {"pattern": "push", "exercises": [
+      {"id": "wall-push-up", "name": "Wall push-up", "kind": "reps", "equipment": [],
+       "cues": ["Hands at shoulder height, body straight", "Elbows ~45° from the body", "2 s down, 1 s pause, up"]},
+      {"id": "incline-push-up", "name": "Incline push-up", "kind": "reps", "equipment": ["bench"], "fedb": "Incline Push-Up",
+       "cues": ["Hands on a bench or desk edge", "Ribs down, glutes squeezed", "Chest to the edge, full lockout"]},
+      {"id": "knee-push-up", "name": "Knee push-up", "kind": "reps", "equipment": []},
+      {"id": "push-up", "name": "Push-up", "kind": "reps", "equipment": [], "fedb": "Pushups"},
+      {"id": "diamond-push-up", "name": "Diamond push-up", "kind": "reps", "equipment": []},
+      {"id": "archer-push-up", "name": "Archer push-up", "kind": "reps", "equipment": []},
+      {"id": "one-arm-push-up", "name": "One-arm push-up", "kind": "reps", "equipment": [], "fedb": "Single-Arm Push-Up"}
+    ]},
+    "push-vertical": {"pattern": "push", "exercises": [
+      {"id": "pike-push-up", "name": "Pike push-up", "kind": "reps", "equipment": []},
+      {"id": "elevated-pike-push-up", "name": "Elevated pike push-up", "kind": "reps", "equipment": ["bench"]},
+      {"id": "wall-handstand-hold", "name": "Wall handstand hold", "kind": "hold", "equipment": []},
+      {"id": "wall-handstand-push-up", "name": "Wall handstand push-up", "kind": "reps", "equipment": [], "fedb": "Handstand Push-Ups"}
+    ]},
+    "dip": {"pattern": "push", "exercises": [
+      {"id": "bench-dip", "name": "Bench dip", "kind": "reps", "equipment": ["bench"], "fedb": "Bench Dips"},
+      {"id": "parallel-bar-dip", "name": "Parallel bar dip", "kind": "reps", "equipment": ["dip-bars"], "fedb": "Parallel Bar Dip"}
+    ]},
+    "pull-horizontal": {"pattern": "pull", "exercises": [
+      {"id": "superman-hold", "name": "Superman hold", "kind": "hold", "equipment": [], "fedb": "Superman"},
+      {"id": "prone-y-raise", "name": "Prone Y raise", "kind": "reps", "equipment": [],
+       "cues": ["Lie face down, arms in a Y, thumbs up", "Lift arms by pulling shoulder blades down and back", "1 s hold at the top"]},
+      {"id": "table-inverted-row", "name": "Table inverted row", "kind": "reps", "equipment": ["table"]},
+      {"id": "inverted-row", "name": "Inverted row", "kind": "reps", "equipment": ["bar"], "fedb": "Inverted Row"},
+      {"id": "feet-elevated-inverted-row", "name": "Feet-elevated inverted row", "kind": "reps", "equipment": ["bar", "bench"]}
+    ]},
+    "pull-vertical": {"pattern": "pull", "exercises": [
+      {"id": "scapular-pull-up", "name": "Scapular pull-up", "kind": "reps", "equipment": ["bar"], "fedb": "Scapular Pull-Up"},
+      {"id": "negative-pull-up", "name": "Negative pull-up", "kind": "reps", "equipment": ["bar"]},
+      {"id": "chin-up", "name": "Chin-up", "kind": "reps", "equipment": ["bar"], "fedb": "Chin-Up"},
+      {"id": "pull-up", "name": "Pull-up", "kind": "reps", "equipment": ["bar"], "fedb": "Pullups"},
+      {"id": "archer-pull-up", "name": "Archer pull-up", "kind": "reps", "equipment": ["bar"]}
+    ]},
+    "squat": {"pattern": "squat", "exercises": [
+      {"id": "box-squat", "name": "Box squat", "kind": "reps", "equipment": ["chair"],
+       "cues": ["Sit back to a chair, touch lightly", "Knees track over toes", "Stand up without rocking"]},
+      {"id": "bodyweight-squat", "name": "Bodyweight squat", "kind": "reps", "equipment": [], "fedb": "Bodyweight Squat",
+       "cues": ["Feet shoulder width, toes slightly out", "Hips below knees if mobility allows", "Heels stay down"]},
+      {"id": "split-squat", "name": "Split squat", "kind": "reps", "equipment": [], "fedb": "Split Squats"},
+      {"id": "bulgarian-split-squat", "name": "Bulgarian split squat", "kind": "reps", "equipment": ["bench"]},
+      {"id": "shrimp-squat", "name": "Shrimp squat", "kind": "reps", "equipment": []},
+      {"id": "pistol-squat", "name": "Pistol squat", "kind": "reps", "equipment": []}
+    ]},
+    "hinge": {"pattern": "hinge", "exercises": [
+      {"id": "glute-bridge", "name": "Glute bridge", "kind": "reps", "equipment": [], "fedb": "Butt Lift (Bridge)",
+       "cues": ["Heels close to the hips", "Drive through the heels, squeeze at the top", "Don't arch the lower back"]},
+      {"id": "single-leg-glute-bridge", "name": "Single-leg glute bridge", "kind": "reps", "equipment": [], "fedb": "Single Leg Glute Bridge"},
+      {"id": "hamstring-walkout", "name": "Hamstring walkout", "kind": "reps", "equipment": []},
+      {"id": "nordic-curl-negative", "name": "Nordic curl negative", "kind": "reps", "equipment": ["anchor"]}
+    ]},
+    "core": {"pattern": "core", "exercises": [
+      {"id": "dead-bug", "name": "Dead bug", "kind": "reps", "equipment": [], "fedb": "Dead Bug"},
+      {"id": "knee-plank", "name": "Knee plank", "kind": "hold", "equipment": [],
+       "cues": ["Forearms under shoulders, knees down", "Straight line knees to head", "Breathe steadily"]},
+      {"id": "plank", "name": "Plank", "kind": "hold", "equipment": [], "fedb": "Plank",
+       "cues": ["Forearms under shoulders", "Squeeze glutes and quads", "Stop when the hips sag"]},
+      {"id": "side-plank", "name": "Side plank", "kind": "hold", "equipment": [], "fedb": "Side Bridge"},
+      {"id": "hollow-body-hold", "name": "Hollow body hold", "kind": "hold", "equipment": []},
+      {"id": "hanging-knee-raise", "name": "Hanging knee raise", "kind": "reps", "equipment": ["bar"]},
+      {"id": "hanging-leg-raise", "name": "Hanging leg raise", "kind": "reps", "equipment": ["bar"], "fedb": "Hanging Leg Raise"},
+      {"id": "tuck-l-sit", "name": "Tuck L-sit", "kind": "hold", "equipment": ["parallettes"]}
+    ]},
+    "mobility": {"pattern": "mobility", "exercises": [
+      {"id": "static-stretch", "name": "Cool-down stretching", "kind": "timed", "equipment": [],
+       "cues": ["Chest, hip flexors, hamstrings, quads", "20–30 s per position, relaxed breathing", "Mild tension, never pain"]},
+      {"id": "cat-cow", "name": "Cat-cow", "kind": "reps", "equipment": [], "fedb": "Cat Stretch"},
+      {"id": "worlds-greatest-stretch", "name": "World's greatest stretch", "kind": "reps", "equipment": []},
+      {"id": "hip-flexor-stretch", "name": "Kneeling hip flexor stretch", "kind": "hold", "equipment": [], "fedb": "Kneeling Hip Flexor"},
+      {"id": "hamstring-stretch", "name": "Hamstring stretch", "kind": "hold", "equipment": [], "fedb": "Hamstring Stretch"},
+      {"id": "chest-doorway-stretch", "name": "Doorway chest stretch", "kind": "hold", "equipment": ["doorway"]}
+    ]}
+  }
+}

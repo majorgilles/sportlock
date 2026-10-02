@@ -17,6 +17,7 @@ import json
 from datetime import datetime, timedelta
 from importlib import resources
 
+from .library import Library
 from .store import Store, _iso
 
 RUN_KEY = "training"
@@ -72,10 +73,10 @@ def _ms(moment: str | None) -> int | None:
 
 
 class Training:
-    def __init__(self, store: Store, starter: dict | None = None):
+    def __init__(self, store: Store, starter: dict | None = None, library: Library | None = None):
         self.store = store
         self.starter = starter or load_starter()
-        self.catalog = self.starter["exercises"]
+        self.library = library or Library()
 
     # -- run state -----------------------------------------------------------------------------
 
@@ -105,7 +106,7 @@ class Training:
         return self._row(run["order"][run["current"]])
 
     def _insert_exercise(self, session_id: int, exercise_id: str, target: dict) -> int:
-        spec = self.catalog[exercise_id]
+        spec = self.library.get(exercise_id)
         cursor = self.store.db.execute(
             "INSERT INTO session_exercises (session_id, exercise, name, pattern, kind, target) VALUES (?, ?, ?, ?, ?, ?)",
             (session_id, exercise_id, spec["name"], spec["pattern"], spec["kind"], json.dumps(target)),
@@ -225,7 +226,7 @@ class Training:
     def swap_easier(self, *, now: datetime) -> None:
         run = self._require("ready", "resting", "running")
         row = self._current(run)
-        easier = self.catalog.get(row["exercise"], {}).get("easier")
+        easier = self.library.get(row["exercise"]).get("easier")
         if not easier:
             raise TrainingError("no easier variation for this exercise")
         new_id = self._insert_exercise(run["session_id"], easier, json.loads(row["target"]))
@@ -252,10 +253,15 @@ class Training:
         exercises = []
         for row_id in run["order"]:
             row = self._row(row_id)
-            spec = self.catalog.get(row["exercise"], {})
+            spec = self.library.get(row["exercise"])
             exercises.append({
                 "name": row["name"], "pattern": row["pattern"], "kind": row["kind"],
                 "target": json.loads(row["target"]), "cues": spec.get("cues", []),
+                "steps": spec.get("steps", []), "mistakes": spec.get("mistakes", []),
+                "breathing": spec.get("breathing") or "", "sources": spec.get("sources", []),
+                "image": spec.get("image", ""), "image_source": spec.get("image_source", ""),
+                "easier_name": self.library.get(spec["easier"])["name"] if spec.get("easier") else "",
+                "harder_name": self.library.get(spec["harder"])["name"] if spec.get("harder") else "",
                 "has_easier": bool(spec.get("easier")), "status": row["status"], "rpe": row["rpe"],
                 "sets": [{"reps": s["reps"], "seconds": s["seconds"], "load_kg": s["load_kg"]} for s in self._sets(row_id)],
             })

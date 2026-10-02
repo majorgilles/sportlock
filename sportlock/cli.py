@@ -84,6 +84,41 @@ def cmd_raw(args) -> None:
     print(json.dumps(_check(request(json.loads(args.payload)))))
 
 
+def cmd_library(args) -> None:
+    from . import config as config_mod
+    from .library import Library
+
+    try:
+        notebook = config_mod.load().notebook_id
+    except config_mod.ConfigError:
+        notebook = config_mod.DEFAULT_NOTEBOOK
+    library = Library(notebook_id=notebook)
+
+    if args.library_command == "build":
+        results = library.build(args.ids or None, force=args.force, workers=args.workers)
+        print(f"built {len(results['built'])}, failed {len(results['failed'])}")
+        if results["failed"]:
+            sys.exit(1)
+    elif args.library_command == "status":
+        status = library.status()
+        print(f"{status['built']}/{status['total']} exercises built")
+        for source, count in sorted(status["pictures"].items()):
+            print(f"  pictures from {source}: {count}")
+        if status["missing"]:
+            print("missing: " + ", ".join(status["missing"]))
+    elif args.library_command == "show":
+        entry = library.get(args.id)
+        print(json.dumps(entry, indent=2, ensure_ascii=False))
+    elif args.library_command == "list":
+        chain = None
+        for exercise_id, spec in library.seed.items():
+            if spec["chain"] != chain:
+                chain = spec["chain"]
+                print(f"\n{chain} ({spec['pattern']})")
+            built = "✓" if library.get(exercise_id).get("built_at") else " "
+            print(f"  {built} {spec['step']}. {spec['name']}  [{exercise_id}]")
+
+
 def cmd_log(args) -> None:
     for lock in _check(request({"cmd": "log", "limit": args.limit}))["locks"]:
         print(f"{lock['start']}  →  {lock['end'][11:]}   {lock['outcome'] or 'active'}")
@@ -126,6 +161,18 @@ def main(argv: list[str] | None = None) -> None:
     log.set_defaults(run=cmd_log)
 
     sub.add_parser("reload", help="re-read config.toml").set_defaults(run=cmd_reload)
+
+    library = sub.add_parser("library", help="exercise library built from the NotebookLM notebook")
+    lib_sub = library.add_subparsers(dest="library_command", required=True)
+    build = lib_sub.add_parser("build", help="fill in instructions and pictures (missing exercises only)")
+    build.add_argument("ids", nargs="*", help="exercise ids (default: all missing)")
+    build.add_argument("--force", action="store_true", help="rebuild even if already built")
+    build.add_argument("--workers", type=int, default=4)
+    lib_sub.add_parser("status", help="how much of the library is built")
+    show = lib_sub.add_parser("show", help="print one exercise")
+    show.add_argument("id")
+    lib_sub.add_parser("list", help="all exercises by chain")
+    library.set_defaults(run=cmd_library)
 
     args = parser.parse_args(argv)
     if args.command == "service":

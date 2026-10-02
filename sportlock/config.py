@@ -25,12 +25,18 @@ warn_minutes = [10, 2]     # notifications before a lock starts
 phrase = "I am choosing to skip my training today"
 wait_seconds = 300
 
+[notebook]
+id = "876228fa-5c2b-4ced-8d81-ee0de4d7e93a"   # NotebookLM notebook the exercise library is built from
+
 # One block per scheduled lock.
 [[lock]]
 days = ["mon", "tue", "wed", "thu", "fri"]
 at = "18:00"
 minutes = 30
 """
+
+
+DEFAULT_NOTEBOOK = "876228fa-5c2b-4ced-8d81-ee0de4d7e93a"
 
 
 class ConfigError(ValueError):
@@ -52,6 +58,7 @@ class Config:
     override_phrase: str = "I am choosing to skip my training today"
     override_wait_seconds: int = 300
     locks: tuple[LockEntry, ...] = field(default_factory=tuple)
+    notebook_id: str = DEFAULT_NOTEBOOK
 
 
 def _parse_time(value: object, where: str) -> time:
@@ -84,6 +91,7 @@ def _positive_int(value: object, where: str) -> int:
 def parse(data: dict) -> Config:
     general = data.get("general", {})
     override = data.get("override", {})
+    notebook = data.get("notebook", {})
 
     locks = []
     for index, entry in enumerate(data.get("lock", [])):
@@ -111,6 +119,7 @@ def parse(data: dict) -> Config:
         override_phrase=phrase.strip(),
         override_wait_seconds=_positive_int(override.get("wait_seconds", 300), "override.wait_seconds"),
         locks=tuple(locks),
+        notebook_id=str(notebook.get("id") or DEFAULT_NOTEBOOK),
     )
 
 

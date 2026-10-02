@@ -342,6 +342,36 @@ ShellRoot {
     }
   }
 
+  // Titled bullet (or numbered) list for the instructions panel.
+  component InfoList: Column {
+    id: info
+    property string title: ""
+    property var items: []
+    property bool numbered: false
+    width: parent ? parent.width : 300
+    spacing: 6
+    Text {
+      text: info.title
+      color: root.accent
+      font.pixelSize: 13
+      font.capitalization: Font.AllUppercase
+      font.letterSpacing: 1
+    }
+    Repeater {
+      model: info.items
+      delegate: Text {
+        required property var modelData
+        required property int index
+        width: info.width
+        wrapMode: Text.WordWrap
+        text: (info.numbered ? (index + 1) + ".  " : "•  ") + modelData
+        color: root.fg
+        font.pixelSize: 15
+        lineHeight: 1.15
+      }
+    }
+  }
+
   // 1–10 effort picker; keys 1–9 and 0 (= 10) also work while it is shown.
   component RpePicker: Row {
     id: picker
@@ -368,7 +398,7 @@ ShellRoot {
     id: surface
     anchors.fill: parent
 
-    property bool showCues: false
+    property bool showCues: root.preview && Quickshell.env("SPORTLOCK_SHOW_DETAILS") === "1"
     property bool skipOpen: false
 
     // Space / Enter drive the session when no text field has focus.
@@ -404,7 +434,7 @@ ShellRoot {
 
     Column {
       anchors.centerIn: parent
-      width: Math.min(parent.width - 64, 720)
+      width: Math.min(parent.width - 64, 1180)
       spacing: 22
 
       // Header: session title and lock countdown
@@ -456,7 +486,7 @@ ShellRoot {
             required property var modelData
             required property int index
             readonly property bool isCurrent: root.tr && index === root.tr.current
-            width: Math.max(28, (Math.min(surface.width - 64, 720) - 6 * ((root.tr ? root.tr.exercises.length : 1) - 1)) / (root.tr ? root.tr.exercises.length : 1))
+            width: Math.max(28, (Math.min(surface.width - 64, 1180) - 6 * ((root.tr ? root.tr.exercises.length : 1) - 1)) / (root.tr ? root.tr.exercises.length : 1))
             height: 6
             radius: 3
             visible: modelData.status !== "swapped"
@@ -467,9 +497,14 @@ ShellRoot {
         }
       }
 
-      // Exercise card
-      Rectangle {
+      // Exercise card, with the picture and instructions beside it
+      Row {
         width: parent.width
+        spacing: 20
+        visible: root.ex !== null
+
+      Rectangle {
+        width: parent.width - side.width - 20
         height: card.implicitHeight + 48
         radius: 10
         color: root.panel
@@ -505,27 +540,11 @@ ShellRoot {
             font.pixelSize: 18
           }
 
-          // Cues
-          Column {
-            width: parent.width
-            spacing: 6
-            Text {
-              text: (surface.showCues ? "▾ " : "▸ ") + "How to do it  (D)"
-              color: root.muted
-              font.pixelSize: 14
-              MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: surface.showCues = !surface.showCues }
-            }
-            Repeater {
-              model: surface.showCues && root.ex ? root.ex.cues : []
-              delegate: Text {
-                required property var modelData
-                width: card.width
-                wrapMode: Text.WordWrap
-                text: "•  " + modelData
-                color: root.fg
-                font.pixelSize: 15
-              }
-            }
+          Text {
+            text: (surface.showCues ? "▾ Hide" : "▸ Show") + " full instructions  (D)"
+            color: root.muted
+            font.pixelSize: 14
+            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: surface.showCues = !surface.showCues }
           }
 
           // Sets done so far
@@ -673,6 +692,89 @@ ShellRoot {
               label: "Skip exercise"
               enabled: skipReason.text.trim().length >= 3
               onClicked: { root.train("skip", { reason: skipReason.text }); skipReason.text = "" }
+            }
+          }
+        }
+      }
+
+        // Picture and instructions
+        Column {
+          id: side
+          width: Math.min(420, Math.max(300, parent.width * 0.36))
+          spacing: 10
+
+          Rectangle {
+            width: parent.width
+            height: width * 0.72
+            radius: 10
+            visible: root.ex !== null && root.ex.image !== ""
+            color: root.ex && root.ex.image_source === "stick figure" ? root.panel : "#f5f5f2"
+            border.width: 1
+            border.color: root.line
+            clip: true
+            Image {
+              anchors.fill: parent
+              anchors.margins: 8
+              source: root.ex && root.ex.image ? "file://" + root.ex.image : ""
+              fillMode: Image.PreserveAspectFit
+              asynchronous: true
+              smooth: true
+              mipmap: true
+              sourceSize.width: 840
+            }
+          }
+          Text {
+            width: parent.width
+            visible: root.ex !== null && root.ex.image !== ""
+            text: root.ex ? root.ex.image_source.replace(/^book: /, "").replace(/\.(epub|pdf)$/, "").replace(/_/g, ":") : ""
+            elide: Text.ElideRight
+            color: root.muted
+            font.pixelSize: 12
+          }
+
+          Rectangle {
+            width: parent.width
+            height: Math.min(instructions.implicitHeight + 32, surface.height * (root.ex && root.ex.image ? 0.42 : 0.7))
+            radius: 10
+            color: root.panel
+            border.width: 1
+            border.color: root.line
+            visible: root.ex !== null
+
+            Flickable {
+              anchors.fill: parent
+              anchors.margins: 16
+              contentHeight: instructions.implicitHeight
+              clip: true
+              boundsBehavior: Flickable.StopAtBounds
+
+              Column {
+                id: instructions
+                width: parent.width
+                spacing: 14
+                InfoList { title: "Steps"; items: root.ex ? root.ex.steps : []; numbered: true; visible: surface.showCues && items.length > 0 }
+                InfoList { title: "Cues"; items: root.ex ? root.ex.cues : [] }
+                InfoList { title: "Common mistakes"; items: root.ex ? root.ex.mistakes : []; visible: surface.showCues && items.length > 0 }
+                InfoList {
+                  title: "Breathing"
+                  items: root.ex && root.ex.breathing ? [root.ex.breathing] : []
+                  visible: surface.showCues && items.length > 0
+                }
+                InfoList {
+                  title: "Variations"
+                  items: root.ex ? [].concat(root.ex.easier_name ? ["Easier: " + root.ex.easier_name] : [],
+                                             root.ex.harder_name ? ["Harder: " + root.ex.harder_name] : []) : []
+                  visible: surface.showCues && items.length > 0
+                }
+                Text {
+                  width: parent.width
+                  visible: surface.showCues && root.ex && root.ex.sources.length > 0
+                  wrapMode: Text.WordWrap
+                  text: root.ex ? "From: " + root.ex.sources.join(" · ") : ""
+                  color: root.muted
+                  font.pixelSize: 12
+                }
+              }
             }
           }
         }

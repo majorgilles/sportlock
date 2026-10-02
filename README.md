@@ -6,7 +6,15 @@ unlocks when you finish it or the time runs out. See [DESIGN.md](DESIGN.md) for 
 **Status: milestone 2** — schedule, override, and a training-mode lock screen: one exercise at a
 time, Start/Stop per set with a ticking clock (duration measured automatically), reps and load
 per set, effort (RPE) per exercise, "Too hard" swaps, skips with a reason, and a session summary.
-Sessions come from a fixed starter plan until the agent arrives (milestone 4).
+Sessions come from a fixed starter plan until the agent arrives (milestone 5).
+
+**Milestone 3: exercise library.** Every exercise has a picture and full instructions (steps,
+cues, common mistakes, breathing, easier/harder variations, which book it comes from), shown
+beside the exercise on the lock screen (press D for the full instructions). They are distilled
+from the NotebookLM notebook: passage search (read-only, it never touches the notebook's chat)
+returns the passages *and* the book illustrations; headless Claude writes the entry and picks
+the illustration that really shows the exercise. Fallbacks: a free-exercise-db photo, then a
+stick figure.
 
 ## Install
 
@@ -24,6 +32,10 @@ sportlock start --minutes 30   # start a session now (a full lock: 20, 30 or 45 
 sportlock test              # lock now for 1 minute (cannot be overridden)
 sportlock log               # recent locks and how they ended
 sportlock override <phrase> # start the override countdown (also on the lock screen)
+sportlock library build     # build missing exercises (~40 s each, 4 in parallel)
+sportlock library build plank --force   # rebuild one exercise
+sportlock library status    # how many are built, where pictures came from
+sportlock library list      # all progression chains
 ```
 
 ## If you are ever stuck
