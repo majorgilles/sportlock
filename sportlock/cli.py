@@ -171,7 +171,8 @@ def cmd_app(args) -> None:
     from .service import STATE_PATH
 
     repo = Path(__file__).resolve().parent.parent
-    env = dict(os.environ, SPORTLOCK_STATE=str(STATE_PATH), SPORTLOCK_BIN=str(repo / "bin" / "sportlock"))
+    env = dict(os.environ, SPORTLOCK_STATE=str(STATE_PATH), SPORTLOCK_BIN=str(repo / "bin" / "sportlock"),
+               SPORTLOCK_TAB=args.tab)
     subprocess.Popen(["qs", "-p", str(repo / "app")], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                      start_new_session=True)
 
@@ -276,7 +277,9 @@ def main(argv: list[str] | None = None) -> None:
     library.set_defaults(run=cmd_library)
 
     sub.add_parser("ladders", help="where you are on each progression chain").set_defaults(run=cmd_ladders)
-    sub.add_parser("app", help="open the sportlock window (profile / onboarding)").set_defaults(run=cmd_app)
+    app = sub.add_parser("app", help="open the sportlock window (profile, schedule & settings)")
+    app.add_argument("tab", nargs="?", choices=("profile", "settings"), default="profile")
+    app.set_defaults(run=cmd_app)
 
     doctor = sub.add_parser("doctor", help="check your data for inconsistencies")
     doctor.add_argument("--fix", action="store_true", help="repair what can be repaired")

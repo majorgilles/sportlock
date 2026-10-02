@@ -387,6 +387,28 @@ class Service:
                 self._schedule_tick()
                 return {"ok": True, "profile": saved}
 
+            if cmd == "settings-get":
+                # Show what's in the file (it may be newer than what's applied, while frozen).
+                try:
+                    shown = config_mod.load(self.config_path)
+                except config_mod.ConfigError:
+                    shown = self.config
+                return {"ok": True, "settings": config_mod.to_settings(shown), "pending": self.config_pending,
+                        "frozen": config_frozen(self._decision(now), now)}
+
+            if cmd == "settings-save":
+                try:
+                    updated = config_mod.from_settings(request.get("settings") or {}, self.config)
+                except config_mod.ConfigError as error:
+                    return {"ok": False, "error": str(error)}
+                tmp = self.config_path.with_suffix(".tmp")
+                tmp.write_text(config_mod.dump(updated))
+                tmp.replace(self.config_path)
+                self._load_config(now=now)
+                log.info("settings saved from the app (%s)", "pending until the lock is over" if self.config_pending else "applied")
+                self._schedule_tick()
+                return {"ok": True, "pending": self.config_pending}
+
             if cmd == "agent-status":
                 agent = Agent(self.store, self.training.library, self.config.notebook_id)
                 return {"ok": True, "plan": agent.fresh_plan(), "stale_plan": self.store.get("next_session"),

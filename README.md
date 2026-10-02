@@ -73,13 +73,11 @@ Do these once, in order:
    level on every exercise chain, and the coach plans your first session within about a minute
    (`sportlock agent status` shows it).
 
-3. **Set your schedule** in `~/.config/sportlock/config.toml` (see [Configuration](#configuration)),
-   set `enabled = true`, then:
-
-   ```bash
-   sportlock reload
-   sportlock status    # shows the next lock
-   ```
+3. **Set your schedule**: `sportlock app settings`, or Omarchy menu → **Sportlock → Schedule &
+   settings**. Switch locks **On**, add your lock times (days, start time, minutes), adjust the
+   daily cap, warnings, get-ready countdown and override, then **Save**. The page shows your next
+   lock. (You can also edit `~/.config/sportlock/config.toml` by hand; see
+   [Configuration](#configuration).)
 
 4. **Try it** without waiting for a scheduled lock:
 
@@ -90,7 +88,8 @@ Do these once, in order:
 
 ## Configuration
 
-`~/.config/sportlock/config.toml`. The service picks up changes by itself (or run
+Everything here can be set in `sportlock app settings` (Schedule & settings tab), which writes
+this file: `~/.config/sportlock/config.toml`. The service picks up changes by itself (or run
 `sportlock reload`). **Changes made during a lock or in the 10 minutes before one only apply once
 that lock is over**, so you can't edit your way out of a lock. Sections you leave out use the
 defaults shown here.
@@ -241,7 +240,7 @@ Rebuild one exercise with `sportlock library build <id> --force` (ids: `sportloc
 | `sportlock cancel-override` | cancel it |
 | `sportlock log` | recent locks and how they ended |
 | `sportlock ladders` | your position on every chain, with the reason |
-| `sportlock app` | profile / onboarding window |
+| `sportlock app [settings]` | profile window, or the Schedule & settings tab |
 | `sportlock agent status` | the coach's current plan and its recent runs |
 | `sportlock agent run` | plan the next session now, in the foreground |
 | `sportlock reload` | re-read `config.toml` |
@@ -252,7 +251,8 @@ Rebuild one exercise with `sportlock library build <id> --force` (ids: `sportloc
 | `sportlock doctor [--fix]` | check (and repair) your data |
 | `sportlock report "<what happened>"` | write a problem report file |
 
-The Omarchy menu has a **Sportlock** submenu: profile & settings, and 20/30/45-minute sessions.
+The Omarchy menu has a **Sportlock** submenu: profile, schedule & settings, and 20/30/45-minute
+sessions.
 
 ## Where your data lives
 

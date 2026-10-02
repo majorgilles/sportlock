@@ -199,6 +199,21 @@ class ServiceTest(unittest.TestCase):
         self.svc.command({"cmd": "profile-save", "profile": {"experience": "beginner", "goals": ["strength"]}})
         self.assertTrue(self.at("18:05")["locked"])
 
+    def test_settings_saved_from_the_app_apply_or_wait_for_the_lock(self):
+        settings = self.svc.command({"cmd": "settings-get"})["settings"]
+        settings["locks"].append({"days": ["mon"], "at": "07:00", "minutes": 15})
+        self.at("12:00")
+        response = self.svc.command({"cmd": "settings-save", "settings": settings})
+        self.assertEqual(response, {"ok": True, "pending": False})
+        self.assertEqual(len(self.svc.config.locks), 2)
+
+        self.at("18:05")  # locked: a change now waits
+        settings["locks"] = settings["locks"][:1]
+        self.assertTrue(self.svc.command({"cmd": "settings-save", "settings": settings})["pending"])
+        self.assertEqual(len(self.svc.config.locks), 2)
+        self.at("18:30")
+        self.assertEqual(len(self.svc.config.locks), 1)
+
     def test_profile_validation(self):
         bad = self.svc.command({"cmd": "profile-save", "profile": {"experience": "expert", "goals": []}})
         self.assertFalse(bad["ok"])

@@ -151,3 +151,95 @@ def load(path: Path = CONFIG_PATH) -> Config:
         return parse(tomllib.loads(path.read_text()))
     except tomllib.TOMLDecodeError as error:
         raise ConfigError(f"{path}: {error}") from None
+
+
+# -- the settings form (sportlock app) ---------------------------------------------------------
+
+
+def to_settings(config: Config) -> dict:
+    """The form's view of the config (JSON-friendly)."""
+    return {
+        "enabled": config.enabled,
+        "max_minutes_per_day": config.max_minutes_per_day,
+        "warn_minutes": list(config.warn_minutes),
+        "lead_in_seconds": config.lead_in_seconds,
+        "override_phrase": config.override_phrase,
+        "override_wait_seconds": config.override_wait_seconds,
+        "locks": [{"days": [DAYS[d] for d in sorted(lock.days)], "at": lock.at.strftime("%H:%M"),
+                   "minutes": lock.minutes} for lock in config.locks],
+    }
+
+
+def from_settings(settings: dict, current: Config) -> Config:
+    """Validate the form's values (same rules as the file) and keep what the form doesn't edit."""
+    def number(key, default):
+        value = settings.get(key, default)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            raise ConfigError(f"{key.replace('_', ' ')} must be a whole number") from None
+
+    locks = []
+    for index, lock in enumerate(settings.get("locks", [])):
+        minutes = number_in(lock.get("minutes"), f"lock #{index + 1} minutes")
+        if minutes > 240:
+            raise ConfigError(f"lock #{index + 1}: at most 240 minutes")
+        locks.append({"days": lock.get("days") or [], "at": str(lock.get("at", "")).strip(), "minutes": minutes})
+
+    data = {
+        "general": {"enabled": bool(settings.get("enabled")),
+                    "max_minutes_per_day": number("max_minutes_per_day", current.max_minutes_per_day),
+                    "warn_minutes": [number_in(m, "warning minutes") for m in settings.get("warn_minutes", [])]},
+        "training": {"lead_in_seconds": number("lead_in_seconds", current.lead_in_seconds)},
+        "override": {"phrase": str(settings.get("override_phrase", current.override_phrase)),
+                     "wait_seconds": number("override_wait_seconds", current.override_wait_seconds)},
+        "profile": {"equipment": sorted(current.equipment)},
+        "notebook": {"id": current.notebook_id},
+        "lock": locks,
+    }
+    return parse(data)
+
+
+def number_in(value: object, label: str) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ConfigError(f"{label} must be a whole number") from None
+
+
+def _toml_list(values) -> str:
+    return "[" + ", ".join(f'"{v}"' if isinstance(v, str) else str(v) for v in values) + "]"
+
+
+def dump(config: Config) -> str:
+    """Write the config back as commented TOML (used by the settings form)."""
+    phrase = config.override_phrase.replace("\\", "\\\\").replace('"', '\\"')
+    lines = [
+        "# sportlock configuration (also editable in `sportlock app` → Schedule & settings).",
+        "# Changes made during a lock or its 10-minute warning only apply once that lock is over.",
+        "",
+        "[general]",
+        f"enabled = {'true' if config.enabled else 'false'}",
+        f"max_minutes_per_day = {config.max_minutes_per_day}   # total lock time per day, all locks combined",
+        f"warn_minutes = {_toml_list(config.warn_minutes)}     # notifications before a lock starts",
+        "",
+        "[training]",
+        f"lead_in_seconds = {config.lead_in_seconds}        # get-ready countdown after pressing Start set (0 = none)",
+        "",
+        "[override]",
+        f'phrase = "{phrase}"',
+        f"wait_seconds = {config.override_wait_seconds}",
+        "",
+        "[profile]",
+        "# Only used until a profile is saved in `sportlock app`, which takes precedence.",
+        f"equipment = {_toml_list(sorted(config.equipment))}",
+        "",
+        "[notebook]",
+        f'id = "{config.notebook_id}"',
+        "",
+        "# One block per scheduled lock.",
+    ]
+    for lock in config.locks:
+        lines += ["[[lock]]", f"days = {_toml_list([DAYS[d] for d in sorted(lock.days)])}",
+                  f'at = "{lock.at.strftime("%H:%M")}"', f"minutes = {lock.minutes}", ""]
+    return "\n".join(lines).rstrip() + "\n"

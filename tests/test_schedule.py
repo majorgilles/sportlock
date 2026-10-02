@@ -109,5 +109,35 @@ class ConfigTest(unittest.TestCase):
                 parse(bad)
 
 
+class SettingsFormTest(unittest.TestCase):
+    def test_round_trip_through_form_and_file(self):
+        import tomllib
+        from sportlock.config import dump, from_settings, to_settings
+
+        current = parse({"lock": [{"days": ["mon", "fri"], "at": "07:30", "minutes": 20}],
+                         "override": {"phrase": 'say "yes" please, really'}})
+        settings = to_settings(current)
+        self.assertEqual(settings["locks"], [{"days": ["mon", "fri"], "at": "07:30", "minutes": 20}])
+        settings["locks"].append({"days": ["sat", "sun"], "at": "10:00", "minutes": "45"})
+        settings["enabled"] = True
+        updated = from_settings(settings, current)
+        again = parse(tomllib.loads(dump(updated)))
+        self.assertEqual(again, updated)
+        self.assertEqual(len(again.locks), 2)
+        self.assertEqual(again.override_phrase, 'say "yes" please, really')
+
+    def test_form_rejects_bad_values(self):
+        from sportlock.config import from_settings, to_settings
+
+        current = parse({})
+        for change in ({"locks": [{"days": [], "at": "18:00", "minutes": 30}]},
+                       {"locks": [{"days": ["mon"], "at": "25:00", "minutes": 30}]},
+                       {"locks": [{"days": ["mon"], "at": "18:00", "minutes": "abc"}]},
+                       {"locks": [{"days": ["mon"], "at": "18:00", "minutes": 500}]},
+                       {"lead_in_seconds": 99}):
+            with self.assertRaises(ConfigError):
+                from_settings({**to_settings(current), **change}, current)
+
+
 if __name__ == "__main__":
     unittest.main()

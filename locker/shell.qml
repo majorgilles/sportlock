@@ -99,8 +99,13 @@ ShellRoot {
     send(payload)
   }
 
+  // A request in flight: Process.running doesn't flip to true synchronously, so two quick
+  // actions (e.g. Stop then Enter) would otherwise overwrite each other's command.
+  property bool busy: false
+
   function pump() {
-    if (cmd.running || queue.length === 0) return
+    if (busy || queue.length === 0) return
+    busy = true
     var payload = queue[0]
     queue = queue.slice(1)
     message = ""
@@ -158,6 +163,7 @@ ShellRoot {
     stderr: StdioCollector { id: cmdErr }
     onExited: function(exitCode) {
       if (exitCode !== 0) root.message = String(cmdErr.text || cmdOut.text).trim().replace(/^sportlock: /, "")
+      root.busy = false
       root.readState()
       root.pump()
     }
