@@ -282,6 +282,66 @@ ShellRoot {
     }
   }
 
+  // Multi-line notes: grows with its content; Enter submits, Shift+Enter starts a new line.
+  component NotesField: Rectangle {
+    id: notes
+    property alias text: edit.text
+    property alias input: edit
+    property string placeholder: ""
+    property int minHeight: 110
+    signal accepted()
+    implicitHeight: Math.min(320, Math.max(minHeight, edit.contentHeight + 26))
+    radius: 6
+    color: "transparent"
+    border.width: 1
+    border.color: edit.activeFocus ? root.accent : root.muted
+    clip: true
+    Flickable {
+      id: flick
+      anchors.fill: parent
+      anchors.margins: 13
+      contentHeight: edit.contentHeight
+      boundsBehavior: Flickable.StopAtBounds
+      TextEdit {
+        id: edit
+        width: flick.width
+        wrapMode: TextEdit.Wrap
+        color: root.fg
+        selectionColor: root.accent
+        font.pixelSize: 16
+        onCursorRectangleChanged: {
+          if (cursorRectangle.y < flick.contentY) flick.contentY = cursorRectangle.y
+          else if (cursorRectangle.y + cursorRectangle.height > flick.contentY + flick.height)
+            flick.contentY = cursorRectangle.y + cursorRectangle.height - flick.height
+        }
+        Keys.onPressed: function(event) {
+          if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && !(event.modifiers & Qt.ShiftModifier)) {
+            notes.accepted()
+            event.accepted = true
+          }
+        }
+      }
+    }
+    Text {
+      anchors.left: parent.left
+      anchors.top: parent.top
+      anchors.margins: 13
+      visible: edit.text.length === 0
+      text: notes.placeholder
+      color: root.muted
+      font.pixelSize: 16
+    }
+    Text {
+      anchors.right: parent.right
+      anchors.bottom: parent.bottom
+      anchors.margins: 8
+      visible: edit.activeFocus
+      text: "Shift+Enter: new line"
+      color: root.muted
+      font.pixelSize: 11
+    }
+  }
+
   // 1–10 effort picker; keys 1–9 and 0 (= 10) also work while it is shown.
   component RpePicker: Row {
     id: picker
@@ -563,7 +623,7 @@ ShellRoot {
             Flow {
               width: parent.width
               spacing: 12
-              Field { id: rateNote; implicitWidth: Math.min(420, card.width - 220); placeholder: "note (optional)"; onAccepted: rateNext.clicked() }
+              NotesField { id: rateNote; width: parent.width; minHeight: 80; placeholder: "note (optional): form, pain, what to change next time…"; onAccepted: if (rateNext.enabled) rateNext.clicked() }
               Btn {
                 id: rateNext
                 label: "Next exercise"
@@ -635,7 +695,7 @@ ShellRoot {
           spacing: 14
           Text { text: "Session done — how hard was it overall?"; color: root.fg; font.pixelSize: 24; font.weight: Font.DemiBold }
           RpePicker { id: sessionPicker }
-          Field { id: sessionNotes; width: parent.width; placeholder: "notes: how it felt, pain, energy…" }
+          NotesField { id: sessionNotes; width: parent.width; placeholder: "notes: how it felt, pain, energy, sleep…"; onAccepted: if (finishSession.enabled) finishSession.clicked() }
           Text { text: "From your watch (optional)"; color: root.muted; font.pixelSize: 14 }
           Flow {
             width: parent.width
@@ -645,6 +705,7 @@ ShellRoot {
             Field { id: bodyWeight; placeholder: "body weight"; suffix: "kg"; input.validator: DoubleValidator { bottom: 20; top: 300; decimals: 1 } }
           }
           Btn {
+            id: finishSession
             label: "Finish session"
             primary: true
             big: true
