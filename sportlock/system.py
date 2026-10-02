@@ -1,4 +1,4 @@
-"""Side effects on the desktop: notifications, audio, Omarchy idle and lock state, theme."""
+"""Side effects on the desktop: notifications, media players, Omarchy idle and lock state, theme."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import tomllib
 from pathlib import Path
 
 THEME_COLORS = Path.home() / ".local/state/omarchy/current/theme/colors.toml"
-SINK = "@DEFAULT_AUDIO_SINK@"
 
 
 def _run(*command: str, timeout: float = 5) -> subprocess.CompletedProcess | None:
@@ -25,13 +24,32 @@ def notify(headline: str, description: str = "", *, urgent: bool = False) -> Non
     _run(*args, headline, description)
 
 
-def audio_muted() -> bool:
-    result = _run("wpctl", "get-volume", SINK)
-    return bool(result and "[MUTED]" in result.stdout)
+MPRIS_PATH = "/org/mpris/MediaPlayer2"
+MPRIS_PLAYER = "org.mpris.MediaPlayer2.Player"
 
 
-def set_audio_muted(muted: bool) -> None:
-    _run("wpctl", "set-mute", SINK, "1" if muted else "0")
+def _media_players() -> list[str]:
+    result = _run("busctl", "--user", "list", "--no-legend", "--acquired")
+    if not result:
+        return []
+    names = (line.split()[0] for line in result.stdout.splitlines() if line.strip())
+    return [name for name in names if name.startswith("org.mpris.MediaPlayer2.")]
+
+
+def pause_media() -> list[str]:
+    """Pause every playing MPRIS player; return the ones paused so they can be resumed."""
+    paused = []
+    for name in _media_players():
+        status = _run("busctl", "--user", "get-property", name, MPRIS_PATH, MPRIS_PLAYER, "PlaybackStatus")
+        if status and '"Playing"' in status.stdout:
+            _run("busctl", "--user", "call", name, MPRIS_PATH, MPRIS_PLAYER, "Pause")
+            paused.append(name)
+    return paused
+
+
+def resume_media(names: list[str]) -> None:
+    for name in names:
+        _run("busctl", "--user", "call", name, MPRIS_PATH, MPRIS_PLAYER, "Play")
 
 
 def idle_stay_awake() -> bool | None:

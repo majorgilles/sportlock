@@ -23,16 +23,25 @@ minutes = 30
 
 class FakeDesktop:
     def __init__(self):
-        self.muted = False
+        self.playing = ["org.mpris.MediaPlayer2.spotify"]
+        self.paused = []
         self.stay_awake = False
         self.omarchy_locked = False
         self.notifications = []
 
+    def pause_media(self):
+        self.paused, self.playing = self.playing, []
+        return list(self.paused)
+
+    def resume_media(self, names):
+        self.playing += names
+        self.paused = []
+
     def patches(self):
         s = "sportlock.service.system."
         return [
-            mock.patch(s + "audio_muted", lambda: self.muted),
-            mock.patch(s + "set_audio_muted", lambda v: setattr(self, "muted", v)),
+            mock.patch(s + "pause_media", self.pause_media),
+            mock.patch(s + "resume_media", self.resume_media),
             mock.patch(s + "idle_stay_awake", lambda: self.stay_awake),
             mock.patch(s + "set_idle_stay_awake", lambda v: setattr(self, "stay_awake", v)),
             mock.patch(s + "omarchy_lock_active", lambda: self.omarchy_locked),
@@ -72,18 +81,36 @@ class ServiceTest(unittest.TestCase):
         self.at("17:51")
         self.assertEqual(len(self.desktop.notifications), 1)  # not repeated
 
-        self.assertTrue(self.at("18:00")["locked"])
-        self.assertTrue(self.desktop.muted)
+        state = self.at("18:00")
+        self.assertTrue(state["locked"])
+        self.assertEqual(state["training"]["phase"], "ready")
+        self.assertEqual(self.desktop.playing, [])
         self.assertTrue(self.desktop.stay_awake)
 
         self.assertFalse(self.at("18:30")["locked"])
-        self.assertFalse(self.desktop.muted)
+        self.assertEqual(self.desktop.playing, ["org.mpris.MediaPlayer2.spotify"])
         self.assertFalse(self.desktop.stay_awake)
         self.assertEqual(self.svc.store.recent_locks()[0]["outcome"], "expired")
+        status = self.svc.store.db.execute("SELECT status FROM sessions").fetchone()[0]
+        self.assertEqual(status, "abandoned")
 
-    def test_complete_unlocks_and_skips_rest_of_day(self):
+    def finish_session(self):
+        while self.svc.training.run["phase"] != "summary":
+            self.assertTrue(self.svc.command({"cmd": "train", "action": "skip", "reason": "testing"})["ok"])
+        return self.svc.command({"cmd": "train", "action": "finish", "rpe": 5})
+
+    def test_training_actions_over_commands(self):
+        self.at("18:00")
+        cmd = self.svc.command
+        self.assertTrue(cmd({"cmd": "train", "action": "start_set"})["ok"])
+        self.assertFalse(cmd({"cmd": "train", "action": "rate", "rpe": 5})["ok"])  # wrong phase
+        self.assertFalse(cmd({"cmd": "train", "action": "nope"})["ok"])
+        self.assertTrue(cmd({"cmd": "train", "action": "stop_set"})["ok"])
+        self.assertEqual(self.at("18:05")["training"]["phase"], "logging")
+
+    def test_finish_unlocks_and_skips_rest_of_day(self):
         self.at("18:05")
-        self.assertTrue(self.svc.command({"cmd": "complete"})["ok"])
+        self.assertTrue(self.finish_session()["ok"])
         self.assertFalse(self.at("18:06")["locked"])
         self.assertTrue(self.svc.state["trained_today"])
         self.assertEqual(self.svc.store.recent_locks()[0]["outcome"], "completed")
@@ -96,6 +123,8 @@ class ServiceTest(unittest.TestCase):
         self.assertFalse(self.at("18:05")["locked"])
         self.assertEqual(self.svc.store.recent_locks()[0]["outcome"], "override")
         self.assertFalse(self.at("18:10")["locked"])  # stays ended
+        status = self.svc.store.db.execute("SELECT status FROM sessions").fetchone()[0]
+        self.assertEqual(status, "overridden")
 
     def test_cancelled_override_keeps_lock(self):
         self.at("18:00")
@@ -112,11 +141,11 @@ class ServiceTest(unittest.TestCase):
         self.assertTrue(self.at("18:20")["locked"])
 
     def test_restores_previous_audio_and_idle(self):
-        self.desktop.muted = True
+        self.desktop.playing = []
         self.desktop.stay_awake = True
         self.at("18:00")
         self.at("18:30")
-        self.assertTrue(self.desktop.muted)
+        self.assertEqual(self.desktop.playing, [])
         self.assertTrue(self.desktop.stay_awake)
 
     def test_config_change_frozen_during_lock(self):
@@ -137,6 +166,25 @@ class ServiceTest(unittest.TestCase):
         self.now = self.now.replace(minute=1, second=1)
         self.svc.tick()
         self.assertFalse(self.svc.state["locked"])
+
+
+    def test_manual_session_locks_and_counts(self):
+        self.at("12:00")
+        self.assertFalse(self.svc.command({"cmd": "start", "minutes": 5})["ok"])
+        self.assertTrue(self.svc.command({"cmd": "start", "minutes": 20})["ok"])
+        state = self.at("12:01")
+        self.assertEqual(state["lock"]["kind"], "manual")
+        self.assertTrue(self.finish_session()["ok"])
+        self.assertFalse(self.at("12:02")["locked"])
+        self.assertFalse(self.at("18:00")["locked"])  # trained today, scheduled lock skipped
+
+    def test_test_session_does_not_count_as_training(self):
+        self.at("12:00")
+        self.svc.command({"cmd": "test"})
+        self.at("12:00")
+        self.assertTrue(self.finish_session()["ok"])
+        self.assertFalse(self.at("12:00")["locked"])
+        self.assertTrue(self.at("18:00")["locked"])
 
 
 if __name__ == "__main__":

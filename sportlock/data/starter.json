@@ -1,0 +1,55 @@
+{
+  "title": "Starter full body",
+  "day_type": "hard",
+  "exercises": {
+    "dynamic-warmup": {
+      "name": "Dynamic warm-up", "pattern": "warmup", "kind": "timed",
+      "cues": ["Arm circles, leg swings, hip circles, cat-cow", "Easy pace, gradually bigger range", "No static stretching yet"]
+    },
+    "wall-push-up": {
+      "name": "Wall push-up", "pattern": "push", "kind": "reps",
+      "cues": ["Hands at shoulder height, body straight", "Elbows ~45° from the body", "2 s down, 1 s pause, up"]
+    },
+    "incline-push-up": {
+      "name": "Incline push-up", "pattern": "push", "kind": "reps", "easier": "wall-push-up",
+      "cues": ["Hands on a bench or desk edge", "Ribs down, glutes squeezed", "Chest to the edge, full lockout"]
+    },
+    "box-squat": {
+      "name": "Box squat", "pattern": "squat", "kind": "reps",
+      "cues": ["Sit back to a chair, touch lightly", "Knees track over toes", "Stand up without rocking"]
+    },
+    "bodyweight-squat": {
+      "name": "Bodyweight squat", "pattern": "squat", "kind": "reps", "easier": "box-squat",
+      "cues": ["Feet shoulder width, toes slightly out", "Hips below knees if mobility allows", "Heels stay down"]
+    },
+    "glute-bridge": {
+      "name": "Glute bridge", "pattern": "hinge", "kind": "reps",
+      "cues": ["Heels close to the hips", "Drive through the heels, squeeze at the top", "Don't arch the lower back"]
+    },
+    "prone-y-raise": {
+      "name": "Prone Y raise", "pattern": "pull", "kind": "reps",
+      "cues": ["Lie face down, arms in a Y, thumbs up", "Lift arms by pulling shoulder blades down and back", "1 s hold at the top"]
+    },
+    "knee-plank": {
+      "name": "Knee plank", "pattern": "core", "kind": "hold",
+      "cues": ["Forearms under shoulders, knees down", "Straight line knees to head", "Breathe steadily"]
+    },
+    "plank": {
+      "name": "Plank", "pattern": "core", "kind": "hold", "easier": "knee-plank",
+      "cues": ["Forearms under shoulders", "Squeeze glutes and quads", "Stop when the hips sag"]
+    },
+    "static-stretch": {
+      "name": "Cool-down stretching", "pattern": "mobility", "kind": "timed",
+      "cues": ["Chest, hip flexors, hamstrings, quads", "20–30 s per position, relaxed breathing", "Mild tension, never pain"]
+    }
+  },
+  "plan": [
+    {"exercise": "dynamic-warmup", "sets": 1, "seconds": 300, "rest": 0},
+    {"exercise": "incline-push-up", "sets": 3, "reps": [8, 12], "rest": 60},
+    {"exercise": "bodyweight-squat", "sets": 3, "reps": [12, 15], "rest": 60},
+    {"exercise": "glute-bridge", "sets": 3, "reps": [12, 15], "rest": 45},
+    {"exercise": "prone-y-raise", "sets": 3, "reps": [10, 12], "rest": 45},
+    {"exercise": "plank", "sets": 3, "seconds": 30, "rest": 45},
+    {"exercise": "static-stretch", "sets": 1, "seconds": 300, "rest": 0}
+  ]
+}

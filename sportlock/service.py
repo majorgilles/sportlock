@@ -22,6 +22,7 @@ from . import config as config_mod
 from . import system
 from .schedule import Window, config_frozen, decide
 from .store import Store
+from .training import Training, TrainingError
 
 RUNTIME_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")) / "sportlock"
 STATE_PATH = RUNTIME_DIR / "state.json"
@@ -30,17 +31,11 @@ LOCKER_DIR = Path(__file__).resolve().parent.parent / "locker"
 TEST_SECONDS = 60
 TICK_SECONDS = 1
 
-# Milestone 1 placeholder until training mode and the agent exist.
-PLACEHOLDER_SESSION = {
-    "title": "Placeholder session",
-    "items": [
-        "Warm-up: 5 min dynamic mobility",
-        "Incline or floor push-ups: 3 × 8",
-        "Bodyweight squats: 3 × 15",
-        "Glute bridges: 3 × 12",
-        "Plank: 3 × 30 s",
-        "Cool-down: 5 min static stretching",
-    ],
+MANUAL_MINUTES = (10, 90)
+TRAIN_ACTIONS = {
+    "start_set": (), "stop_set": (), "end_sets": (), "swap_easier": (),
+    "save_set": ("reps", "load_kg"), "rate": ("rpe", "note"), "skip": ("reason",),
+    "finish": ("rpe", "notes", "calories", "avg_hr", "body_weight"),
 }
 
 
@@ -54,15 +49,24 @@ def _epoch_ms(moment: datetime) -> int:
 
 @dataclass
 class ActiveLock:
+    key: str
     window: Window
-    overridable: bool
-    test: bool = False
+    kind: str  # scheduled | manual | test
+
+    @property
+    def overridable(self) -> bool:
+        return self.kind != "test"
+
+    @property
+    def test(self) -> bool:
+        return self.kind == "test"
 
 
 class Service:
     def __init__(self, store: Store | None = None, config_path: Path | None = None) -> None:
         self.mutex = threading.RLock()
         self.store = store or Store()
+        self.training = Training(self.store)
         self.config_path = config_path or config_mod.CONFIG_PATH
         self.config = config_mod.Config()
         self.config_mtime = 0.0
@@ -107,13 +111,28 @@ class Service:
         return decide(self.config, now, trained_days=self.store.trained_days(), ended=self.store.ended_early())
 
     def _wanted_lock(self, now: datetime, decision) -> ActiveLock | None:
+        candidates = []
         if self.test_lock and now >= self.test_lock.window.end:
             self.test_lock = None
         if self.test_lock:
-            return self.test_lock
+            candidates.append(self.test_lock)
+
+        manual = self.store.get("manual_lock")
+        if manual:
+            window = Window(datetime.fromisoformat(manual["start"]), datetime.fromisoformat(manual["end"]))
+            if now < window.end and manual["key"] not in self.store.ended_early():
+                candidates.append(ActiveLock(manual["key"], window, "manual"))
+            else:
+                self.store.delete("manual_lock")
+
         if decision.active:
-            return ActiveLock(decision.active, overridable=True)
-        return None
+            candidates.append(ActiveLock(decision.active.key, decision.active, "scheduled"))
+
+        # Stay under the lock already on screen while it is still due; overlaps don't swap sessions.
+        for lock in candidates:
+            if self.current and lock.key == self.current.key:
+                return lock
+        return candidates[0] if candidates else None
 
     def tick(self) -> None:
         with self.mutex:
@@ -126,7 +145,7 @@ class Service:
             wanted = self._wanted_lock(now, decision)
             self._warn(decision, wanted)
 
-            if self.current and (wanted is None or wanted.window.key != self.current.window.key):
+            if self.current and (wanted is None or wanted.key != self.current.key):
                 self._leave_lock(now)
             if wanted and self.current is None:
                 self._enter_lock(wanted, now)
@@ -138,10 +157,10 @@ class Service:
     def _settle_override(self, now: datetime) -> None:
         if not self.current or not self.current.overridable:
             return
-        pending = self.store.pending_override(self.current.window.key)
+        pending = self.store.pending_override(self.current.key)
         if pending and now >= datetime.fromisoformat(pending["unlock_at"]):
             self.store.finish_override(pending["id"], now, cancelled=False)
-            self.store.lock_ended(self.current.window.key, "override", now)
+            self.store.lock_ended(self.current.key, "override", now)
 
     def _warn(self, decision, wanted: ActiveLock | None) -> None:
         if wanted or decision.next is None or decision.warning is None:
@@ -168,26 +187,34 @@ class Service:
         self.waiting_for_omarchy = False
 
         if self.store.get("restore") is None:
-            self.store.put("restore", {"muted": system.audio_muted(), "stay_awake": system.idle_stay_awake()})
-        system.set_audio_muted(True)
+            self.store.put("restore", {"paused": system.pause_media(), "stay_awake": system.idle_stay_awake()})
         system.set_idle_stay_awake(True)
 
         if not lock.test:
-            self.store.lock_began(lock.window.key, lock.window.start, lock.window.end, now)
+            self.store.lock_began(lock.key, lock.window.start, lock.window.end, now)
+        self.training.begin(now=now, kind=lock.kind, lock_key=lock.key,
+                            minutes=(lock.window.end - now).total_seconds() / 60)
         self.current = lock
 
     def _leave_lock(self, now: datetime) -> None:
         lock = self.current
         self.current = None
+        if lock and self.training.run is not None:
+            outcome = self._outcome(lock.key)
+            self.training.close(now=now, status="overridden" if outcome == "override" else "abandoned")
         if lock and not lock.test:
-            self.store.lock_ended(lock.window.key, "expired", now)  # no-op if already ended early
+            self.store.lock_ended(lock.key, "expired", now)  # no-op if already ended early
         self._restore()
+
+    def _outcome(self, key: str) -> str | None:
+        row = self.store.db.execute("SELECT outcome FROM lock_events WHERE key = ?", (key,)).fetchone()
+        return row["outcome"] if row else None
 
     def _restore(self) -> None:
         saved = self.store.get("restore")
         if saved is None:
             return
-        system.set_audio_muted(bool(saved.get("muted")))
+        system.resume_media(saved.get("paused") or [])
         if saved.get("stay_awake") is not None:
             system.set_idle_stay_awake(bool(saved["stay_awake"]))
         self.store.delete("restore")
@@ -207,7 +234,7 @@ class Service:
         lock = self.current
         override = None
         if lock and lock.overridable:
-            pending = self.store.pending_override(lock.window.key)
+            pending = self.store.pending_override(lock.key)
             if pending:
                 override = {"unlock_at": _epoch_ms(datetime.fromisoformat(pending["unlock_at"]))}
 
@@ -216,7 +243,8 @@ class Service:
             "locked": lock is not None,
             "waiting_for_omarchy_lock": self.waiting_for_omarchy,
             "lock": lock and {
-                "key": lock.window.key,
+                "key": lock.key,
+                "kind": lock.kind,
                 "start": _epoch_ms(lock.window.start),
                 "end": _epoch_ms(lock.window.end),
                 "overridable": lock.overridable,
@@ -230,7 +258,7 @@ class Service:
                 "end": _epoch_ms(decision.next.end),
             },
             "trained_today": now.date() in self.store.trained_days(),
-            "session": PLACEHOLDER_SESSION,
+            "training": self.training.snapshot() if lock else None,
             "theme": system.theme(),
             "config_error": self.config_error,
             "config_pending": self.config_pending,
@@ -255,7 +283,19 @@ class Service:
                 if self.current:
                     return {"ok": False, "error": "a lock is already active"}
                 window = Window(now, now + timedelta(seconds=TEST_SECONDS))
-                self.test_lock = ActiveLock(window, overridable=False, test=True)
+                self.test_lock = ActiveLock(f"test-{now.isoformat()}", window, "test")
+                self._schedule_tick()
+                return {"ok": True}
+
+            if cmd == "start":
+                if self.current:
+                    return {"ok": False, "error": "a lock is already active"}
+                minutes = int(request.get("minutes", 30))
+                if not MANUAL_MINUTES[0] <= minutes <= MANUAL_MINUTES[1]:
+                    return {"ok": False, "error": f"minutes must be between {MANUAL_MINUTES[0]} and {MANUAL_MINUTES[1]}"}
+                end = now + timedelta(minutes=minutes)
+                self.store.put("manual_lock", {"key": f"manual-{now.isoformat()}", "start": now.isoformat(),
+                                               "end": end.isoformat()})
                 self._schedule_tick()
                 return {"ok": True}
 
@@ -267,30 +307,20 @@ class Service:
                     return {"ok": False, "error": "this lock can't be overridden"}
                 if " ".join(str(request.get("phrase", "")).split()).lower() != self.config.override_phrase.lower():
                     return {"ok": False, "error": "phrase doesn't match"}
-                if not self.store.pending_override(lock.window.key):
+                if not self.store.pending_override(lock.key):
                     unlock_at = now + timedelta(seconds=self.config.override_wait_seconds)
-                    self.store.start_override(lock.window.key, now, unlock_at)
+                    self.store.start_override(lock.key, now, unlock_at)
                 self._schedule_tick()
                 return {"ok": True}
 
             if cmd == "cancel-override":
-                if self.current and (pending := self.store.pending_override(self.current.window.key)):
+                if self.current and (pending := self.store.pending_override(self.current.key)):
                     self.store.finish_override(pending["id"], now, cancelled=True)
                 self._schedule_tick()
                 return {"ok": True}
 
-            if cmd == "complete":
-                lock = self.current
-                self.store.add_session(
-                    day=now.date(), started_at=lock and lock.window.start, finished_at=now,
-                    kind="placeholder", lock_key=lock and lock.window.key, notes=str(request.get("notes", "")),
-                )
-                if lock and lock.test:
-                    self.test_lock = None
-                elif lock:
-                    self.store.lock_ended(lock.window.key, "completed", now)
-                self._schedule_tick()
-                return {"ok": True}
+            if cmd == "train":
+                return self._train(request, now)
 
             if cmd == "log":
                 return {"ok": True, "locks": self.store.recent_locks(int(request.get("limit", 20)))}
@@ -300,6 +330,24 @@ class Service:
                 return {"ok": True, "pending": self.config_pending, "error": self.config_error}
 
             return {"ok": False, "error": f"unknown command {cmd!r}"}
+
+    def _train(self, request: dict, now: datetime) -> dict:
+        action = request.get("action")
+        if action not in TRAIN_ACTIONS:
+            return {"ok": False, "error": f"unknown training action {action!r}"}
+        args = {name: request[name] for name in TRAIN_ACTIONS[action] if request.get(name) not in (None, "")}
+        try:
+            getattr(self.training, action)(now=now, **args)
+        except (TrainingError, TypeError, ValueError) as error:
+            return {"ok": False, "error": str(error)}
+
+        if action == "finish" and (lock := self.current):
+            if lock.test:
+                self.test_lock = None
+            else:
+                self.store.lock_ended(lock.key, "completed", now)
+        self._schedule_tick()
+        return {"ok": True}
 
     def _schedule_tick(self) -> None:
         if self.running:

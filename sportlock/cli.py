@@ -75,6 +75,15 @@ def cmd_simple(name):
     return run
 
 
+def cmd_start(args) -> None:
+    _check(request({"cmd": "start", "minutes": args.minutes}))
+    print(f"locked for up to {args.minutes} min, finish the session to unlock earlier")
+
+
+def cmd_raw(args) -> None:
+    print(json.dumps(_check(request(json.loads(args.payload)))))
+
+
 def cmd_log(args) -> None:
     for lock in _check(request({"cmd": "log", "limit": args.limit}))["locks"]:
         print(f"{lock['start']}  →  {lock['end'][11:]}   {lock['outcome'] or 'active'}")
@@ -103,7 +112,14 @@ def main(argv: list[str] | None = None) -> None:
     override.set_defaults(run=cmd_simple("override"))
 
     sub.add_parser("cancel-override", help="cancel a pending override").set_defaults(run=cmd_simple("cancel-override"))
-    sub.add_parser("complete", help="mark the current session as finished").set_defaults(run=cmd_simple("complete"))
+
+    start = sub.add_parser("start", help="start a training session now (locks the desktop)")
+    start.add_argument("--minutes", type=int, default=30, choices=(20, 30, 45))
+    start.set_defaults(run=cmd_start)
+
+    raw = sub.add_parser("raw", help=argparse.SUPPRESS)  # JSON request, used by the lock screen
+    raw.add_argument("payload")
+    raw.set_defaults(run=cmd_raw)
 
     log = sub.add_parser("log", help="recent locks and their outcome")
     log.add_argument("--limit", type=int, default=20)

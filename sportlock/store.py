@@ -44,6 +44,47 @@ CREATE TABLE IF NOT EXISTS kv (
 );
 """
 
+# Each entry upgrades the schema by one version (PRAGMA user_version).
+MIGRATIONS = [
+    """
+    ALTER TABLE sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'finished';  -- in_progress | finished | abandoned | overridden
+    ALTER TABLE sessions ADD COLUMN title TEXT;
+    ALTER TABLE sessions ADD COLUMN day_type TEXT;       -- hard | light | mobility
+    ALTER TABLE sessions ADD COLUMN plan_source TEXT;    -- starter | generated | local
+    ALTER TABLE sessions ADD COLUMN rpe INTEGER;
+    ALTER TABLE sessions ADD COLUMN calories INTEGER;
+    ALTER TABLE sessions ADD COLUMN avg_hr INTEGER;
+    ALTER TABLE sessions ADD COLUMN body_weight REAL;
+    CREATE TABLE session_exercises (
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES sessions(id),
+        exercise TEXT NOT NULL,            -- catalog id
+        name TEXT NOT NULL,
+        pattern TEXT NOT NULL,             -- push | pull | squat | hinge | core | mobility | warmup
+        kind TEXT NOT NULL,                -- reps | hold | timed
+        target TEXT NOT NULL,              -- JSON: sets, reps [min, max] or seconds, rest
+        status TEXT NOT NULL DEFAULT 'pending',  -- pending | done | skipped | swapped
+        rpe INTEGER,
+        note TEXT,
+        skip_reason TEXT,
+        swapped_to INTEGER REFERENCES session_exercises(id),
+        started_at TEXT,
+        ended_at TEXT
+    );
+    CREATE TABLE sets (
+        id INTEGER PRIMARY KEY,
+        session_exercise_id INTEGER NOT NULL REFERENCES session_exercises(id),
+        set_no INTEGER NOT NULL,
+        reps INTEGER,
+        seconds REAL NOT NULL,             -- measured from Start to Stop
+        load_kg REAL,
+        rest_seconds REAL,                 -- since the previous set of this exercise ended
+        started_at TEXT NOT NULL,
+        ended_at TEXT NOT NULL
+    );
+    """,
+]
+
 
 def _iso(moment: datetime) -> str:
     return moment.isoformat(timespec="seconds")
@@ -56,6 +97,12 @@ class Store:
         self.db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        version = self.db.execute("PRAGMA user_version").fetchone()[0]
+        for number, script in enumerate(MIGRATIONS[version:], start=version + 1):
+            self.db.executescript(f"BEGIN; {script}; PRAGMA user_version = {number}; COMMIT;")
 
     # -- saved state ---------------------------------------------------------------------------
 
@@ -114,16 +161,11 @@ class Store:
 
     # -- sessions ------------------------------------------------------------------------------
 
-    def add_session(self, *, day: date, started_at: datetime | None, finished_at: datetime, kind: str,
-                    lock_key: str | None = None, notes: str = "") -> None:
-        self.db.execute(
-            "INSERT INTO sessions (day, started_at, finished_at, kind, lock_key, notes) VALUES (?, ?, ?, ?, ?, ?)",
-            (day.isoformat(), started_at and _iso(started_at), _iso(finished_at), kind, lock_key, notes),
-        )
-
     def trained_days(self) -> set[date]:
-        """Days with a finished session that counts towards locks (outside sessions never do)."""
-        rows = self.db.execute("SELECT DISTINCT day FROM sessions WHERE kind != 'outside'")
+        """Days with a finished session that counts towards locks (outside and test sessions never do)."""
+        rows = self.db.execute(
+            "SELECT DISTINCT day FROM sessions WHERE status = 'finished' AND kind NOT IN ('outside', 'test', 'placeholder')"
+        )
         return {date.fromisoformat(row["day"]) for row in rows}
 
     # -- backups -------------------------------------------------------------------------------

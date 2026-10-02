@@ -1,9 +1,12 @@
-// sportlock locker: holds the Wayland session lock while the service says so.
+// sportlock locker: holds the Wayland session lock while the service says so, and runs the
+// training session on it.
 //
-// Reads $SPORTLOCK_STATE every 500 ms. Releases the lock when `locked` turns false or the file
+// Reads $SPORTLOCK_STATE every 250 ms. Releases the lock when `locked` turns false or the file
 // goes stale (service stopped or crashed): sportlock fails open, it never holds the machine
-// longer than the service allows.
+// longer than the service allows. All training state lives in the service; this file only
+// renders it and sends actions through `sportlock raw`.
 import QtQuick
+import QtMultimedia
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
@@ -18,9 +21,9 @@ ShellRoot {
   property var st: null
   property double nowMs: Date.now()
   property bool releasing: false
-  property var ticks: ({})
   property bool overrideOpen: false
   property string message: ""
+  property var queue: []
 
   readonly property var theme: st && st.theme ? st.theme : ({})
   readonly property color bg: theme.background || "#121212"
@@ -28,14 +31,18 @@ ShellRoot {
   readonly property color accent: theme.accent || "#e68e0d"
   readonly property color muted: theme.muted || "#555555"
   readonly property color urgent: theme.urgent || "#d35f5f"
+  readonly property color panel: Qt.rgba(1, 1, 1, 0.04)
+  readonly property color line: Qt.rgba(1, 1, 1, 0.09)
 
   readonly property bool fresh: st !== null && nowMs - st.updated_at < staleMs
   readonly property bool wantLocked: fresh && st.locked === true
-  readonly property var items: st && st.session ? st.session.items : []
-  readonly property bool allTicked: {
-    for (var i = 0; i < items.length; i++) if (!ticks[i]) return false
-    return items.length > 0
-  }
+
+  readonly property var tr: st && st.training ? st.training : null
+  readonly property string phase: tr ? tr.phase : ""
+  readonly property var ex: tr && tr.current < tr.exercises.length ? tr.exercises[tr.current] : null
+  readonly property int setNo: ex ? ex.sets.length + 1 : 0
+  readonly property double elapsedMs: tr && tr.set_started_at && phase === "running" ? nowMs - tr.set_started_at : 0
+  readonly property double restLeftMs: tr && tr.rest_until && phase === "resting" ? tr.rest_until - nowMs : 0
   readonly property double unlockAt: {
     if (!st || !st.lock) return 0
     var end = st.lock.end
@@ -43,23 +50,53 @@ ShellRoot {
     return end
   }
 
+  // -- helpers -----------------------------------------------------------------------------
+
   function clock(ms) {
-    var s = Math.max(0, Math.ceil(ms / 1000))
+    var s = Math.max(0, Math.floor(ms / 1000))
     var m = Math.floor(s / 60)
     s = s % 60
     return m + ":" + (s < 10 ? "0" : "") + s
   }
 
-  function toggle(i) {
-    var next = Object.assign({}, ticks)
-    next[i] = !next[i]
-    ticks = next
+  function targetText(e) {
+    if (!e) return ""
+    var t = e.target
+    if (e.kind === "timed") return clock(t.seconds * 1000)
+    var setsText = t.sets + (t.sets === 1 ? " set" : " sets")
+    var work = e.kind === "reps" ? t.reps[0] + "–" + t.reps[1] + " reps" : "hold " + t.seconds + " s"
+    return setsText + " × " + work + (t.rest ? " · rest " + t.rest + " s" : "")
   }
 
-  function run(args) {
-    if (cmd.running) return
+  function setText(s, e) {
+    var parts = []
+    if (s.reps !== null && s.reps !== undefined) parts.push(s.reps + " reps")
+    parts.push(clock(s.seconds * 1000))
+    if (s.load_kg) parts.push("+" + s.load_kg + " kg")
+    return parts.join(" · ")
+  }
+
+  // Target duration for holds and timed blocks, in ms (0 for rep sets).
+  readonly property double targetMs: ex && ex.kind !== "reps" ? ex.target.seconds * 1000 : 0
+
+  function send(payload) {
+    var next = queue.slice()
+    next.push(payload)
+    queue = next
+    pump()
+  }
+
+  function train(action, args) {
+    var payload = Object.assign({ cmd: "train", action: action }, args || {})
+    send(payload)
+  }
+
+  function pump() {
+    if (cmd.running || queue.length === 0) return
+    var payload = queue[0]
+    queue = queue.slice(1)
     message = ""
-    cmd.command = [cli].concat(args)
+    cmd.command = [cli, "raw", JSON.stringify(payload)]
     cmd.running = true
   }
 
@@ -72,6 +109,7 @@ ShellRoot {
     }
     nowMs = Date.now()
 
+    if (preview) return
     if (!lock.locked && !releasing && wantLocked) lock.locked = true
     if (lock.locked && !wantLocked) release()
     if (!lock.locked && !wantLocked && !quitTimer.running) quitTimer.start()
@@ -83,6 +121,8 @@ ShellRoot {
     if (!quitTimer.running) quitTimer.start()
   }
 
+  // -- plumbing ----------------------------------------------------------------------------
+
   FileView {
     id: stateFile
     path: root.statePath
@@ -91,7 +131,7 @@ ShellRoot {
   }
 
   Timer {
-    interval: 500
+    interval: 250
     running: true
     repeat: true
     triggeredOnStart: true
@@ -110,28 +150,84 @@ ShellRoot {
     stderr: StdioCollector { id: cmdErr }
     onExited: function(exitCode) {
       if (exitCode !== 0) root.message = String(cmdErr.text || cmdOut.text).trim().replace(/^sportlock: /, "")
-      else root.overrideOpen = false
+      root.readState()
+      root.pump()
     }
   }
+
+  // -- sound: a tick every second while a set runs ------------------------------------------
+
+  SoundEffect { id: tick; source: Qt.resolvedUrl("sounds/tick.wav"); volume: 0.7 }
+  SoundEffect { id: tock; source: Qt.resolvedUrl("sounds/tock.wav"); volume: 0.8 }
+  SoundEffect { id: ding; source: Qt.resolvedUrl("sounds/ding.wav"); volume: 0.8 }
+
+  property int lastSecond: -1
+  property bool targetDinged: false
+  property bool restDinged: false
+
+  onPhaseChanged: { lastSecond = -1; targetDinged = false; restDinged = false }
+
+  Timer {
+    interval: 50
+    repeat: true
+    running: root.wantLocked && (root.phase === "running" || root.phase === "resting")
+    onTriggered: {
+      root.nowMs = Date.now()
+      if (root.phase === "running") {
+        var second = Math.floor(root.elapsedMs / 1000)
+        if (second !== root.lastSecond && second > 0) {
+          if (second % 10 === 0) tock.play(); else tick.play()
+        }
+        root.lastSecond = second
+        if (root.targetMs > 0 && root.elapsedMs >= root.targetMs && !root.targetDinged) {
+          root.targetDinged = true
+          ding.play()
+        }
+      } else {
+        var left = Math.ceil(root.restLeftMs / 1000)
+        if (left !== root.lastSecond && left > 0 && left <= 5) tick.play()
+        root.lastSecond = left
+        if (root.restLeftMs <= 0 && root.tr && root.tr.rest_until && !root.restDinged) {
+          root.restDinged = true
+          ding.play()
+        }
+      }
+    }
+  }
+
+  // -- building blocks ---------------------------------------------------------------------
 
   component Btn: Rectangle {
     id: btn
     property string label: ""
+    property string hint: ""
     property bool enabled: true
     property bool primary: false
+    property bool big: false
     signal clicked()
-    implicitWidth: btnText.implicitWidth + 40
-    implicitHeight: 44
+    implicitWidth: btnRow.implicitWidth + (big ? 56 : 36)
+    implicitHeight: big ? 60 : 42
     radius: 6
     color: !enabled ? "transparent" : (primary ? root.accent : (area.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent"))
     border.width: 1
     border.color: enabled ? (primary ? root.accent : root.muted) : Qt.rgba(1, 1, 1, 0.1)
-    Text {
-      id: btnText
+    Row {
+      id: btnRow
       anchors.centerIn: parent
-      text: btn.label
-      font.pixelSize: 16
-      color: !btn.enabled ? root.muted : (btn.primary ? root.bg : root.fg)
+      spacing: 10
+      Text {
+        text: btn.label
+        font.pixelSize: btn.big ? 22 : 16
+        font.weight: btn.primary ? Font.DemiBold : Font.Normal
+        color: !btn.enabled ? root.muted : (btn.primary ? root.bg : root.fg)
+      }
+      Text {
+        visible: btn.hint.length > 0
+        anchors.verticalCenter: parent.verticalCenter
+        text: btn.hint
+        font.pixelSize: 12
+        color: btn.primary ? Qt.darker(root.bg, 0.6) : root.muted
+      }
     }
     MouseArea {
       id: area
@@ -142,158 +238,492 @@ ShellRoot {
     }
   }
 
+  component Field: Rectangle {
+    id: field
+    property alias text: input.text
+    property alias input: input
+    property string placeholder: ""
+    property string suffix: ""
+    signal accepted()
+    implicitWidth: 160
+    implicitHeight: 46
+    radius: 6
+    color: "transparent"
+    border.width: 1
+    border.color: input.activeFocus ? root.accent : root.muted
+    TextInput {
+      id: input
+      anchors.fill: parent
+      anchors.leftMargin: 12
+      anchors.rightMargin: suffixText.implicitWidth + 16
+      verticalAlignment: TextInput.AlignVCenter
+      color: root.fg
+      font.pixelSize: 18
+      clip: true
+      onAccepted: field.accepted()
+    }
+    Text {
+      anchors.left: parent.left
+      anchors.leftMargin: 12
+      anchors.verticalCenter: parent.verticalCenter
+      visible: input.text.length === 0
+      text: field.placeholder
+      color: root.muted
+      font.pixelSize: 16
+    }
+    Text {
+      id: suffixText
+      anchors.right: parent.right
+      anchors.rightMargin: 12
+      anchors.verticalCenter: parent.verticalCenter
+      text: field.suffix
+      color: root.muted
+      font.pixelSize: 14
+    }
+  }
+
+  // 1–10 effort picker; keys 1–9 and 0 (= 10) also work while it is shown.
+  component RpePicker: Row {
+    id: picker
+    property int value: 0
+    spacing: 6
+    Repeater {
+      model: 10
+      delegate: Rectangle {
+        required property int index
+        readonly property int n: index + 1
+        width: 44; height: 44; radius: 6
+        color: picker.value === n ? root.accent : (cellArea.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent")
+        border.width: 1
+        border.color: picker.value === n ? root.accent : root.muted
+        Text { anchors.centerIn: parent; text: n; font.pixelSize: 17; color: picker.value === n ? root.bg : root.fg }
+        MouseArea { id: cellArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: picker.value = n }
+      }
+    }
+  }
+
+  // -- the lock surface ---------------------------------------------------------------------
+
+  component TrainingScreen: Item {
+    id: surface
+    anchors.fill: parent
+
+    property bool showCues: false
+    property bool skipOpen: false
+
+    // Space / Enter drive the session when no text field has focus.
+    focus: true
+    Keys.onPressed: function(event) {
+      if (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+        if (root.phase === "ready" || root.phase === "resting") root.train("start_set")
+        else if (root.phase === "running") root.train("stop_set")
+        event.accepted = true
+      } else if (event.key >= Qt.Key_0 && event.key <= Qt.Key_9 && (root.phase === "rating" || root.phase === "summary")) {
+        var n = event.key === Qt.Key_0 ? 10 : event.key - Qt.Key_0
+        if (root.phase === "rating") ratePicker.value = n; else sessionPicker.value = n
+        event.accepted = true
+      } else if (event.key === Qt.Key_D) {
+        surface.showCues = !surface.showCues
+        event.accepted = true
+      }
+    }
+
+    Connections {
+      target: root
+      function onPhaseChanged() {
+        surface.skipOpen = false
+        ratePicker.value = 0
+        if (root.phase === "logging" && root.ex && root.ex.kind === "reps") {
+          repsField.text = ""
+          repsField.input.forceActiveFocus()
+        } else if (root.phase !== "summary") {
+          surface.forceActiveFocus()
+        }
+      }
+    }
+
+    Column {
+      anchors.centerIn: parent
+      width: Math.min(parent.width - 64, 720)
+      spacing: 22
+
+      // Header: session title and lock countdown
+      Item {
+        width: parent.width
+        height: titleCol.implicitHeight
+        Column {
+          id: titleCol
+          spacing: 4
+          Text {
+            text: root.st && root.st.lock && root.st.lock.test ? "Test lock" : (root.tr ? root.tr.title : "Time to train")
+            color: root.fg
+            font.pixelSize: 30
+            font.weight: Font.DemiBold
+          }
+          Text {
+            text: root.tr ? (root.phase === "summary" ? "All exercises done"
+                  : "Exercise " + (root.tr.current + 1) + " of " + root.tr.exercises.length) : ""
+            color: root.muted
+            font.pixelSize: 15
+          }
+        }
+        Column {
+          anchors.right: parent.right
+          spacing: 4
+          Text {
+            anchors.right: parent.right
+            text: root.clock(root.unlockAt - root.nowMs)
+            color: root.st && root.st.override ? root.urgent : root.fg
+            font.pixelSize: 30
+            font.family: "monospace"
+          }
+          Text {
+            anchors.right: parent.right
+            text: root.st && root.st.override ? "override: unlocking" : "until unlock"
+            color: root.st && root.st.override ? root.urgent : root.muted
+            font.pixelSize: 13
+          }
+        }
+      }
+
+      // Progress strip
+      Row {
+        spacing: 6
+        visible: root.tr !== null
+        Repeater {
+          model: root.tr ? root.tr.exercises : []
+          delegate: Rectangle {
+            required property var modelData
+            required property int index
+            readonly property bool isCurrent: root.tr && index === root.tr.current
+            width: Math.max(28, (Math.min(surface.width - 64, 720) - 6 * ((root.tr ? root.tr.exercises.length : 1) - 1)) / (root.tr ? root.tr.exercises.length : 1))
+            height: 6
+            radius: 3
+            visible: modelData.status !== "swapped"
+            color: modelData.status === "done" ? root.accent
+                   : modelData.status === "skipped" ? root.urgent
+                   : isCurrent ? root.fg : root.line
+          }
+        }
+      }
+
+      // Exercise card
+      Rectangle {
+        width: parent.width
+        height: card.implicitHeight + 48
+        radius: 10
+        color: root.panel
+        border.width: 1
+        border.color: root.line
+        visible: root.ex !== null
+
+        Column {
+          id: card
+          x: 24; y: 24
+          width: parent.width - 48
+          spacing: 16
+
+          Row {
+            spacing: 12
+            Text {
+              text: root.ex ? root.ex.name : ""
+              color: root.fg
+              font.pixelSize: 34
+              font.weight: Font.DemiBold
+            }
+            Rectangle {
+              anchors.verticalCenter: parent.verticalCenter
+              width: patternText.implicitWidth + 16; height: 24; radius: 12
+              color: "transparent"; border.width: 1; border.color: root.muted
+              Text { id: patternText; anchors.centerIn: parent; text: root.ex ? root.ex.pattern : ""; color: root.muted; font.pixelSize: 12 }
+            }
+          }
+
+          Text {
+            text: root.targetText(root.ex) + (root.ex && root.ex.target.sets > 1 ? "   —   set " + Math.min(root.setNo, root.ex.target.sets) + " of " + root.ex.target.sets : "")
+            color: root.accent
+            font.pixelSize: 18
+          }
+
+          // Cues
+          Column {
+            width: parent.width
+            spacing: 6
+            Text {
+              text: (surface.showCues ? "▾ " : "▸ ") + "How to do it  (D)"
+              color: root.muted
+              font.pixelSize: 14
+              MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: surface.showCues = !surface.showCues }
+            }
+            Repeater {
+              model: surface.showCues && root.ex ? root.ex.cues : []
+              delegate: Text {
+                required property var modelData
+                width: card.width
+                wrapMode: Text.WordWrap
+                text: "•  " + modelData
+                color: root.fg
+                font.pixelSize: 15
+              }
+            }
+          }
+
+          // Sets done so far
+          Flow {
+            width: parent.width
+            spacing: 8
+            visible: root.ex && root.ex.sets.length > 0
+            Repeater {
+              model: root.ex ? root.ex.sets : []
+              delegate: Rectangle {
+                required property var modelData
+                required property int index
+                width: setLabel.implicitWidth + 20; height: 30; radius: 6
+                color: Qt.rgba(1, 1, 1, 0.05)
+                Text { id: setLabel; anchors.centerIn: parent; text: (index + 1) + ":  " + root.setText(modelData); color: root.fg; font.pixelSize: 14 }
+              }
+            }
+          }
+
+          // Big clock: set stopwatch, or rest countdown
+          Column {
+            width: parent.width
+            spacing: 4
+            visible: root.phase === "ready" || root.phase === "running" || root.phase === "resting"
+            Text {
+              anchors.horizontalCenter: parent.horizontalCenter
+              text: root.phase === "running" ? root.clock(root.elapsedMs)
+                    : root.phase === "resting" ? (root.restLeftMs > 0 ? root.clock(root.restLeftMs + 999) : "Go")
+                    : "0:00"
+              color: root.phase === "running" ? (root.targetMs > 0 && root.elapsedMs >= root.targetMs ? root.accent : root.fg)
+                     : root.phase === "resting" ? (root.restLeftMs > 0 ? root.muted : root.accent) : root.line
+              font.pixelSize: 96
+              font.family: "monospace"
+            }
+            Text {
+              anchors.horizontalCenter: parent.horizontalCenter
+              text: root.phase === "running" ? (root.targetMs > 0 ? "target " + root.clock(root.targetMs) : "set " + root.setNo + " running")
+                    : root.phase === "resting" ? "rest" : "press Start when you begin"
+              color: root.muted
+              font.pixelSize: 15
+            }
+          }
+
+          // Logging a finished set
+          Column {
+            width: parent.width
+            spacing: 12
+            visible: root.phase === "logging"
+            Text {
+              text: "Set " + root.setNo + " took " + root.clock((root.tr && root.tr.pending_seconds || 0) * 1000)
+              color: root.fg
+              font.pixelSize: 20
+            }
+            Flow {
+              width: parent.width
+              spacing: 12
+              Field {
+                id: repsField
+                visible: root.ex && root.ex.kind === "reps"
+                placeholder: root.ex && root.ex.kind === "reps" ? "reps (" + root.ex.target.reps[0] + "–" + root.ex.target.reps[1] + ")" : ""
+                input.validator: IntValidator { bottom: 0; top: 500 }
+                onAccepted: saveSet.clicked()
+                Keys.onTabPressed: loadField.input.forceActiveFocus()
+              }
+              Field {
+                id: loadField
+                placeholder: "added load"
+                suffix: "kg"
+                input.validator: DoubleValidator { bottom: 0; top: 500; decimals: 1 }
+                onAccepted: saveSet.clicked()
+              }
+              Btn {
+                id: saveSet
+                label: "Save set"
+                hint: "Enter"
+                primary: true
+                onClicked: {
+                  var args = {}
+                  if (repsField.visible) args.reps = parseInt(repsField.text)
+                  if (loadField.text.length > 0) args.load_kg = parseFloat(loadField.text.replace(",", "."))
+                  root.train("save_set", args)
+                  loadField.text = ""
+                }
+              }
+            }
+          }
+
+          // Rating the exercise
+          Column {
+            width: parent.width
+            spacing: 12
+            visible: root.phase === "rating"
+            Text { text: "How hard was " + (root.ex ? root.ex.name : "") + "?  (1 easy – 10 max)"; color: root.fg; font.pixelSize: 20 }
+            RpePicker { id: ratePicker }
+            Flow {
+              width: parent.width
+              spacing: 12
+              Field { id: rateNote; implicitWidth: Math.min(420, card.width - 220); placeholder: "note (optional)"; onAccepted: rateNext.clicked() }
+              Btn {
+                id: rateNext
+                label: "Next exercise"
+                hint: "Enter"
+                primary: true
+                enabled: ratePicker.value > 0
+                onClicked: { root.train("rate", { rpe: ratePicker.value, note: rateNote.text }); rateNote.text = "" }
+              }
+            }
+          }
+
+          // Actions
+          Flow {
+            width: parent.width
+            spacing: 12
+            visible: root.phase === "ready" || root.phase === "running" || root.phase === "resting"
+            Btn {
+              label: root.phase === "running" ? "Stop" : "Start set " + root.setNo
+              hint: "Space"
+              primary: true
+              big: true
+              onClicked: root.train(root.phase === "running" ? "stop_set" : "start_set")
+            }
+            Btn {
+              visible: root.phase === "resting" || (root.phase === "ready" && root.ex && root.ex.sets.length > 0)
+              label: "Finish exercise"
+              onClicked: root.train("end_sets")
+            }
+            Btn {
+              visible: root.ex && root.ex.has_easier
+              label: "Too hard"
+              onClicked: root.train("swap_easier")
+            }
+            Btn {
+              label: surface.skipOpen ? "Never mind" : "Skip…"
+              onClicked: { surface.skipOpen = !surface.skipOpen; if (surface.skipOpen) skipReason.input.forceActiveFocus(); else surface.forceActiveFocus() }
+            }
+          }
+
+          Flow {
+            width: parent.width
+            spacing: 12
+            visible: surface.skipOpen && root.phase !== "summary"
+            Field { id: skipReason; implicitWidth: Math.min(420, card.width - 200); placeholder: "why skip? (e.g. no bar, wrist pain)"; onAccepted: skipGo.clicked() }
+            Btn {
+              id: skipGo
+              label: "Skip exercise"
+              enabled: skipReason.text.trim().length >= 3
+              onClicked: { root.train("skip", { reason: skipReason.text }); skipReason.text = "" }
+            }
+          }
+        }
+      }
+
+      // Session summary
+      Rectangle {
+        width: parent.width
+        height: summary.implicitHeight + 48
+        radius: 10
+        color: root.panel
+        border.width: 1
+        border.color: root.line
+        visible: root.phase === "summary"
+
+        Column {
+          id: summary
+          x: 24; y: 24
+          width: parent.width - 48
+          spacing: 14
+          Text { text: "Session done — how hard was it overall?"; color: root.fg; font.pixelSize: 24; font.weight: Font.DemiBold }
+          RpePicker { id: sessionPicker }
+          Field { id: sessionNotes; width: parent.width; placeholder: "notes: how it felt, pain, energy…" }
+          Text { text: "From your watch (optional)"; color: root.muted; font.pixelSize: 14 }
+          Flow {
+            width: parent.width
+            spacing: 12
+            Field { id: calories; placeholder: "calories"; suffix: "kcal"; input.validator: IntValidator { bottom: 0; top: 5000 } }
+            Field { id: avgHr; placeholder: "avg HR"; suffix: "bpm"; input.validator: IntValidator { bottom: 30; top: 230 } }
+            Field { id: bodyWeight; placeholder: "body weight"; suffix: "kg"; input.validator: DoubleValidator { bottom: 20; top: 300; decimals: 1 } }
+          }
+          Btn {
+            label: "Finish session"
+            primary: true
+            big: true
+            enabled: sessionPicker.value > 0
+            onClicked: {
+              var args = { rpe: sessionPicker.value, notes: sessionNotes.text }
+              if (calories.text) args.calories = parseInt(calories.text)
+              if (avgHr.text) args.avg_hr = parseInt(avgHr.text)
+              if (bodyWeight.text) args.body_weight = parseFloat(bodyWeight.text.replace(",", "."))
+              root.train("finish", args)
+            }
+          }
+        }
+      }
+
+      // Override
+      Flow {
+        width: parent.width
+        spacing: 12
+        visible: root.st && root.st.lock && root.st.lock.overridable
+        Btn {
+          visible: root.st && !root.st.override
+          label: root.overrideOpen ? "Never mind" : "Override…"
+          onClicked: { root.overrideOpen = !root.overrideOpen; root.message = ""; if (root.overrideOpen) phrase.input.forceActiveFocus(); else surface.forceActiveFocus() }
+        }
+        Btn {
+          visible: root.st && root.st.override
+          label: "Cancel override"
+          onClicked: root.send({ cmd: "cancel-override" })
+        }
+      }
+
+      Column {
+        visible: root.overrideOpen && root.st && !root.st.override
+        width: parent.width
+        spacing: 10
+        Text {
+          width: parent.width
+          wrapMode: Text.WordWrap
+          text: "Type this to start a " + Math.round((root.st ? root.st.override_wait_seconds : 300) / 60)
+                + "-minute countdown:\n“" + (root.st ? root.st.override_phrase : "") + "”"
+          color: root.muted
+          font.pixelSize: 15
+        }
+        Field {
+          id: phrase
+          width: parent.width
+          onAccepted: { root.send({ cmd: "override", phrase: text }); text = ""; root.overrideOpen = false }
+        }
+      }
+
+      Text {
+        visible: root.message.length > 0
+        text: root.message
+        color: root.urgent
+        font.pixelSize: 15
+      }
+    }
+  }
+
+  // -- the lock surface (and a preview window for development) -----------------------------
+
+  readonly property bool preview: Quickshell.env("SPORTLOCK_PREVIEW") === "1"
+
   WlSessionLock {
     id: lock
     locked: false
 
     WlSessionLockSurface {
       color: root.bg
-
-      Column {
-        anchors.centerIn: parent
-        width: Math.min(parent.width - 64, 560)
-        spacing: 28
-
-        Column {
-          width: parent.width
-          spacing: 6
-          Text {
-            text: root.st && root.st.lock && root.st.lock.test ? "Test lock" : "Time to train"
-            color: root.fg
-            font.pixelSize: 44
-            font.weight: Font.DemiBold
-          }
-          Text {
-            text: (root.st && root.st.override ? "Override: unlocking in " : "Unlocks in ")
-                  + root.clock(root.unlockAt - root.nowMs) + " — or when you finish the session"
-            color: root.st && root.st.override ? root.urgent : root.muted
-            font.pixelSize: 18
-          }
-        }
-
-        Rectangle {
-          width: parent.width
-          height: sessionColumn.implicitHeight + 40
-          radius: 10
-          color: Qt.rgba(1, 1, 1, 0.04)
-          border.width: 1
-          border.color: Qt.rgba(1, 1, 1, 0.08)
-
-          Column {
-            id: sessionColumn
-            x: 20; y: 20
-            width: parent.width - 40
-            spacing: 4
-
-            Text {
-              text: root.st && root.st.session ? root.st.session.title : ""
-              color: root.accent
-              font.pixelSize: 15
-              font.capitalization: Font.AllUppercase
-              font.letterSpacing: 1
-              bottomPadding: 8
-            }
-
-            Repeater {
-              model: root.items
-              delegate: Rectangle {
-                required property var modelData
-                required property int index
-                width: sessionColumn.width
-                height: 40
-                radius: 6
-                color: rowArea.containsMouse ? Qt.rgba(1, 1, 1, 0.05) : "transparent"
-                Row {
-                  anchors.verticalCenter: parent.verticalCenter
-                  x: 10
-                  spacing: 14
-                  Rectangle {
-                    width: 20; height: 20; radius: 4
-                    anchors.verticalCenter: parent.verticalCenter
-                    color: root.ticks[index] ? root.accent : "transparent"
-                    border.width: 1
-                    border.color: root.ticks[index] ? root.accent : root.muted
-                    Text { anchors.centerIn: parent; text: "✓"; visible: root.ticks[index]; color: root.bg; font.pixelSize: 14 }
-                  }
-                  Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: modelData
-                    color: root.ticks[index] ? root.muted : root.fg
-                    font.pixelSize: 17
-                    font.strikeout: root.ticks[index] === true
-                  }
-                }
-                MouseArea {
-                  id: rowArea
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: root.toggle(index)
-                }
-              }
-            }
-          }
-        }
-
-        Row {
-          spacing: 12
-          Btn {
-            label: "Finish session"
-            primary: true
-            enabled: root.allTicked
-            onClicked: root.run(["complete"])
-          }
-          Btn {
-            visible: root.st && root.st.lock && root.st.lock.overridable && !root.st.override
-            label: root.overrideOpen ? "Never mind" : "Override…"
-            onClicked: { root.overrideOpen = !root.overrideOpen; root.message = "" }
-          }
-          Btn {
-            visible: root.st && root.st.override !== null && root.st.override !== undefined
-            label: "Cancel override"
-            onClicked: root.run(["cancel-override"])
-          }
-        }
-
-        Column {
-          visible: root.overrideOpen && root.st && !root.st.override
-          width: parent.width
-          spacing: 10
-          Text {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            text: "Type this to start a " + Math.round((root.st ? root.st.override_wait_seconds : 300) / 60)
-                  + "-minute countdown:\n“" + (root.st ? root.st.override_phrase : "") + "”"
-            color: root.muted
-            font.pixelSize: 15
-          }
-          Rectangle {
-            width: parent.width
-            height: 44
-            radius: 6
-            color: "transparent"
-            border.width: 1
-            border.color: phrase.activeFocus ? root.accent : root.muted
-            TextInput {
-              id: phrase
-              anchors.fill: parent
-              anchors.margins: 12
-              verticalAlignment: TextInput.AlignVCenter
-              color: root.fg
-              font.pixelSize: 16
-              focus: root.overrideOpen
-              onAccepted: { root.run(["override"].concat(text.split(/\s+/).filter(function(w) { return w.length > 0 }))); text = "" }
-            }
-          }
-        }
-
-        Text {
-          visible: root.message.length > 0
-          text: root.message
-          color: root.urgent
-          font.pixelSize: 15
-        }
-      }
+      TrainingScreen { anchors.fill: parent }
     }
+  }
+
+  FloatingWindow {
+    visible: root.preview
+    implicitWidth: 1280
+    implicitHeight: 1000
+    color: root.bg
+    TrainingScreen { anchors.fill: parent }
   }
 }
