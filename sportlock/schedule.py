@@ -65,10 +65,14 @@ def windows_for_day(config: Config, day: date) -> list[Window]:
     return windows
 
 
+LOOKAHEAD_DAYS = 8
+
+
 def windows_around(config: Config, now: datetime) -> list[Window]:
-    """Windows from yesterday (one may run past midnight) through tomorrow."""
+    """Windows from yesterday (one may run past midnight) through the next week, so the next
+    lock is found even across a weekend or a schedule with few days."""
     today = now.date()
-    days = (today - timedelta(days=1), today, today + timedelta(days=1))
+    days = [today + timedelta(days=offset) for offset in range(-1, LOOKAHEAD_DAYS)]
     return [window for day in days for window in windows_for_day(config, day)]
 
 

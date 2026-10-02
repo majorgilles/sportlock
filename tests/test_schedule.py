@@ -67,6 +67,12 @@ class DecideTest(unittest.TestCase):
         d = decide(self.config, at(MON, "18:10"), trained_days=set(), ended={"2026-10-05T18:00"})
         self.assertIsNone(d.active)
 
+    def test_next_lock_found_across_the_weekend(self):
+        config = cfg(lock("22:35", 20, days=range(5)))  # Mon–Fri
+        friday_night = at(date(2026, 10, 2), "23:00")
+        d = decide(config, friday_night, trained_days=set(), ended=set())
+        self.assertEqual(d.next.start, at(MON, "22:35"))
+
     def test_window_past_midnight(self):
         config = cfg(lock("23:50", 30))
         d = decide(config, at(date(2026, 10, 6), "00:10"), trained_days=set(), ended=set())
