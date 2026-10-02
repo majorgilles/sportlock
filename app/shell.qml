@@ -225,7 +225,7 @@ ShellRoot {
       color: root.fg
       font.pixelSize: 16
       clip: true
-      onTextEdited: field.edited(text)
+      onTextEdited: if (activeFocus) field.edited(text)  // only real typing, never programmatic changes
     }
     Text {
       anchors.left: parent.left; anchors.leftMargin: 11; anchors.verticalCenter: parent.verticalCenter
@@ -430,8 +430,11 @@ ShellRoot {
           hint: "When off, nothing locks on schedule (you can still start a session yourself)."
           Row {
             spacing: 8
-            Chip { label: "On"; on: root.settings && root.settings.enabled; onClicked: { root.settings.enabled = true; root.rev += 1 } }
-            Chip { label: "Off"; on: root.settings && !root.settings.enabled; onClicked: { root.settings.enabled = false; root.rev += 1 } }
+            // `root.rev` in the binding: settings are edited in place, so the chips re-read on each change.
+            Chip { label: "On"; on: root.rev >= 0 && !!root.settings && root.settings.enabled === true
+                   onClicked: { root.settings.enabled = true; root.rev += 1 } }
+            Chip { label: "Off"; on: root.rev >= 0 && !!root.settings && root.settings.enabled !== true
+                   onClicked: { root.settings.enabled = false; root.rev += 1 } }
           }
         }
 
@@ -470,7 +473,7 @@ ShellRoot {
                   implicitWidth: 90
                   placeholder: "18:00"
                   text: lockCard.modelData.at
-                  input.inputMask: "99:99"
+                  input.validator: RegularExpressionValidator { regularExpression: /^([01]?[0-9]|2[0-3])(:[0-5]?[0-9]?)?$/ }
                   onEdited: function(value) { root.settings.locks[lockCard.index].at = value }
                 }
                 Field {
