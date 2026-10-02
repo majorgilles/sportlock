@@ -30,6 +30,7 @@ NLM_SEARCH = REPO_DIR / "tools" / "nlm_search.py"
 FEDB_JSON = "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json"
 FEDB_IMAGES = "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/"
 MAX_PASSAGES = 10
+INFOGRAPHICS_PER_DAY = 10
 MAX_PICTURE_CANDIDATES = 8
 
 DETAILS_SCHEMA = {
@@ -46,6 +47,22 @@ DETAILS_SCHEMA = {
     },
     "required": ["steps", "cues", "mistakes", "sources", "grounded", "picture", "picture_reason"],
 }
+
+PICTURE_SCHEMA = {
+    "type": "object",
+    "properties": {"picture": {"type": ["string", "null"]}, "picture_reason": {"type": "string"}},
+    "required": ["picture", "picture_reason"],
+}
+
+PICTURE_PROMPT = """Pick a picture for the exercise "{name}" ({kind_text}; also known as: {aliases}).
+Movement pattern: {pattern}. Progression chain (easiest → hardest): {chain}.
+
+Candidate image files from the user's training books: {candidates}
+Open each with the Read tool. Choose the ONE that clearly shows THIS exercise being performed —
+not an easier or harder variation from the chain, not an anatomy chart of a different movement,
+not a page without a person doing it. Put its file name in "picture" (e.g. "a1b2.jpg"), or null
+if none fits, and explain in one sentence in "picture_reason".
+"""
 
 PROMPT = """You are building one entry of an exercise library for a home calisthenics app.
 
@@ -198,10 +215,146 @@ class Library:
         shutil.rmtree(candidates_dir, ignore_errors=True)
         return entry
 
-    def _search(self, spec: dict, candidates_dir: Path) -> list[dict]:
-        query = f"{spec['name']} exercise: how to perform it, technique, form, common mistakes"
+    def retry_pictures(self, ids: list[str] | None = None, *, workers: int = 4, log=print) -> dict:
+        """Second, picture-only pass for exercises that ended up with a stick figure: search again
+        under the exercise's other names and let Claude pick from the new candidates."""
+        targets = ids or [i for i in self.seed if self.get(i).get("image_source") == "stick figure"]
+        results = {"found": [], "none": [], "failed": {}}
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(self._retry_picture, i): i for i in targets}
+            for future in as_completed(futures):
+                exercise_id = futures[future]
+                name = self.seed[exercise_id]["name"]
+                try:
+                    source = future.result()
+                    (results["found"] if source else results["none"]).append(exercise_id)
+                    log(f"{'✓' if source else '·'} {name:<28} {source or 'still no matching picture'}")
+                except Exception as error:
+                    results["failed"][exercise_id] = str(error)
+                    log(f"✗ {name:<28} {error}")
+        return results
+
+    def _retry_picture(self, exercise_id: str) -> str | None:
+        spec = self.seed[exercise_id]
+        folder = self.root / exercise_id
+        entry_path = folder / "exercise.json"
+        entry = json.loads(entry_path.read_text())
+        candidates_dir = folder / "candidates"
+        shutil.rmtree(candidates_dir, ignore_errors=True)
+        candidates_dir.mkdir(parents=True)
+
+        names = [spec["name"], *spec.get("aliases", [])]
+        book_pictures: dict[str, str] = {}
+        for query in [f"{n} exercise, starting position and movement" for n in names]:
+            for passage in self._search(spec, candidates_dir, query=query, limit=6):
+                for image in passage["images"]:
+                    book_pictures.setdefault(Path(image["file"]).name, passage["source_title"])
+        candidates = list(book_pictures)[:12]
+        if not candidates:
+            shutil.rmtree(candidates_dir, ignore_errors=True)
+            return None
+
+        chain = " → ".join(self.seed[i]["name"] for i in spec["chain_ids"])
+        kind_text = {"reps": "repetitions", "hold": "timed hold", "timed": "timed block"}[spec["kind"]]
+        prompt = PICTURE_PROMPT.format(name=spec["name"], kind_text=kind_text, pattern=spec["pattern"], chain=chain,
+                                       aliases=", ".join(spec.get("aliases", [])) or "—",
+                                       candidates=", ".join(candidates))
+        choice = self._claude(prompt, PICTURE_SCHEMA, candidates_dir)
+        chosen = choice.get("picture")
+        source = None
+        if chosen in candidates and (candidates_dir / chosen).exists():
+            target = "picture" + Path(chosen).suffix
+            shutil.copyfile(candidates_dir / chosen, folder / target)
+            (folder / "stick.svg").unlink(missing_ok=True)
+            source = f"book: {book_pictures[chosen]}"
+            entry.update(image=target, image_source=source, picture_reason=choice["picture_reason"])
+            entry_path.write_text(json.dumps(entry, indent=2, ensure_ascii=False))
+        shutil.rmtree(candidates_dir, ignore_errors=True)
+        return source
+
+    # -- infographics (last resort before a stick figure) ----------------------------------------
+
+    def infographics(self, ids: list[str] | None = None, *, per_day: int = INFOGRAPHICS_PER_DAY, log=print) -> dict:
+        """Generate a NotebookLM infographic for exercises still drawn as stick figures.
+
+        At most `per_day` a day. Every artifact this creates is recorded in infographics.json and
+        deleted from the notebook's Studio panel once downloaded; nothing else is ever deleted."""
+        ledger_path = self.root / "infographics.json"
+        ledger = json.loads(ledger_path.read_text()) if ledger_path.exists() else {"days": {}, "artifacts": {}}
+        today = datetime.now().date().isoformat()
+
+        def save():
+            ledger_path.write_text(json.dumps(ledger, indent=2))
+
+        # Finish anything a previous run left behind (generated but not yet downloaded/deleted).
+        pending = {a: info for a, info in ledger["artifacts"].items() if not info.get("deleted")}
+        targets = [i for i in (ids or self.seed) if self.get(i).get("image_source") == "stick figure"
+                   and i not in {info["exercise"] for info in pending.values()}]
+        room = max(0, per_day - ledger["days"].get(today, 0))
+        if len(targets) > room:
+            log(f"daily limit: generating {room} of {len(targets)} today")
+        for exercise_id in targets[:room]:
+            task = self._nlm_json("generate", "infographic", self._infographic_prompt(exercise_id),
+                                  "--orientation", "landscape", "--detail", "concise", "--style", "instructional")
+            artifact = task["task_id"]
+            ledger["artifacts"][artifact] = {"exercise": exercise_id, "created": today}
+            ledger["days"][today] = ledger["days"].get(today, 0) + 1
+            save()
+            pending[artifact] = ledger["artifacts"][artifact]
+            log(f"… {self.seed[exercise_id]['name']:<28} generating")
+
+        results = {"installed": [], "failed": {}}
+        for artifact, info in pending.items():
+            exercise_id = info["exercise"]
+            name = self.seed[exercise_id]["name"]
+            try:
+                if not info.get("downloaded"):
+                    waited = self._nlm_json("artifact", "wait", artifact, "--timeout", "900")
+                    if waited.get("status") != "completed":
+                        raise RuntimeError(f"generation {waited.get('status')}: {waited.get('error')}")
+                    folder = self.root / exercise_id
+                    self._nlm("download", "infographic", str(folder / "picture.png"), "-a", artifact)
+                    entry_path = folder / "exercise.json"
+                    entry = json.loads(entry_path.read_text())
+                    entry.update(image="picture.png", image_source="NotebookLM infographic",
+                                 picture_reason="Generated from your notebook: no book illustration shows this exercise.")
+                    entry_path.write_text(json.dumps(entry, indent=2, ensure_ascii=False))
+                    (folder / "stick.svg").unlink(missing_ok=True)
+                    info["downloaded"] = True
+                    save()
+                self._nlm("artifact", "delete", artifact, "-y")
+                info["deleted"] = True
+                save()
+                results["installed"].append(exercise_id)
+                log(f"✓ {name:<28} infographic installed, removed from Studio")
+            except Exception as error:
+                results["failed"][exercise_id] = str(error)
+                log(f"✗ {name:<28} {error}")
+        return results
+
+    def _infographic_prompt(self, exercise_id: str) -> str:
+        entry = self.get(exercise_id)
+        cues = "; ".join(entry.get("cues", [])[:3])
+        return (f"A single clear instructional illustration of ONE exercise: the {entry['name']}"
+                f"{' (also called ' + ', '.join(entry['aliases']) + ')' if entry.get('aliases') else ''}. "
+                f"Show the start position and the end position of the movement side by side. "
+                f"Minimal text: the exercise name and at most 3 short form cues ({cues}). No other exercises.")
+
+    def _nlm(self, *args: str) -> str:
+        notebooklm = shutil.which("notebooklm") or str(Path.home() / ".local/bin/notebooklm")
+        result = subprocess.run([notebooklm, *args, "-n", self.notebook_id], capture_output=True, text=True, timeout=1200)
+        if result.returncode != 0:
+            raise RuntimeError(f"notebooklm {args[0]} {args[1]} failed: {(result.stderr or result.stdout).strip()[-300:]}")
+        return result.stdout
+
+    def _nlm_json(self, *args: str) -> dict:
+        return json.loads(self._nlm(*args, "--json"))
+
+    def _search(self, spec: dict, candidates_dir: Path, *, query: str | None = None,
+                limit: int = MAX_PASSAGES) -> list[dict]:
+        query = query or f"{spec['name']} exercise: how to perform it, technique, form, common mistakes"
         result = subprocess.run(
-            [str(NLM_SEARCH), self.notebook_id, query, "--limit", str(MAX_PASSAGES), "--images-dir", str(candidates_dir)],
+            [str(NLM_SEARCH), self.notebook_id, query, "--limit", str(limit), "--images-dir", str(candidates_dir)],
             capture_output=True, text=True, timeout=180,
         )
         if result.returncode != 0:
@@ -235,11 +388,14 @@ class Library:
         text = "\n\n".join(f"[{p['source_title']}]\n{p['text'].strip()[:1500]}" for p in passages if p["text"].strip())
         prompt = PROMPT.format(name=spec["name"], pattern=spec["pattern"], chain=chain, kind_text=kind_text,
                                candidates=", ".join(candidates) or "(none)", passages=text or "(no passages found)")
+        return self._claude(prompt, DETAILS_SCHEMA, candidates_dir)
+
+    def _claude(self, prompt: str, schema: dict, workdir: Path) -> dict:
         claude = shutil.which("claude") or str(Path.home() / ".local/bin/claude")
         result = subprocess.run(
             [claude, "-p", prompt, "--output-format", "json", "--no-session-persistence",
-             "--json-schema", json.dumps(DETAILS_SCHEMA), "--tools", "Read", "--allowedTools", "Read"],
-            capture_output=True, text=True, timeout=600, cwd=candidates_dir,
+             "--json-schema", json.dumps(schema), "--tools", "Read", "--allowedTools", "Read"],
+            capture_output=True, text=True, timeout=600, cwd=workdir,
         )
         try:
             response = json.loads(result.stdout)

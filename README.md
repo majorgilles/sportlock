@@ -13,8 +13,10 @@ cues, common mistakes, breathing, easier/harder variations, which book it comes 
 beside the exercise on the lock screen (press D for the full instructions). They are distilled
 from the NotebookLM notebook: passage search (read-only, it never touches the notebook's chat)
 returns the passages *and* the book illustrations; headless Claude writes the entry and picks
-the illustration that really shows the exercise. Fallbacks: a free-exercise-db photo, then a
-stick figure.
+the illustration that really shows the exercise. Fallbacks, in order: a second search under the
+exercise's other names, a free-exercise-db photo, a NotebookLM infographic (at most 10 a day;
+each one is deleted from the notebook's Studio panel after download, tracked by id in
+`library/infographics.json`), and finally a stick figure.
 
 ## Install
 
@@ -34,6 +36,8 @@ sportlock log               # recent locks and how they ended
 sportlock override <phrase> # start the override countdown (also on the lock screen)
 sportlock library build     # build missing exercises (~40 s each, 4 in parallel)
 sportlock library build plank --force   # rebuild one exercise
+sportlock library pictures  # second picture search for stick-figure exercises
+sportlock library infographics   # NotebookLM infographics for any still without a picture
 sportlock library status    # how many are built, where pictures came from
 sportlock library list      # all progression chains
 ```

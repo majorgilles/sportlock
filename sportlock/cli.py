@@ -99,6 +99,13 @@ def cmd_library(args) -> None:
         print(f"built {len(results['built'])}, failed {len(results['failed'])}")
         if results["failed"]:
             sys.exit(1)
+    elif args.library_command == "pictures":
+        results = library.retry_pictures(args.ids or None, workers=args.workers)
+        print(f"new pictures {len(results['found'])}, still stick figures {len(results['none'])}, "
+              f"failed {len(results['failed'])}")
+    elif args.library_command == "infographics":
+        results = library.infographics(args.ids or None)
+        print(f"installed {len(results['installed'])}, failed {len(results['failed'])}")
     elif args.library_command == "status":
         status = library.status()
         print(f"{status['built']}/{status['total']} exercises built")
@@ -168,6 +175,11 @@ def main(argv: list[str] | None = None) -> None:
     build.add_argument("ids", nargs="*", help="exercise ids (default: all missing)")
     build.add_argument("--force", action="store_true", help="rebuild even if already built")
     build.add_argument("--workers", type=int, default=4)
+    pictures = lib_sub.add_parser("pictures", help="search again for pictures of stick-figure exercises")
+    pictures.add_argument("ids", nargs="*", help="exercise ids (default: all with a stick figure)")
+    pictures.add_argument("--workers", type=int, default=4)
+    info = lib_sub.add_parser("infographics", help="NotebookLM infographics for exercises still drawn as stick figures")
+    info.add_argument("ids", nargs="*")
     lib_sub.add_parser("status", help="how much of the library is built")
     show = lib_sub.add_parser("show", help="print one exercise")
     show.add_argument("id")
