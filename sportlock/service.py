@@ -193,7 +193,7 @@ class Service:
         if not lock.test:
             self.store.lock_began(lock.key, lock.window.start, lock.window.end, now)
         self.training.begin(now=now, kind=lock.kind, lock_key=lock.key,
-                            minutes=(lock.window.end - now).total_seconds() / 60)
+                            minutes=(lock.window.end - now).total_seconds() / 60, equipment=self.config.equipment)
         self.current = lock
 
     def _leave_lock(self, now: datetime) -> None:
@@ -346,8 +346,21 @@ class Service:
                 self.test_lock = None
             else:
                 self.store.lock_ended(lock.key, "completed", now)
+                self._notify_progress(now)
         self._schedule_tick()
         return {"ok": True}
+
+    def _notify_progress(self, now: datetime) -> None:
+        """After a finished session, say what changes next time."""
+        row = self.store.db.execute("SELECT id FROM sessions WHERE status = 'finished' ORDER BY id DESC LIMIT 1").fetchone()
+        if not row:
+            return
+        changes = self.store.db.execute(
+            "SELECT p.rule, p.to_exercise, p.reason FROM proposals p WHERE p.session_id = ? AND p.rule != 'hold'"
+            " ORDER BY p.id", (row["id"],)).fetchall()
+        arrows = {"up": "↑", "add": "+", "down": "↓", "too-hard": "↓"}
+        lines = [f"{arrows.get(c['rule'], '·')} {self.training.library.get(c['to_exercise'])['name']}" for c in changes]
+        system.notify("Session done ✓", "Next time: " + ", ".join(lines) if lines else "Same targets next time.")
 
     def _schedule_tick(self) -> None:
         if self.running:

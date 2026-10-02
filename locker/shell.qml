@@ -452,7 +452,8 @@ ShellRoot {
           }
           Text {
             text: root.tr ? (root.phase === "summary" ? "All exercises done"
-                  : "Exercise " + (root.tr.current + 1) + " of " + root.tr.exercises.length) : ""
+                  : "Exercise " + (root.tr.current + 1) + " of " + root.tr.exercises.length
+                    + (root.tr.day_type ? "  ·  " + root.tr.day_type + " day" : "")) : ""
             color: root.muted
             font.pixelSize: 15
           }
@@ -535,9 +536,20 @@ ShellRoot {
           }
 
           Text {
+            width: parent.width
+            wrapMode: Text.WordWrap
             text: root.targetText(root.ex) + (root.ex && root.ex.target.sets > 1 ? "   —   set " + Math.min(root.setNo, root.ex.target.sets) + " of " + root.ex.target.sets : "")
             color: root.accent
             font.pixelSize: 18
+          }
+
+          Text {
+            width: parent.width
+            visible: root.ex !== null && !!root.ex.target.progress
+            wrapMode: Text.WordWrap
+            text: root.ex && root.ex.target.progress ? "Why this level: " + root.ex.target.progress : ""
+            color: root.muted
+            font.pixelSize: 14
           }
 
           Text {

@@ -5,18 +5,25 @@ from pathlib import Path
 
 from sportlock.library import Library, load_seed, stick_figure
 from sportlock.store import Store
-from sportlock.training import Training, TrainingError, estimate_seconds, fit_plan, load_starter
+from sportlock.ladders import START, Ladders
+from sportlock.training import Training, TrainingError, estimate_seconds, fit_plan
 
 T0 = datetime(2026, 10, 5, 18, 0, 0)
+HOUSEHOLD = {"chair", "table", "bench", "doorway"}
+
+
+def fresh_plan():
+    tmp = Path(tempfile.mkdtemp())
+    return Ladders(Store(tmp / "db"), Library(root=tmp / "library")).plan(T0, HOUSEHOLD)["plan"]
 
 
 class FitPlanTest(unittest.TestCase):
     def test_full_plan_fits_long_lock(self):
-        plan = load_starter()["plan"]
+        plan = fresh_plan()
         self.assertEqual(fit_plan(plan, 120), plan)
 
     def test_shrinks_but_keeps_warmup_and_cooldown(self):
-        plan = load_starter()["plan"]
+        plan = fresh_plan()
         fitted = fit_plan(plan, 15)
         self.assertLessEqual(estimate_seconds(fitted), 15 * 60)
         self.assertEqual(fitted[0]["exercise"], "dynamic-warmup")
@@ -24,7 +31,7 @@ class FitPlanTest(unittest.TestCase):
         self.assertGreaterEqual(len(fitted), 3)
 
     def test_does_not_mutate_input(self):
-        plan = load_starter()["plan"]
+        plan = fresh_plan()
         before = [dict(item) for item in plan]
         fit_plan(plan, 10)
         self.assertEqual(plan, before)
@@ -119,10 +126,10 @@ class LibraryTest(unittest.TestCase):
         self.assertEqual(seed["incline-push-up"]["harder"], "knee-push-up")
         self.assertIsNone(seed["wall-push-up"]["easier"])
 
-    def test_starter_plan_uses_seed_exercises(self):
+    def test_ladder_starts_are_on_their_chains(self):
         seed = load_seed()
-        for item in load_starter()["plan"]:
-            self.assertIn(item["exercise"], seed)
+        for chain, (exercise, _) in START.items():
+            self.assertEqual(seed[exercise]["chain"], chain)
 
     def test_built_details_merge_over_seed(self):
         tmp = Path(tempfile.mkdtemp())

@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta
-from importlib import resources
 
+from .ladders import Ladders
 from .library import Library
 from .store import Store, _iso
 
@@ -27,10 +27,6 @@ MIN_TIMED_SECONDS = 120
 
 class TrainingError(ValueError):
     pass
-
-
-def load_starter() -> dict:
-    return json.loads(resources.files("sportlock").joinpath("data/starter.json").read_text())
 
 
 def _work_seconds(item: dict) -> int:
@@ -73,10 +69,10 @@ def _ms(moment: str | None) -> int | None:
 
 
 class Training:
-    def __init__(self, store: Store, starter: dict | None = None, library: Library | None = None):
+    def __init__(self, store: Store, library: Library | None = None):
         self.store = store
-        self.starter = starter or load_starter()
         self.library = library or Library()
+        self.ladders = Ladders(store, self.library)
 
     # -- run state -----------------------------------------------------------------------------
 
@@ -115,15 +111,17 @@ class Training:
 
     # -- lifecycle -----------------------------------------------------------------------------
 
-    def begin(self, *, now: datetime, kind: str, lock_key: str | None, minutes: float) -> None:
+    def begin(self, *, now: datetime, kind: str, lock_key: str | None, minutes: float,
+              equipment: frozenset[str] | set[str] = frozenset({"chair", "table", "bench", "doorway"})) -> None:
         if self.run is not None:
             return
-        plan = fit_plan(self.starter["plan"], minutes)
+        planned = self.ladders.plan(now, set(equipment))
+        plan = fit_plan(planned["plan"], minutes)
         # finished_at is NOT NULL from the first schema; it is rewritten when the session closes.
         cursor = self.store.db.execute(
-            "INSERT INTO sessions (day, started_at, finished_at, kind, lock_key, status, title, day_type, plan_source)"
-            " VALUES (?, ?, ?, ?, ?, 'in_progress', ?, ?, 'starter')",
-            (now.date().isoformat(), _iso(now), _iso(now), kind, lock_key, self.starter["title"], self.starter["day_type"]),
+            "INSERT INTO sessions (day, started_at, finished_at, kind, lock_key, status, title, day_type, plan_source,"
+            " notes) VALUES (?, ?, ?, ?, ?, 'in_progress', ?, ?, 'local', '')",
+            (now.date().isoformat(), _iso(now), _iso(now), kind, lock_key, planned["title"], planned["day_type"]),
         )
         session_id = cursor.lastrowid
         order = [self._insert_exercise(session_id, item["exercise"], {k: v for k, v in item.items() if k != "exercise"})
@@ -139,6 +137,7 @@ class Training:
         self.store.db.execute("UPDATE sessions SET status = ?, finished_at = ? WHERE id = ?",
                               (status, _iso(now), run["session_id"]))
         self.store.delete(RUN_KEY)
+        self._progress(run["session_id"], now)
 
     def finish(self, *, now: datetime, rpe: int, notes: str = "", calories: int | None = None,
                avg_hr: int | None = None, body_weight: float | None = None) -> int:
@@ -151,7 +150,13 @@ class Training:
             (_iso(now), int(rpe), notes, calories, avg_hr, body_weight, run["session_id"]),
         )
         self.store.delete(RUN_KEY)
+        self._progress(run["session_id"], now)
         return run["session_id"]
+
+    def _progress(self, session_id: int, now: datetime) -> list[dict]:
+        """Move the ladders from what was actually done (test sessions never count)."""
+        kind = self.store.db.execute("SELECT kind FROM sessions WHERE id = ?", (session_id,)).fetchone()["kind"]
+        return [] if kind == "test" else self.ladders.apply_session(session_id, now)
 
     # -- sets ----------------------------------------------------------------------------------
 

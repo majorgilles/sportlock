@@ -25,6 +25,11 @@ warn_minutes = [10, 2]     # notifications before a lock starts
 phrase = "I am choosing to skip my training today"
 wait_seconds = 300
 
+[profile]
+# What you can train with. Household furniture is assumed; add "bar" (pull-up bar),
+# "dip-bars", "parallettes" or "anchor" (something to hook your feet under) when you have them.
+equipment = ["chair", "table", "bench", "doorway"]
+
 [notebook]
 id = "876228fa-5c2b-4ced-8d81-ee0de4d7e93a"   # NotebookLM notebook the exercise library is built from
 
@@ -37,6 +42,7 @@ minutes = 30
 
 
 DEFAULT_NOTEBOOK = "876228fa-5c2b-4ced-8d81-ee0de4d7e93a"
+DEFAULT_EQUIPMENT = frozenset({"chair", "table", "bench", "doorway"})
 
 
 class ConfigError(ValueError):
@@ -59,6 +65,7 @@ class Config:
     override_wait_seconds: int = 300
     locks: tuple[LockEntry, ...] = field(default_factory=tuple)
     notebook_id: str = DEFAULT_NOTEBOOK
+    equipment: frozenset[str] = DEFAULT_EQUIPMENT
 
 
 def _parse_time(value: object, where: str) -> time:
@@ -92,6 +99,10 @@ def parse(data: dict) -> Config:
     general = data.get("general", {})
     override = data.get("override", {})
     notebook = data.get("notebook", {})
+    profile = data.get("profile", {})
+    equipment = profile.get("equipment", sorted(DEFAULT_EQUIPMENT))
+    if not isinstance(equipment, list) or not all(isinstance(e, str) for e in equipment):
+        raise ConfigError("profile.equipment must be a list of strings")
 
     locks = []
     for index, entry in enumerate(data.get("lock", [])):
@@ -120,6 +131,7 @@ def parse(data: dict) -> Config:
         override_wait_seconds=_positive_int(override.get("wait_seconds", 300), "override.wait_seconds"),
         locks=tuple(locks),
         notebook_id=str(notebook.get("id") or DEFAULT_NOTEBOOK),
+        equipment=frozenset(e.strip().lower() for e in equipment),
     )
 
 

@@ -83,6 +83,31 @@ MIGRATIONS = [
         ended_at TEXT NOT NULL
     );
     """,
+    """
+    CREATE TABLE ladders (
+        chain TEXT PRIMARY KEY,            -- progression chain, e.g. push-horizontal
+        exercise TEXT NOT NULL,            -- current exercise on the chain
+        target TEXT NOT NULL,              -- JSON target for next time
+        reason TEXT,                       -- why it is here (last applied proposal)
+        updated_at TEXT NOT NULL
+    );
+    CREATE TABLE proposals (
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES sessions(id),
+        session_exercise_id INTEGER REFERENCES session_exercises(id),
+        chain TEXT NOT NULL,
+        rule TEXT NOT NULL,                -- up | add | hold | down | too-hard
+        from_exercise TEXT NOT NULL,
+        from_target TEXT NOT NULL,
+        to_exercise TEXT NOT NULL,
+        to_target TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        status TEXT NOT NULL,              -- applied | overridden
+        decided_by TEXT NOT NULL,          -- rules | agent
+        override_reason TEXT,
+        created_at TEXT NOT NULL
+    );
+    """,
 ]
 
 

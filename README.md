@@ -18,6 +18,15 @@ exercise's other names, a free-exercise-db photo, a NotebookLM infographic (at m
 each one is deleted from the notebook's Studio panel after download, tracked by id in
 `library/infographics.json`), and finally a stick figure.
 
+**Milestone 4: progression.** Every chain (horizontal push, vertical push, dips, horizontal and
+vertical pull, squat, hinge, core) has a ladder position: the current exercise and its target.
+After each session the rules in `sportlock/rules.py` move it: top of the rep range at effort ≤ 6
+→ harder variation; effort 7–8 → +1 rep; below the range, fewer sets, or a grind → easier
+variation; "Too hard" → easier straight away. Holds progress in seconds (+10 s / +5 s, harder
+variation from 60 s). Every change is stored with its reason and shown on the exercise card.
+Sessions are planned from the ladders: a hard full-body day, or a mobility day within 48 h of a
+hard one. Set your equipment in `[profile] equipment` (e.g. add "bar" for pull-ups).
+
 ## Install
 
 ```bash
@@ -33,6 +42,7 @@ sportlock status            # lock state, next lock, trained today
 sportlock start --minutes 30   # start a session now (a full lock: 20, 30 or 45 min)
 sportlock test              # lock now for 1 minute (cannot be overridden)
 sportlock log               # recent locks and how they ended
+sportlock ladders           # where you are on each progression chain
 sportlock override <phrase> # start the override countdown (also on the lock screen)
 sportlock library build     # build missing exercises (~40 s each, 4 in parallel)
 sportlock library build plank --force   # rebuild one exercise

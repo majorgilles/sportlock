@@ -126,6 +126,24 @@ def cmd_library(args) -> None:
             print(f"  {built} {spec['step']}. {spec['name']}  [{exercise_id}]")
 
 
+def _target_text(target: dict) -> str:
+    work = f"{target['reps'][0]}–{target['reps'][1]} reps" if "reps" in target else f"{target['seconds']} s"
+    return f"{target['sets']} × {work}"
+
+
+def cmd_ladders(args) -> None:
+    from .ladders import Ladders
+    from .library import Library
+    from .store import Store
+
+    library = Library()
+    for position in Ladders(Store(), library).all():
+        spec = library.get(position["exercise"])
+        step = f"{spec.get('step', '?')}/{len(spec.get('chain_ids', [])) or '?'}"
+        print(f"{position['chain']:<16} {step:>5}  {spec['name']:<26} {_target_text(position['target']):<16}"
+              f"{position['reason'] or 'starting point'}")
+
+
 def cmd_log(args) -> None:
     for lock in _check(request({"cmd": "log", "limit": args.limit}))["locks"]:
         print(f"{lock['start']}  →  {lock['end'][11:]}   {lock['outcome'] or 'active'}")
@@ -185,6 +203,8 @@ def main(argv: list[str] | None = None) -> None:
     show.add_argument("id")
     lib_sub.add_parser("list", help="all exercises by chain")
     library.set_defaults(run=cmd_library)
+
+    sub.add_parser("ladders", help="where you are on each progression chain").set_defaults(run=cmd_ladders)
 
     args = parser.parse_args(argv)
     if args.command == "service":
