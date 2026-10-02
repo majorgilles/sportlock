@@ -91,6 +91,21 @@ class TrainingTest(unittest.TestCase):
         self.assertEqual(snap["exercises"][2]["name"], "Wall push-up")
         self.assertEqual(snap["current"], 2)
 
+    def test_no_too_hard_on_mobility_or_warmup(self):
+        snap = self.training.snapshot()
+        self.assertFalse(snap["exercises"][0]["has_easier"])  # warm-up
+        with self.assertRaises(TrainingError):
+            self.training.swap_easier(now=self.t(1))
+
+    def test_swap_across_kinds_converts_target(self):
+        from sportlock.training import convert_target
+        self.assertEqual(convert_target({"sets": 2, "rest": 15, "reps": [8, 10]}, "timed"),
+                         {"sets": 2, "rest": 15, "seconds": 120})
+        self.assertEqual(convert_target({"sets": 3, "rest": 45, "seconds": 30}, "reps"),
+                         {"sets": 3, "rest": 45, "reps": [8, 12]})
+        self.assertEqual(convert_target({"sets": 3, "rest": 45, "seconds": 30}, "hold"),
+                         {"sets": 3, "rest": 45, "seconds": 30})
+
     def test_skip_needs_reason(self):
         with self.assertRaises(TrainingError):
             self.training.skip(now=self.t(1), reason="")

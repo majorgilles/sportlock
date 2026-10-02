@@ -22,6 +22,7 @@ from . import config as config_mod
 from . import system
 from .schedule import Window, config_frozen, decide
 from .store import Store
+from . import diagnostics
 from . import profile as profile_mod
 from .agent import Agent, AgentError
 from .training import Training, TrainingError
@@ -32,6 +33,7 @@ SOCKET_PATH = RUNTIME_DIR / "sock"
 LOCKER_DIR = Path(__file__).resolve().parent.parent / "locker"
 TEST_SECONDS = 60
 TICK_SECONDS = 1
+log = diagnostics.setup_logging()
 
 MANUAL_MINUTES = (10, 90)
 TRAIN_ACTIONS = {
@@ -163,9 +165,11 @@ class Service:
         # Claude can take minutes: run without holding the mutex; the store is safe to share.
         try:
             plan = agent.run(now, equipment)
+            log.info("coach planned: hard=%s recovery=%s", plan["hard"]["title"], plan["recovery"]["title"])
             self.agent_retry_at = None
             system.notify("Next session planned", plan.get("rationale") or plan["hard"]["title"])
         except AgentError as error:
+            log.warning("coach failed: %s", error)
             self.agent_retry_at = now_local() + timedelta(minutes=30)
             system.notify("Coach couldn't plan your next session",
                           f"{error}. Using the built-in planner; retrying in 30 min.")
@@ -227,6 +231,7 @@ class Service:
             self.store.put("restore", {"paused": system.pause_media(), "stay_awake": system.idle_stay_awake()})
         system.set_idle_stay_awake(True)
 
+        log.info("lock begins: %s (%s) until %s", lock.key, lock.kind, lock.window.end.isoformat())
         if not lock.test:
             self.store.lock_began(lock.key, lock.window.start, lock.window.end, now)
         agent = Agent(self.store, self.training.library, self.config.notebook_id)
@@ -238,6 +243,8 @@ class Service:
     def _leave_lock(self, now: datetime) -> None:
         lock = self.current
         self.current = None
+        if lock:
+            log.info("lock ends: %s (outcome %s)", lock.key, self._outcome(lock.key) or "expired")
         if lock and self.training.run is not None:
             outcome = self._outcome(lock.key)
             self.training.close(now=now, status="overridden" if outcome == "override" else "abandoned")
@@ -261,6 +268,8 @@ class Service:
     def _ensure_locker(self) -> None:
         if self.locker and self.locker.poll() is None:
             return
+        if self.locker is not None:
+            log.warning("lock screen exited with code %s while a lock is active; relaunching", self.locker.returncode)
         env = dict(os.environ, SPORTLOCK_STATE=str(STATE_PATH), SPORTLOCK_BIN=str(LOCKER_DIR.parent / "bin" / "sportlock"))
         self.locker = subprocess.Popen(
             ["qs", "-p", str(LOCKER_DIR)], env=env,
@@ -384,6 +393,20 @@ class Service:
                         "runs": self.store.get("agent_runs", []),
                         "running": bool(self.agent_thread and self.agent_thread.is_alive())}
 
+            if cmd == "doctor":
+                issues = diagnostics.check(self.store, self.training.library, lock_active=self.current is not None)
+                fixed = diagnostics.repair(issues) if request.get("fix") else 0
+                if fixed:
+                    log.info("doctor repaired %d issue(s)", fixed)
+                return {"ok": True, "issues": [i.as_dict() for i in issues], "fixed": fixed}
+
+            if cmd == "report":
+                issues = diagnostics.check(self.store, self.training.library, lock_active=self.current is not None)
+                path = diagnostics.build_report(self.store, self.training.library, state=getattr(self, "state", None),
+                                                issues=issues, note=str(request.get("note", "")))
+                log.info("problem report written: %s", path)
+                return {"ok": True, "path": str(path)}
+
             if cmd == "log":
                 return {"ok": True, "locks": self.store.recent_locks(int(request.get("limit", 20)))}
 
@@ -401,6 +424,7 @@ class Service:
         try:
             getattr(self.training, action)(now=now, **args)
         except (TrainingError, TypeError, ValueError) as error:
+            log.warning("training action %s %s refused: %s", action, args, error)
             return {"ok": False, "error": str(error)}
 
         if action == "finish" and (lock := self.current):
@@ -447,8 +471,8 @@ class Service:
         while self.running:
             try:
                 self.tick()
-            except Exception as error:  # keep ticking; a dead service would fail open anyway
-                print(f"sportlock: tick failed: {error!r}", flush=True)
+            except Exception:  # keep ticking; a dead service would fail open anyway
+                log.exception("tick failed")
             time.sleep(TICK_SECONDS)
 
         with self.mutex:
@@ -465,6 +489,7 @@ class _Handler(socketserver.StreamRequestHandler):
             request = json.loads(self.rfile.readline() or b"{}")
             response = self.server.service.command(request)
         except Exception as error:
+            log.exception("command failed: %s", locals().get("request"))
             response = {"ok": False, "error": repr(error)}
         self.wfile.write(json.dumps(response).encode() + b"\n")
 

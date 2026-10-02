@@ -53,6 +53,7 @@ ShellRoot {
   // -- helpers -----------------------------------------------------------------------------
 
   function clock(ms) {
+    if (typeof ms !== "number" || !isFinite(ms)) return "–:––"
     var s = Math.max(0, Math.floor(ms / 1000))
     var m = Math.floor(s / 60)
     s = s % 60
@@ -62,7 +63,7 @@ ShellRoot {
   function targetText(e) {
     if (!e) return ""
     var t = e.target
-    if (e.kind === "timed") return clock(t.seconds * 1000)
+    if (e.kind === "timed") return t.seconds ? clock(t.seconds * 1000) : (t.sets + " × timed")
     var setsText = t.sets + (t.sets === 1 ? " set" : " sets")
     var work = e.kind === "reps" ? t.reps[0] + "–" + t.reps[1] + " reps" : "hold " + t.seconds + " s"
     return setsText + " × " + work + (t.rest ? " · rest " + t.rest + " s" : "")

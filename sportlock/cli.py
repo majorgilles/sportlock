@@ -144,6 +144,25 @@ def cmd_ladders(args) -> None:
               f"{position['reason'] or 'starting point'}")
 
 
+def cmd_doctor(args) -> None:
+    response = _check(request({"cmd": "doctor", "fix": args.fix}))
+    if not response["issues"]:
+        print("No problems found.")
+    marks = {"error": "✗", "warning": "!", "info": "·"}
+    for issue in response["issues"]:
+        fix = f"\n    fix: {issue['fix']}" if issue["fix"] else ""
+        print(f"{marks[issue['severity']]} {issue['what']}{fix}")
+    if args.fix:
+        print(f"\nrepaired {response['fixed']} issue(s)")
+    elif any(i["fix"] for i in response["issues"]):
+        print("\nrun `sportlock doctor --fix` to repair")
+
+
+def cmd_report(args) -> None:
+    response = _check(request({"cmd": "report", "note": " ".join(args.note)}))
+    print(f"report written to {response['path']}")
+
+
 def cmd_app(args) -> None:
     import os
     import subprocess
@@ -258,6 +277,14 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("ladders", help="where you are on each progression chain").set_defaults(run=cmd_ladders)
     sub.add_parser("app", help="open the sportlock window (profile / onboarding)").set_defaults(run=cmd_app)
+
+    doctor = sub.add_parser("doctor", help="check your data for inconsistencies")
+    doctor.add_argument("--fix", action="store_true", help="repair what can be repaired")
+    doctor.set_defaults(run=cmd_doctor)
+
+    report = sub.add_parser("report", help="write a problem report with logs, state and recent sessions")
+    report.add_argument("note", nargs="*", help="what happened, in your words")
+    report.set_defaults(run=cmd_report)
 
     agent = sub.add_parser("agent", help="the coaching agent that plans your next session")
     agent_sub = agent.add_subparsers(dest="agent_command", required=True)

@@ -21,6 +21,8 @@ from .library import Library
 from .store import Store, _iso
 
 RUN_KEY = "training"
+LADDERED_CHAINS = {"push-horizontal", "push-vertical", "dip", "pull-horizontal", "pull-vertical", "squat", "hinge", "core"}
+DEFAULT_SECONDS = {"hold": 30, "timed": 120}
 SECONDS_PER_REP = 3
 MIN_TIMED_SECONDS = 120
 
@@ -62,6 +64,23 @@ def fit_plan(plan: list[dict], minutes: float) -> list[dict]:
             continue
         break
     return plan
+
+
+def convert_target(target: dict, kind: str) -> dict:
+    """The same target expressed for another kind of exercise (reps ↔ hold/timed)."""
+    target = {k: v for k, v in target.items() if k not in ("reps", "seconds")} | {
+        k: v for k, v in target.items() if k in ("reps", "seconds")}
+    if kind == "reps" and "reps" not in target:
+        target.pop("seconds", None)
+        target["reps"] = [8, 12]
+    elif kind != "reps" and "seconds" not in target:
+        target.pop("reps", None)
+        target["seconds"] = DEFAULT_SECONDS[kind]
+    elif kind == "reps":
+        target.pop("seconds", None)
+    else:
+        target.pop("reps", None)
+    return target
 
 
 def _ms(moment: str | None) -> int | None:
@@ -242,10 +261,12 @@ class Training:
     def swap_easier(self, *, now: datetime) -> None:
         run = self._require("ready", "resting", "running")
         row = self._current(run)
-        easier = self.library.get(row["exercise"]).get("easier")
+        spec = self.library.get(row["exercise"])
+        easier = spec.get("easier") if spec.get("chain") in LADDERED_CHAINS else None
         if not easier:
             raise TrainingError("no easier variation for this exercise")
-        new_id = self._insert_exercise(run["session_id"], easier, json.loads(row["target"]))
+        target = convert_target(json.loads(row["target"]), self.library.get(easier)["kind"])
+        new_id = self._insert_exercise(run["session_id"], easier, target)
         self.store.db.execute(
             "UPDATE session_exercises SET status = 'swapped', swapped_to = ?, ended_at = ? WHERE id = ?",
             (new_id, _iso(now), row["id"]),
@@ -278,7 +299,8 @@ class Training:
                 "image": spec.get("image", ""), "image_source": spec.get("image_source", ""),
                 "easier_name": self.library.get(spec["easier"])["name"] if spec.get("easier") else "",
                 "harder_name": self.library.get(spec["harder"])["name"] if spec.get("harder") else "",
-                "has_easier": bool(spec.get("easier")), "status": row["status"], "rpe": row["rpe"],
+                "has_easier": bool(spec.get("easier")) and spec.get("chain") in LADDERED_CHAINS,
+                "status": row["status"], "rpe": row["rpe"],
                 "sets": [{"reps": s["reps"], "seconds": s["seconds"], "load_kg": s["load_kg"]} for s in self._sets(row_id)],
             })
         pending = None

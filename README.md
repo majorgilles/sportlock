@@ -25,7 +25,7 @@ The full agreed design is in [DESIGN.md](DESIGN.md).
 8. [Commands](#commands)
 9. [Where your data lives](#where-your-data-lives)
 10. [If you are ever stuck](#if-you-are-ever-stuck)
-11. [Troubleshooting](#troubleshooting)
+11. [Troubleshooting and reporting a problem](#troubleshooting-and-reporting-a-problem)
 12. [Uninstall](#uninstall)
 13. [Development](#development)
 
@@ -243,6 +243,8 @@ Rebuild one exercise with `sportlock library build <id> --force` (ids: `sportloc
 | `sportlock library pictures` | search again for pictures of stick-figure exercises |
 | `sportlock library infographics` | NotebookLM infographics for exercises still without a picture |
 | `sportlock library status` / `list` / `show <id>` | inspect the library |
+| `sportlock doctor [--fix]` | check (and repair) your data |
+| `sportlock report "<what happened>"` | write a problem report file |
 
 The Omarchy menu has a **Sportlock** submenu: profile & settings, and 20/30/45-minute sessions.
 
@@ -254,6 +256,8 @@ The Omarchy menu has a **Sportlock** submenu: profile & settings, and 20/30/45-m
 | `~/.local/share/sportlock/sportlock.db` | SQLite: sessions, exercises, every set, ladders, rule and coach decisions, profile |
 | `~/.local/share/sportlock/backups/` | daily database backups (last 7 kept) |
 | `~/.local/share/sportlock/library/<id>/` | each exercise's `exercise.json` and picture |
+| `~/.local/state/sportlock/sportlock.log` | the service's log |
+| `~/.local/share/sportlock/reports/` | problem reports from `sportlock report` |
 | `$XDG_RUNTIME_DIR/sportlock/` | live state file and control socket (recreated at boot) |
 
 None of this is in the git repository.
@@ -268,7 +272,26 @@ The lock screen **fails open**: if the service stops, the lock releases within a
 
 The service starts again at your next login. To skip a lock the honest way, use **Override…**.
 
-## Troubleshooting
+## Troubleshooting and reporting a problem
+
+When something looks wrong (odd values on the lock screen, a crash, a session that didn't count):
+
+```bash
+sportlock doctor          # checks your data: broken targets, stuck sessions, bad ladders, …
+sportlock doctor --fix    # repairs what it can (never touches a lock in progress)
+sportlock report "what happened, in your own words"
+```
+
+`sportlock report` writes one Markdown file to `~/.local/share/sportlock/reports/` with
+everything needed to diagnose the issue: versions, the doctor's findings, the live state, the last
+3 sessions with every exercise, target and set, coach runs, library status, your config, the
+service journal and log, the lock screen's own logs, and recent core dumps. Run it **right after**
+the problem: the lock screen logs live in `$XDG_RUNTIME_DIR` and are gone after a reboot.
+
+The service keeps its own log at `~/.local/state/sportlock/sportlock.log` (lock start/end,
+refused actions, coach runs, errors with tracebacks).
+
+Common cases:
 
 - **No lock at the scheduled time.** `sportlock status`: check `enabled = true` (and that you ran
   `sportlock reload`), that a profile exists (`sportlock app`), and whether you already trained
