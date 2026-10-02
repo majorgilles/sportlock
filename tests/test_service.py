@@ -108,6 +108,8 @@ class ServiceTest(unittest.TestCase):
         self.assertTrue(cmd({"cmd": "train", "action": "start_set"})["ok"])
         self.assertFalse(cmd({"cmd": "train", "action": "rate", "rpe": 5})["ok"])  # wrong phase
         self.assertFalse(cmd({"cmd": "train", "action": "nope"})["ok"])
+        self.assertFalse(cmd({"cmd": "train", "action": "stop_set"})["ok"])  # still in the 5 s get-ready countdown
+        self.now = self.now.replace(second=6)
         self.assertTrue(cmd({"cmd": "train", "action": "stop_set"})["ok"])
         self.assertEqual(self.at("18:05")["training"]["phase"], "logging")
 

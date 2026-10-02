@@ -21,6 +21,9 @@ enabled = false            # set to true once your schedule below is right
 max_minutes_per_day = 60   # total lock time per day, all locks combined
 warn_minutes = [10, 2]     # notifications before a lock starts
 
+[training]
+lead_in_seconds = 5        # get-ready countdown after pressing Start set (0 = none)
+
 [override]
 phrase = "I am choosing to skip my training today"
 wait_seconds = 300
@@ -66,6 +69,7 @@ class Config:
     locks: tuple[LockEntry, ...] = field(default_factory=tuple)
     notebook_id: str = DEFAULT_NOTEBOOK
     equipment: frozenset[str] = DEFAULT_EQUIPMENT
+    lead_in_seconds: int = 5
 
 
 def _parse_time(value: object, where: str) -> time:
@@ -100,6 +104,9 @@ def parse(data: dict) -> Config:
     override = data.get("override", {})
     notebook = data.get("notebook", {})
     profile = data.get("profile", {})
+    lead_in = data.get("training", {}).get("lead_in_seconds", 5)
+    if not isinstance(lead_in, int) or isinstance(lead_in, bool) or not 0 <= lead_in <= 30:
+        raise ConfigError("training.lead_in_seconds must be a whole number from 0 to 30")
     equipment = profile.get("equipment", sorted(DEFAULT_EQUIPMENT))
     if not isinstance(equipment, list) or not all(isinstance(e, str) for e in equipment):
         raise ConfigError("profile.equipment must be a list of strings")
@@ -132,6 +139,7 @@ def parse(data: dict) -> Config:
         locks=tuple(locks),
         notebook_id=str(notebook.get("id") or DEFAULT_NOTEBOOK),
         equipment=frozenset(e.strip().lower() for e in equipment),
+        lead_in_seconds=lead_in,
     )
 
 

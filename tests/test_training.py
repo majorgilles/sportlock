@@ -91,6 +91,30 @@ class TrainingTest(unittest.TestCase):
         self.assertEqual(snap["exercises"][2]["name"], "Wall push-up")
         self.assertEqual(snap["current"], 2)
 
+    def test_lead_in_delays_the_set_clock(self):
+        tr = self.training
+        tr.start_set(now=self.t(0), lead_in=5)
+        with self.assertRaises(TrainingError):
+            tr.stop_set(now=self.t(3))  # still in the countdown
+        tr.stop_set(now=self.t(65))
+        tr.save_set(now=self.t(66))
+        seconds = self.store.db.execute("SELECT seconds FROM sets").fetchone()[0]
+        self.assertEqual(seconds, 60)  # timed from the end of the countdown
+
+    def test_go_now_and_cancel_during_lead_in(self):
+        tr = self.training
+        tr.start_set(now=self.t(0), lead_in=5)
+        tr.go_now(now=self.t(2))
+        self.assertEqual(tr.snapshot()["set_started_at"], int(self.t(2).timestamp() * 1000))
+        self.do_timed_rest = None
+        tr.stop_set(now=self.t(30)); tr.save_set(now=self.t(31)); tr.rate(now=self.t(32), rpe=3)
+        tr.start_set(now=self.t(40), lead_in=5)
+        tr.cancel_set(now=self.t(42))
+        self.assertEqual(tr.run["phase"], "ready")
+        tr.start_set(now=self.t(50), lead_in=5)
+        with self.assertRaises(TrainingError):
+            tr.cancel_set(now=self.t(60))  # already running
+
     def test_no_too_hard_on_mobility_or_warmup(self):
         snap = self.training.snapshot()
         self.assertFalse(snap["exercises"][0]["has_easier"])  # warm-up

@@ -190,16 +190,39 @@ class Training:
 
     # -- sets ----------------------------------------------------------------------------------
 
-    def start_set(self, *, now: datetime) -> None:
+    def start_set(self, *, now: datetime, lead_in: int = 0) -> None:
+        """Start a set after a `lead_in`-second get-ready countdown; the set is timed from its end."""
         run = self._require("ready", "resting")
         row = self._current(run)
         if row["started_at"] is None:
             self.store.db.execute("UPDATE session_exercises SET started_at = ? WHERE id = ?", (_iso(now), row["id"]))
-        run.update(phase="running", set_started_at=_iso(now), rest_until=None)
+        run.update(phase="running", set_started_at=_iso(now + timedelta(seconds=max(0, int(lead_in)))),
+                   before_start={"phase": run["phase"], "rest_until": run["rest_until"]}, rest_until=None)
+        self._save(run)
+
+    def _in_lead_in(self, run: dict, now: datetime) -> bool:
+        return run["phase"] == "running" and now < datetime.fromisoformat(run["set_started_at"])
+
+    def go_now(self, *, now: datetime) -> None:
+        """Skip the rest of the get-ready countdown."""
+        run = self._require("running")
+        if self._in_lead_in(run, now):
+            run["set_started_at"] = _iso(now)
+            self._save(run)
+
+    def cancel_set(self, *, now: datetime) -> None:
+        """Back out of a set during its get-ready countdown; nothing is logged."""
+        run = self._require("running")
+        if not self._in_lead_in(run, now):
+            raise TrainingError("the set is already running; stop it instead")
+        before = run.pop("before_start", None) or {"phase": "ready", "rest_until": None}
+        run.update(phase=before["phase"], rest_until=before["rest_until"], set_started_at=None)
         self._save(run)
 
     def stop_set(self, *, now: datetime) -> None:
         run = self._require("running")
+        if self._in_lead_in(run, now):
+            raise TrainingError("the set hasn't started yet")
         run.update(phase="logging", set_ended_at=_iso(now))
         self._save(run)
 

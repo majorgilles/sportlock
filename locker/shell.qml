@@ -41,7 +41,10 @@ ShellRoot {
   readonly property string phase: tr ? tr.phase : ""
   readonly property var ex: tr && tr.current < tr.exercises.length ? tr.exercises[tr.current] : null
   readonly property int setNo: ex ? ex.sets.length + 1 : 0
-  readonly property double elapsedMs: tr && tr.set_started_at && phase === "running" ? nowMs - tr.set_started_at : 0
+  readonly property double elapsedMs: tr && tr.set_started_at && phase === "running" ? Math.max(0, nowMs - tr.set_started_at) : 0
+  // Get-ready countdown between pressing Start and the set clock starting.
+  readonly property bool leadIn: tr !== null && phase === "running" && !!tr.set_started_at && nowMs < tr.set_started_at
+  readonly property double leadLeftMs: leadIn ? tr.set_started_at - nowMs : 0
   readonly property double restLeftMs: tr && tr.rest_until && phase === "resting" ? tr.rest_until - nowMs : 0
   readonly property double leftMs: unlockAt - nowMs
   readonly property bool isTest: st !== null && st.lock !== null && st.lock !== undefined && st.lock.test === true
@@ -169,6 +172,7 @@ ShellRoot {
   property int lastSecond: -1
   property bool targetDinged: false
   property bool restDinged: false
+  property bool inLeadIn: false
 
   onPhaseChanged: { lastSecond = -1; targetDinged = false; restDinged = false }
 
@@ -178,7 +182,17 @@ ShellRoot {
     running: root.wantLocked && (root.phase === "running" || root.phase === "resting")
     onTriggered: {
       root.nowMs = Date.now()
-      if (root.phase === "running") {
+      if (root.phase === "running" && root.leadIn) {
+        var count = Math.ceil(root.leadLeftMs / 1000)
+        if (count !== root.lastSecond) tick.play()
+        root.lastSecond = count
+        root.inLeadIn = true
+      } else if (root.phase === "running") {
+        if (root.inLeadIn) {
+          root.inLeadIn = false  // countdown over: the set starts now
+          root.lastSecond = 0
+          tock.play()
+        }
         var second = Math.floor(root.elapsedMs / 1000)
         if (second !== root.lastSecond && second > 0) {
           if (second % 10 === 0) tock.play(); else tick.play()
@@ -411,7 +425,10 @@ ShellRoot {
     Keys.onPressed: function(event) {
       if (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
         if (root.phase === "ready" || root.phase === "resting") root.train("start_set")
-        else if (root.phase === "running") root.train("stop_set")
+        else if (root.phase === "running") root.train(root.leadIn ? "go_now" : "stop_set")
+        event.accepted = true
+      } else if (event.key === Qt.Key_Escape && root.leadIn) {
+        root.train("cancel_set")
         event.accepted = true
       } else if (event.key >= Qt.Key_0 && event.key <= Qt.Key_9 && (root.phase === "rating" || root.phase === "summary")) {
         var n = event.key === Qt.Key_0 ? 10 : event.key - Qt.Key_0
@@ -627,17 +644,19 @@ ShellRoot {
               visible: root.phase === "ready" || root.phase === "running" || root.phase === "resting"
               Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: root.phase === "running" ? root.clock(root.elapsedMs)
+                text: root.leadIn ? String(Math.ceil(root.leadLeftMs / 1000))
+                      : root.phase === "running" ? root.clock(root.elapsedMs)
                       : root.phase === "resting" ? (root.restLeftMs > 0 ? root.clock(root.restLeftMs + 999) : "Go")
                       : "0:00"
-                color: root.phase === "running" ? (root.targetMs > 0 && root.elapsedMs >= root.targetMs ? root.accent : root.fg)
+                color: root.leadIn ? root.accent : root.phase === "running" ? (root.targetMs > 0 && root.elapsedMs >= root.targetMs ? root.accent : root.fg)
                        : root.phase === "resting" ? (root.restLeftMs > 0 ? root.muted : root.accent) : root.line
                 font.pixelSize: 96
                 font.family: "monospace"
               }
               Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: root.phase === "running" ? (root.targetMs > 0 ? "target " + root.clock(root.targetMs) : "set " + root.setNo + " running")
+                text: root.leadIn ? "get into position — set " + root.setNo + " starts"
+                      : root.phase === "running" ? (root.targetMs > 0 ? "target " + root.clock(root.targetMs) : "set " + root.setNo + " running")
                       : root.phase === "resting" ? "rest" : "press Start when you begin"
                 color: root.muted
                 font.pixelSize: 15
@@ -716,11 +735,17 @@ ShellRoot {
               spacing: 12
               visible: root.phase === "ready" || root.phase === "running" || root.phase === "resting"
               Btn {
-                label: root.phase === "running" ? "Stop" : "Start set " + root.setNo
+                label: root.leadIn ? "Go now" : root.phase === "running" ? "Stop" : "Start set " + root.setNo
                 hint: "Space"
                 primary: true
                 big: true
-                onClicked: root.train(root.phase === "running" ? "stop_set" : "start_set")
+                onClicked: root.train(root.leadIn ? "go_now" : root.phase === "running" ? "stop_set" : "start_set")
+              }
+              Btn {
+                visible: root.leadIn
+                label: "Cancel"
+                hint: "Esc"
+                onClicked: root.train("cancel_set")
               }
               Btn {
                 visible: root.phase === "resting" || (root.phase === "ready" && root.ex && root.ex.sets.length > 0)

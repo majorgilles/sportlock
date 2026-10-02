@@ -101,6 +101,9 @@ enabled = true              # false: no scheduled locks at all
 max_minutes_per_day = 60    # total scheduled lock time per day, all locks combined
 warn_minutes = [10, 2]      # notifications before each lock
 
+[training]
+lead_in_seconds = 5         # get-ready countdown after pressing Start set (0 = none)
+
 [override]
 phrase = "I am choosing to skip my training today"   # what you type to override a lock
 wait_seconds = 300                                   # countdown after typing it
@@ -147,8 +150,10 @@ resumed afterwards) and Omarchy's idle lock is kept off.
 1. Read the card: name, target (e.g. *3 sets × 8–12 reps · rest 60 s*), why it is at this level,
    and the picture with cues beside it. **D** shows the full instructions: steps, cues, common
    mistakes, breathing, easier/harder variations and which book they come from.
-2. **Start set** (Space). A big clock runs with a tick every second (a deeper knock every 10 s).
-   Holds and timed blocks ding when you reach the target.
+2. **Start set** (Space). A get-ready countdown (5 s by default, `lead_in_seconds`) ticks down
+   while you get into position; **Space** skips it, **Esc** cancels. Then the set clock runs
+   with a tick every second (a deeper knock when it starts and every 10 s). The countdown is not
+   part of the set's time. Holds and timed blocks ding when you reach the target.
 3. **Stop** (Space). The set's duration is recorded automatically. Type the reps (and added
    load in kg if any) and press Enter.
 4. A rest countdown starts; it ticks for the last 5 seconds and dings at zero. Start the next set
@@ -167,7 +172,8 @@ then **Finish session**. The screen unlocks and a notification says what changes
 **Override:** **Override…** → type the phrase exactly → a 5-minute countdown starts (you can
 cancel it). Every override is logged. Test locks can't be overridden.
 
-**Keys:** Space / Enter start and stop a set · 1–9, 0 effort · D full instructions · Enter
+**Keys:** Space / Enter start and stop a set (and skip the get-ready countdown) · Esc cancel
+during the countdown · 1–9, 0 effort · D full instructions · Enter
 submits fields · Shift+Enter new line in notes.
 
 ## How sessions are planned

@@ -37,7 +37,7 @@ log = diagnostics.setup_logging()
 
 MANUAL_MINUTES = (10, 90)
 TRAIN_ACTIONS = {
-    "start_set": (), "stop_set": (), "end_sets": (), "swap_easier": (),
+    "start_set": (), "stop_set": (), "end_sets": (), "swap_easier": (), "go_now": (), "cancel_set": (),
     "save_set": ("reps", "load_kg"), "rate": ("rpe", "note"), "skip": ("reason",),
     "finish": ("rpe", "notes", "calories", "avg_hr", "body_weight"),
 }
@@ -421,6 +421,8 @@ class Service:
         if action not in TRAIN_ACTIONS:
             return {"ok": False, "error": f"unknown training action {action!r}"}
         args = {name: request[name] for name in TRAIN_ACTIONS[action] if request.get(name) not in (None, "")}
+        if action == "start_set":
+            args["lead_in"] = self.config.lead_in_seconds
         try:
             getattr(self.training, action)(now=now, **args)
         except (TrainingError, TypeError, ValueError) as error:
