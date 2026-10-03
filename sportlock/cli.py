@@ -171,9 +171,23 @@ def cmd_app(args) -> None:
     from .service import STATE_PATH
 
     repo = Path(__file__).resolve().parent.parent
+    app_dir = str(repo / "app")
+
+    # One window at a time: focus the running app instead of opening a second one. Instances
+    # without a window (left over from older versions) are closed.
+    running = subprocess.run(["pgrep", "-f", f"qs -p {app_dir}$"], capture_output=True, text=True).stdout.split()
+    if running:
+        clients = subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout
+        with_window = {str(c["pid"]) for c in json.loads(clients or "[]")}
+        for pid in running:
+            if pid in with_window:
+                subprocess.run(["hyprctl", "dispatch", "focuswindow", f"pid:{pid}"], capture_output=True)
+                return
+            subprocess.run(["kill", pid], capture_output=True)
+
     env = dict(os.environ, SPORTLOCK_STATE=str(STATE_PATH), SPORTLOCK_BIN=str(repo / "bin" / "sportlock"),
                SPORTLOCK_TAB=args.tab)
-    subprocess.Popen(["qs", "-p", str(repo / "app")], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    subprocess.Popen(["qs", "-p", app_dir], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                      start_new_session=True)
 
 

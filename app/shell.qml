@@ -280,8 +280,29 @@ ShellRoot {
   // -- window ---------------------------------------------------------------------------------
 
   FloatingWindow {
+    id: window
     visible: true
     title: "sportlock"
+    // Closing the window (button, Esc, or the window manager) ends the app; nothing lingers.
+    onVisibleChanged: if (!visible) Qt.quit()
+
+    Shortcut { sequences: ["Escape"]; onActivated: Qt.quit() }
+
+    Rectangle {
+      anchors.top: parent.top
+      anchors.right: parent.right
+      anchors.topMargin: 20
+      anchors.rightMargin: 40
+      z: 10
+      width: closeText.implicitWidth + 32
+      height: 38
+      radius: 19
+      color: closeArea.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+      border.width: 1
+      border.color: root.muted
+      Text { id: closeText; anchors.centerIn: parent; text: "✕  Close"; color: root.fg; font.pixelSize: 15 }
+      MouseArea { id: closeArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: Qt.quit() }
+    }
     implicitWidth: 1000
     implicitHeight: 940
     color: root.bg
