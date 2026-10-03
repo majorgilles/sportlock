@@ -278,7 +278,7 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("ladders", help="where you are on each progression chain").set_defaults(run=cmd_ladders)
     app = sub.add_parser("app", help="open the sportlock window (profile, schedule & settings)")
-    app.add_argument("tab", nargs="?", choices=("profile", "settings"), default="profile")
+    app.add_argument("tab", nargs="?", choices=("calendar", "profile", "settings"), default="calendar")
     app.set_defaults(run=cmd_app)
 
     doctor = sub.add_parser("doctor", help="check your data for inconsistencies")

@@ -157,7 +157,7 @@ class Store:
 
     def ended_early(self) -> set[str]:
         """Window keys ended by a finished session or an override."""
-        rows = self.db.execute("SELECT key FROM lock_events WHERE outcome IN ('completed', 'override')")
+        rows = self.db.execute("SELECT key FROM lock_events WHERE outcome IN ('completed', 'override', 'rest')")
         return {row["key"] for row in rows}
 
     def recent_locks(self, limit: int = 20) -> list[dict]:

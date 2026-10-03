@@ -115,13 +115,13 @@ class Ladders:
         ).fetchone()
         return datetime.fromisoformat(row["at"]) if row and row["at"] else None
 
-    def plan(self, now: datetime, equipment: set[str]) -> dict:
+    def plan(self, now: datetime, equipment: set[str], mode: str | None = None) -> dict:
         """Hard full-body day from the ladders, or a mobility day within 48 h of a hard one."""
         last_hard = self.last_hard_session(now)
-        if last_hard and now - last_hard < HARD_GAP:
-            hours = int((HARD_GAP - (now - last_hard)).total_seconds() // 3600)
-            return {"title": "Mobility & recovery", "day_type": "mobility",
-                    "note": f"Hard session {int((now - last_hard).total_seconds() // 3600)} h ago; next hard day in ~{hours} h",
+        recovery_day = mode == "recovery" or (mode is None and last_hard and now - last_hard < HARD_GAP)
+        if recovery_day:
+            note = (f"Hard session {int((now - last_hard).total_seconds() // 3600)} h ago" if last_hard else "Recovery day")
+            return {"title": "Mobility & recovery", "day_type": "mobility", "note": note,
                     "plan": [dict(WARMUP), *(i for i in (self._available(x, equipment) for x in MOBILITY_DAY) if i),
                              dict(COOLDOWN)]}
 

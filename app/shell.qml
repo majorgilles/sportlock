@@ -62,7 +62,41 @@ ShellRoot {
 
   // -- schedule & settings ------------------------------------------------------------------
 
-  property string tab: Quickshell.env("SPORTLOCK_TAB") === "settings" ? "settings" : "profile"
+  property string tab: Quickshell.env("SPORTLOCK_TAB") || "calendar"
+
+  // -- calendar -------------------------------------------------------------------------------
+
+  property var calendar: null
+  property string selectedDay: ""
+
+  function loadCalendar() {
+    send({ cmd: "calendar" }, function(response) {
+      root.calendar = response.calendar
+      if (!root.selectedDay) root.selectedDay = response.calendar.today
+    })
+  }
+
+  function dayData(date) {
+    if (!calendar) return null
+    for (var i = 0; i < calendar.days.length; i++) if (calendar.days[i].date === date) return calendar.days[i]
+    return null
+  }
+
+  function targetText(t) {
+    if (!t) return ""
+    var work = t.reps ? t.reps[0] + "–" + t.reps[1] + " reps" : (t.seconds >= 120 && t.sets === 1
+               ? Math.round(t.seconds / 60) + " min" : t.seconds + " s")
+    return (t.sets > 1 ? t.sets + " × " : "") + work
+  }
+
+  function setsText(sets) {
+    return sets.map(function(s) {
+      var x = s.reps !== null && s.reps !== undefined ? s.reps + "" : Math.round(s.seconds) + " s"
+      return s.load_kg ? x + " +" + s.load_kg + " kg" : x
+    }).join(", ")
+  }
+
+  function modeColor(mode) { return mode === "hard" ? root.accent : mode === "rest" ? root.muted : root.fg }
   property var settings: null
   property int rev: 0  // bumped when settings are mutated in place (keeps text fields' focus)
   property string settingsMessage: ""
@@ -139,6 +173,7 @@ ShellRoot {
   }
 
   Component.onCompleted: {
+    loadCalendar()
     loadSettings()
     send({ cmd: "profile-get" }, function(response) {
       root.choices = response.choices
@@ -247,16 +282,273 @@ ShellRoot {
   FloatingWindow {
     visible: true
     title: "sportlock"
-    implicitWidth: 760
-    implicitHeight: 900
+    implicitWidth: 1000
+    implicitHeight: 940
     color: root.bg
 
     Row {
       id: tabs
       x: 40; y: 20
       spacing: 8
+      Chip { label: "Calendar"; on: root.tab === "calendar"; onClicked: { root.tab = "calendar"; root.loadCalendar() } }
       Chip { label: "Profile"; on: root.tab === "profile"; onClicked: root.tab = "profile" }
       Chip { label: "Schedule & settings"; on: root.tab === "settings"; onClicked: { root.tab = "settings"; root.loadSettings() } }
+    }
+
+    Flickable {
+      anchors.top: tabs.bottom
+      anchors.topMargin: 4
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.bottom: parent.bottom
+      visible: root.tab === "calendar"
+      contentHeight: cal.implicitHeight + 64
+      clip: true
+      boundsBehavior: Flickable.StopAtBounds
+
+      Column {
+        id: cal
+        x: 40; y: 32
+        width: parent.width - 80
+        spacing: 16
+
+        Column {
+          spacing: 6
+          Text { text: "Calendar"; color: root.fg; font.pixelSize: 30; font.weight: Font.DemiBold }
+          Text {
+            width: cal.width
+            wrapMode: Text.WordWrap
+            color: root.muted
+            font.pixelSize: 15
+            text: root.calendar ? "Last 7 days: " + root.calendar.load.sessions_last_7_days + (root.calendar.load.sessions_last_7_days === 1 ? " session, " : " sessions, ")
+                  + root.calendar.load.minutes_last_7_days + " min. Click a day for details." : "Loading…"
+          }
+        }
+
+        Row {
+          spacing: 6
+          Repeater {
+            model: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            delegate: Text {
+              required property var modelData
+              width: (cal.width - 36) / 7
+              text: modelData
+              color: root.muted
+              font.pixelSize: 13
+              horizontalAlignment: Text.AlignHCenter
+            }
+          }
+        }
+
+        Grid {
+          columns: 7
+          spacing: 6
+          Repeater {
+            model: root.calendar ? root.calendar.days : []
+            delegate: Rectangle {
+              id: cell
+              required property var modelData
+              readonly property date when: new Date(modelData.date + "T12:00:00")
+              width: (cal.width - 36) / 7
+              height: 104
+              radius: 8
+              color: root.selectedDay === modelData.date ? Qt.rgba(1, 1, 1, 0.08) : root.panel
+              border.width: modelData.today ? 2 : 1
+              border.color: modelData.today ? root.accent : root.line
+              opacity: modelData.past && modelData.sessions.length === 0 && modelData.locks.length === 0 ? 0.55 : 1
+              clip: true
+
+              Column {
+                x: 8; y: 6
+                width: parent.width - 16
+                spacing: 3
+                Text {
+                  text: cell.when.getDate() === 1 || cell.modelData.today ? Qt.formatDate(cell.when, "d MMM") : cell.when.getDate()
+                  color: cell.modelData.today ? root.accent : root.muted
+                  font.pixelSize: 13
+                  font.weight: cell.modelData.today ? Font.DemiBold : Font.Normal
+                }
+                Repeater {
+                  model: cell.modelData.sessions
+                  delegate: Text {
+                    required property var modelData
+                    width: cell.width - 16
+                    elide: Text.ElideRight
+                    text: (modelData.status === "finished" ? "✓ " : "✗ ") + modelData.title
+                          + (modelData.minutes !== null ? " · " + modelData.minutes + "′" : "")
+                    color: modelData.status === "finished" ? root.accent : root.urgent
+                    font.pixelSize: 12
+                  }
+                }
+                Repeater {
+                  model: cell.modelData.locks.filter(function(l) { return l.outcome === "rest" || l.outcome === "override" })
+                  delegate: Text {
+                    required property var modelData
+                    text: modelData.outcome === "rest" ? "☾ rest day" : "⏻ overridden"
+                    color: root.muted
+                    font.pixelSize: 12
+                  }
+                }
+                Repeater {
+                  model: cell.modelData.planned || []
+                  delegate: Text {
+                    required property var modelData
+                    width: cell.width - 16
+                    elide: Text.ElideRight
+                    text: modelData.mode === "rest" ? modelData.time + " ☾ rest"
+                          : modelData.mode === "later" ? modelData.time + " · " + modelData.minutes + "′"
+                          : modelData.time + " " + modelData.mode + " · " + modelData.minutes + "′"
+                    color: modelData.mode === "later" ? root.muted : root.modeColor(modelData.mode)
+                    font.pixelSize: 12
+                    font.weight: modelData.next ? Font.DemiBold : Font.Normal
+                  }
+                }
+              }
+              MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.selectedDay = cell.modelData.date }
+            }
+          }
+        }
+
+        // Details of the selected day
+        Rectangle {
+          readonly property var day: root.dayData(root.selectedDay)
+          id: detail
+          width: cal.width
+          height: detailColumn.implicitHeight + 40
+          radius: 10
+          color: root.panel
+          border.width: 1
+          border.color: root.line
+          visible: day !== null
+
+          Column {
+            id: detailColumn
+            x: 20; y: 20
+            width: parent.width - 40
+            spacing: 14
+
+            Text {
+              text: detail.day ? Qt.formatDate(new Date(detail.day.date + "T12:00:00"), "dddd d MMMM") : ""
+              color: root.fg
+              font.pixelSize: 20
+              font.weight: Font.DemiBold
+            }
+            Text {
+              visible: detail.day !== null && detail.day.sessions.length === 0 && !(detail.day.planned && detail.day.planned.length)
+                       && detail.day.locks.length === 0
+              text: "Nothing on this day."
+              color: root.muted
+              font.pixelSize: 15
+            }
+
+            Repeater {
+              model: detail.day ? detail.day.sessions : []
+              delegate: Column {
+                required property var modelData
+                width: detailColumn.width
+                spacing: 6
+                Text {
+                  width: parent.width
+                  wrapMode: Text.WordWrap
+                  text: modelData.title + "  ·  " + modelData.time + (modelData.minutes !== null ? ", " + modelData.minutes + " min" : "")
+                        + "  ·  " + (modelData.status === "finished" ? "done" : modelData.status)
+                        + (modelData.rpe ? "  ·  effort " + modelData.rpe : "") + (modelData.day_type ? "  ·  " + modelData.day_type + " day" : "")
+                  color: modelData.status === "finished" ? root.accent : root.urgent
+                  font.pixelSize: 16
+                }
+                Text {
+                  visible: modelData.notes.length > 0
+                  width: parent.width
+                  wrapMode: Text.WordWrap
+                  text: modelData.notes
+                  color: root.muted
+                  font.pixelSize: 14
+                }
+                Repeater {
+                  model: modelData.exercises
+                  delegate: Text {
+                    required property var modelData
+                    width: detailColumn.width
+                    wrapMode: Text.WordWrap
+                    text: "•  " + modelData.name + ":  "
+                          + (modelData.status === "skipped" ? "skipped (" + modelData.skip_reason + ")"
+                             : modelData.sets.length ? root.setsText(modelData.sets) + (modelData.rpe ? "  · effort " + modelData.rpe : "")
+                             : "not done")
+                          + (modelData.note ? "  — " + modelData.note : "")
+                    color: modelData.status === "done" ? root.fg : root.muted
+                    font.pixelSize: 14
+                  }
+                }
+              }
+            }
+
+            Repeater {
+              model: detail.day ? detail.day.locks.filter(function(l) { return l.outcome === "rest" }) : []
+              delegate: Text {
+                required property var modelData
+                width: detailColumn.width
+                wrapMode: Text.WordWrap
+                text: "☾ Rest day instead of the " + modelData.time + " lock" + (modelData.reason ? ": " + modelData.reason : "")
+                color: root.muted
+                font.pixelSize: 15
+              }
+            }
+
+            Repeater {
+              model: detail.day && detail.day.planned ? detail.day.planned : []
+              delegate: Column {
+                required property var modelData
+                width: detailColumn.width
+                spacing: 6
+                Text {
+                  width: parent.width
+                  wrapMode: Text.WordWrap
+                  text: modelData.mode === "rest" ? "Planned " + modelData.time + ": rest day"
+                        : modelData.mode === "later" ? "Lock at " + modelData.time + ", up to " + modelData.minutes + " min"
+                        : "Planned " + modelData.time + ": " + modelData.mode + " session, " + modelData.minutes + " min"
+                          + (modelData.minutes < modelData.scheduled_minutes ? " (shortened from " + modelData.scheduled_minutes + ")" : "")
+                  color: modelData.mode === "later" ? root.fg : root.modeColor(modelData.mode)
+                  font.pixelSize: 16
+                }
+                Text {
+                  visible: !!modelData.reason
+                  width: parent.width
+                  wrapMode: Text.WordWrap
+                  text: (modelData.mode === "later" ? "" : (modelData.decided ? "Decided: " : "Expected: ")) + (modelData.reason || "")
+                  color: root.muted
+                  font.pixelSize: 14
+                }
+                Text {
+                  visible: !!modelData.title
+                  width: parent.width
+                  wrapMode: Text.WordWrap
+                  text: (modelData.title || "") + (modelData.rationale ? " — " + modelData.rationale : "")
+                  color: root.fg
+                  font.pixelSize: 14
+                }
+                Repeater {
+                  model: modelData.exercises || []
+                  delegate: Text {
+                    required property var modelData
+                    width: detailColumn.width
+                    wrapMode: Text.WordWrap
+                    text: "•  " + modelData.name + ":  " + root.targetText(modelData.target)
+                          + (modelData.target.progress ? "  — " + modelData.target.progress : "")
+                    color: root.fg
+                    font.pixelSize: 14
+                  }
+                }
+                Text {
+                  visible: !!modelData.next && !modelData.exercises
+                  text: "The exact exercises are chosen when the lock starts."
+                  color: root.muted
+                  font.pixelSize: 13
+                }
+              }
+            }
+          }
+        }
+      }
     }
 
     Flickable {
@@ -523,6 +815,51 @@ ShellRoot {
                 text: root.settings ? String(root.settings.lead_in_seconds) : ""
                 input.validator: IntValidator { bottom: 0; top: 30 }
                 onEdited: function(value) { root.settings.lead_in_seconds = value }
+              }
+            }
+          }
+        }
+
+        Section {
+          title: "Recovery and rest days"
+          hint: "After a big session the coach can shorten the next lock to a recovery session, or make it a rest day. These limits always apply."
+          Row {
+            spacing: 8
+            Chip { label: "Rest days allowed"; on: root.rev >= 0 && !!root.settings && root.settings.allow_rest_days === true
+                   onClicked: { root.settings.allow_rest_days = true; root.rev += 1 } }
+            Chip { label: "No rest days"; on: root.rev >= 0 && !!root.settings && root.settings.allow_rest_days !== true
+                   onClicked: { root.settings.allow_rest_days = false; root.rev += 1 } }
+          }
+          Flow {
+            width: parent.width; spacing: 12
+            Column {
+              spacing: 4
+              Text { text: "Max rest days in a row"; color: root.muted; font.pixelSize: 13 }
+              Field {
+                implicitWidth: 120
+                text: root.settings ? String(root.settings.max_rest_days_in_a_row) : ""
+                input.validator: IntValidator { bottom: 0; top: 6 }
+                onEdited: function(value) { root.settings.max_rest_days_in_a_row = value }
+              }
+            }
+            Column {
+              spacing: 4
+              Text { text: "Min sessions per 7 days for a rest day"; color: root.muted; font.pixelSize: 13 }
+              Field {
+                implicitWidth: 120
+                text: root.settings ? String(root.settings.min_sessions_per_week) : ""
+                input.validator: IntValidator { bottom: 0; top: 7 }
+                onEdited: function(value) { root.settings.min_sessions_per_week = value }
+              }
+            }
+            Column {
+              spacing: 4
+              Text { text: "Recovery lock length (minutes)"; color: root.muted; font.pixelSize: 13 }
+              Field {
+                implicitWidth: 120
+                text: root.settings ? String(root.settings.recovery_minutes) : ""
+                input.validator: IntValidator { bottom: 5; top: 60 }
+                onEdited: function(value) { root.settings.recovery_minutes = value }
               }
             }
           }

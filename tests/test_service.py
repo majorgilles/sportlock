@@ -1,6 +1,6 @@
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -213,6 +213,52 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(len(self.svc.config.locks), 2)
         self.at("18:30")
         self.assertEqual(len(self.svc.config.locks), 1)
+
+    def add_session(self, finished, minutes=45, rpe=8, day_type="hard"):
+        started = finished - timedelta(minutes=minutes)
+        self.svc.store.db.execute(
+            "INSERT INTO sessions (day, started_at, finished_at, kind, status, day_type, rpe)"
+            " VALUES (?, ?, ?, 'scheduled', 'finished', ?, ?)",
+            (finished.date().isoformat(), started.isoformat(), finished.isoformat(), day_type, rpe))
+
+    def test_recovery_lock_is_shorter_and_does_not_relock(self):
+        self.add_session(self.now - timedelta(hours=20))  # hard session yesterday evening
+        state = self.at("18:00")
+        self.assertTrue(state["locked"])
+        self.assertEqual(state["training"]["day_type"], "mobility")
+        self.assertEqual((state["lock"]["end"] - state["lock"]["start"]) // 60000, 15)
+        self.assertFalse(self.at("18:16")["locked"])
+        self.assertFalse(self.at("18:20")["locked"])  # the scheduled window runs to 18:30: no relock
+
+    def test_coach_rest_day_skips_the_lock(self):
+        from sportlock.agent import PLAN_KEY
+
+        for hours in (20, 70, 120):
+            self.add_session(self.now - timedelta(hours=hours))
+        agent = self.svc._agent()
+        self.svc.store.put(PLAN_KEY, {"basis": agent.basis(), "rationale": "", "hard": {}, "recovery": {},
+                                      "next_lock": {"mode": "rest", "recovery_minutes": None,
+                                                    "reason": "Yesterday's 45 min at effort 8"}})
+        self.at("17:50")  # decided 10 minutes before
+        self.assertIn("Rest day: no lock at 18:00", self.desktop.notifications)
+        self.assertFalse(self.at("18:00")["locked"])
+        self.assertFalse(self.at("18:10")["locked"])
+        self.assertEqual(self.svc.store.recent_locks()[0]["outcome"], "rest")
+        self.assertNotIn("Training lock at 18:00", self.desktop.notifications)
+
+    def test_calendar_shows_history_and_plans(self):
+        self.add_session(self.now - timedelta(hours=20))
+        cal = self.svc.command({"cmd": "calendar"})["calendar"]
+        days = {d["date"]: d for d in cal["days"]}
+        self.assertEqual(days[cal["days"][0]["date"]]["date"], cal["days"][0]["date"])
+        self.assertEqual(len(cal["days"]) % 7, 0)
+        yesterday = (self.now - timedelta(hours=20)).date().isoformat()
+        self.assertEqual(days[yesterday]["sessions"][0]["status"], "finished")
+        today = days[self.now.date().isoformat()]
+        self.assertEqual(today["planned"][0]["mode"], "recovery")  # within 48 h of yesterday's hard session
+        self.assertTrue(today["planned"][0]["next"])
+        later = [p for d in cal["days"] for p in d.get("planned", []) if not p.get("next")]
+        self.assertTrue(all(p["mode"] == "later" for p in later))
 
     def test_profile_validation(self):
         bad = self.svc.command({"cmd": "profile-save", "profile": {"experience": "expert", "goals": []}})

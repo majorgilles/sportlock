@@ -53,6 +53,15 @@ SCHEMA = {
         "recovery": {**_PLAN, "properties": {**_PLAN["properties"],
                                              "day_type": {"type": "string", "enum": ["light", "mobility"]}},
                      "required": ["title", "day_type", "exercises"]},
+        "next_lock": {
+            "type": "object",
+            "properties": {
+                "mode": {"type": "string", "enum": ["auto", "recovery", "rest"]},
+                "recovery_minutes": {"type": ["integer", "null"]},
+                "reason": {"type": "string"},
+            },
+            "required": ["mode", "recovery_minutes", "reason"],
+        },
         "ladder_overrides": {"type": "array", "items": {
             "type": "object",
             "properties": {"chain": {"type": "string"}, **{k: _ITEM["properties"][k] for k in
@@ -61,7 +70,7 @@ SCHEMA = {
             "required": ["chain", "exercise", "sets", "reps_low", "reps_high", "seconds", "rest", "reason"],
         }},
     },
-    "required": ["rationale", "hard", "recovery", "ladder_overrides"],
+    "required": ["rationale", "hard", "recovery", "next_lock", "ladder_overrides"],
 }
 
 PROMPT = """You are the coach inside "sportlock", a desktop app that locks the user's computer until they
@@ -91,6 +100,16 @@ shown to the user on the exercise card: one short sentence on why this exercise 
 "ladder_overrides": only when you disagree with where the rule engine put a chain for the
 future (e.g. it moved them up but notes report pain). Each needs a concrete reason. Usually [].
 
+"next_lock": what the user's NEXT scheduled lock (see "upcoming_locks") should be, given their
+recent load ("load"), the time since their last session and how they felt (efforts, notes):
+- "auto": the app picks hard if the last hard session was ≥ 48 h before that lock, else recovery;
+- "recovery": serve the recovery version, for "recovery_minutes" (5–60) — shorter than the
+  scheduled lock when a short mobility block is what they need;
+- "rest": skip that lock entirely (a rest day). Only sensible right after a big or hard session
+  (e.g. 45+ min, or high effort, the day before). The app enforces limits ("rest_policy"); if
+  rest isn't allowed it falls back to recovery.
+"reason": one sentence shown to the user (e.g. "Yesterday's 45 min at effort 8 needs a rest day").
+
 "rationale": 1–2 sentences for the user about the overall idea of the next session.
 
 Only use exercises whose equipment the user has. Respect injuries and limitations in the profile.
@@ -105,7 +124,10 @@ class AgentError(RuntimeError):
 
 
 class Agent:
-    def __init__(self, store: Store, library: Library, notebook_id: str):
+    def __init__(self, store: Store, library: Library, notebook_id: str, *,
+                 upcoming_locks: list[dict] | None = None, rest_policy: dict | None = None):
+        self.upcoming_locks = upcoming_locks
+        self.rest_policy = rest_policy
         self.store = store
         self.library = library
         self.ladders = Ladders(store, library)
@@ -165,6 +187,9 @@ class Agent:
                          for p in self.store.db.execute("SELECT * FROM proposals WHERE session_id = ? ORDER BY id", (row["id"],))]
 
         last_hard = self.ladders.last_hard_session(now)
+        from . import recovery
+
+        load = recovery.load_summary(self.store, now)
         catalogue = [{"id": i, "name": spec["name"], "chain": spec["chain"], "step": spec["step"], "kind": spec["kind"],
                       "equipment": spec.get("equipment", []), "available": set(spec.get("equipment", [])) <= equipment}
                      for i, spec in self.library.seed.items()]
@@ -173,6 +198,7 @@ class Agent:
             "equipment": sorted(equipment),
             "last_hard_session": last_hard and _iso(last_hard),
             "ladders": ladders, "rule_proposals_from_last_session": proposals,
+            "load": load, "upcoming_locks": self.upcoming_locks or [], "rest_policy": self.rest_policy or {},
             "recent_sessions": sessions, "catalogue": catalogue,
         }
 
@@ -250,7 +276,15 @@ class Agent:
                 raise AgentError("override without a reason")
             item.pop("progress", None)
             overrides.append({"chain": raw["chain"], "reason": raw["reason"].strip(), **item})
+        next_lock = output.get("next_lock") or {"mode": "auto", "recovery_minutes": None, "reason": ""}
+        if next_lock.get("mode") not in ("auto", "recovery", "rest"):
+            raise AgentError(f"next_lock mode {next_lock.get('mode')!r}")
+        minutes = next_lock.get("recovery_minutes")
+        if minutes is not None and (not isinstance(minutes, int) or not 5 <= minutes <= 60):
+            raise AgentError(f"next_lock recovery_minutes {minutes!r}")
         return {
+            "next_lock": {"mode": next_lock["mode"], "recovery_minutes": minutes,
+                          "reason": str(next_lock.get("reason", "")).strip()},
             "rationale": str(output.get("rationale", "")).strip(),
             "hard": {"title": output["hard"]["title"].strip() or "Full body", "day_type": "hard", "plan": hard},
             "recovery": {"title": output["recovery"]["title"].strip() or "Recovery",

@@ -35,15 +35,24 @@ def _work_seconds(item: dict) -> int:
     return item["reps"][1] * SECONDS_PER_REP if "reps" in item else item["seconds"]
 
 
-def estimate_seconds(plan: list[dict]) -> int:
-    return sum(item["sets"] * (_work_seconds(item) + item["rest"]) for item in plan)
+def _estimate(plan: list[dict], *, pace: float = 1.0, transition: int = 0) -> int:
+    """Expected session length: sets × (work + rest) scaled by the user's measured pace, plus the
+    measured gap between exercises."""
+    work = sum(item["sets"] * (_work_seconds(item) + item["rest"]) for item in plan)
+    return int(work * pace + transition * len(plan))
 
 
-def fit_plan(plan: list[dict], minutes: float) -> list[dict]:
+estimate_seconds = _estimate
+
+
+def fit_plan(plan: list[dict], minutes: float, *, pace: float = 1.0, transition: int = 0) -> list[dict]:
     """Shrink the plan to fit the lock: fewer sets first, then shorter warm-up/cool-down,
     then drop main exercises from the end. Warm-up and cool-down (first/last) always stay."""
     plan = [dict(item) for item in plan]
     budget = minutes * 60
+
+    def estimate_seconds(items):
+        return _estimate(items, pace=pace, transition=transition)
 
     def main_items():
         return plan[1:-1] if len(plan) > 2 else []
@@ -132,20 +141,27 @@ class Training:
 
     def begin(self, *, now: datetime, kind: str, lock_key: str | None, minutes: float,
               equipment: frozenset[str] | set[str] = frozenset({"chair", "table", "bench", "doorway"}),
-              generated: dict | None = None) -> None:
-        """`generated`: a fresh agent plan (hard + recovery); without one the local planner is used."""
+              generated: dict | None = None, mode: str | None = None) -> None:
+        """`generated`: a fresh agent plan (hard + recovery); without one the local planner is used.
+        `mode`: "hard" or "recovery" as decided for this lock; None lets the 48-hour rule decide."""
         if self.run is not None:
             return
+        from . import recovery
+
         if generated:
             from .agent import choose
 
-            planned = dict(choose(generated, last_hard=self.ladders.last_hard_session(now), now=now))
+            if mode in ("hard", "recovery"):
+                planned = dict(generated[mode])
+            else:
+                planned = dict(choose(generated, last_hard=self.ladders.last_hard_session(now), now=now))
             planned["note"] = generated.get("rationale", "")
             source = "generated"
         else:
-            planned = self.ladders.plan(now, set(equipment))
+            planned = self.ladders.plan(now, set(equipment), mode=mode)
             source = "local"
-        plan = fit_plan(planned["plan"], minutes)
+        plan = fit_plan(planned["plan"], minutes, pace=recovery.pace_factor(self.store),
+                        transition=recovery.transition_seconds(self.store))
         # finished_at is NOT NULL from the first schema; it is rewritten when the session closes.
         cursor = self.store.db.execute(
             "INSERT INTO sessions (day, started_at, finished_at, kind, lock_key, status, title, day_type, plan_source,"
@@ -160,14 +176,25 @@ class Training:
                     "set_started_at": None, "set_ended_at": None, "last_set_end": None, "rest_until": None})
 
     def close(self, *, now: datetime, status: str) -> None:
-        """End an unfinished session (abandoned when time ran out, overridden)."""
+        """End an unfinished session (abandoned when time ran out, overridden). When time ran out
+        but all the main work was done (only the cool-down, or less, left), it counts as finished."""
         run = self.run
         if run is None:
             return
-        self.store.db.execute("UPDATE sessions SET status = ?, finished_at = ? WHERE id = ?",
-                              (status, _iso(now), run["session_id"]))
+        notes = None
+        if status == "abandoned" and self._main_work_done(run):
+            status, notes = "finished", "Time ran out after the main work; counted as a session."
+        self.store.db.execute("UPDATE sessions SET status = ?, finished_at = ?, notes = COALESCE(?, notes) WHERE id = ?",
+                              (status, _iso(now), notes, run["session_id"]))
         self.store.delete(RUN_KEY)
         self._progress(run["session_id"], now)
+
+    def _main_work_done(self, run: dict) -> bool:
+        """Every exercise except the first (warm-up) and last (cool-down) is done or was swapped
+        for an easier one that is done."""
+        rows = [self._row(row_id) for row_id in run["order"]]
+        main = rows[1:-1] if len(rows) > 2 else rows
+        return bool(main) and all(r["status"] in ("done", "swapped") for r in main)
 
     def finish(self, *, now: datetime, rpe: int, notes: str = "", calories: int | None = None,
                avg_hr: int | None = None, body_weight: float | None = None) -> int:

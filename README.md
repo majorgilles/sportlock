@@ -4,6 +4,10 @@ Scheduled training locks for [Omarchy](https://omarchy.org). At the times you ch
 desktop locks into a full-screen training session. It unlocks when you **finish the session or
 the lock's time runs out, whichever comes first**, so it never holds your computer hostage.
 
+Open the app with `sportlock app` (or Omarchy menu → **Sportlock**): a **Calendar** of past
+sessions and planned locks (hard, recovery or rest, with the coach's plan for the next one), your
+**Profile**, and **Schedule & settings**.
+
 Sessions are planned by a coach (Claude Code, running headless) from your profile, your history
 and the training books in your NotebookLM notebook. Every exercise comes with a picture, step-by-step
 instructions and the reason it is at its current difficulty. Everything you do is logged per
@@ -102,6 +106,12 @@ warn_minutes = [10, 2]      # notifications before each lock
 
 [training]
 lead_in_seconds = 5         # get-ready countdown after pressing Start set (0 = none)
+
+[recovery]
+allow_rest_days = true      # the coach may turn a lock into a rest day after a big session
+max_rest_days_in_a_row = 2
+min_sessions_per_week = 3   # no rest day unless you trained at least this often in the last 7 days
+recovery_minutes = 15       # default length of a recovery lock
 
 [override]
 phrase = "I am choosing to skip my training today"   # what you type to override a lock
@@ -208,7 +218,24 @@ NotebookLM books (read-only; it has no other tool). It writes two versions of th
 - **recovery** (mobility or light), used within 48 h of a hard session.
 
 Each exercise gets a one-line reason shown on its card, and the session gets a short rationale
-shown at the top. The coach may override a rule decision (e.g. hold you back when a note mentions
+shown at the top.
+
+**Recovery and rest days.** Each scheduled lock is decided about 10 minutes before it starts:
+
+- **hard**: the full session for the full lock;
+- **recovery**: the recovery version, and the lock is shortened (default 15 min, or what the
+  coach chose). Used within 48 h of a hard session, or when the coach asks for it;
+- **rest**: no lock at all, with a notification saying why. Only when the coach asks for it
+  *and* the guardrails allow it: a counted session in the last 36 h, at least 3 sessions in the
+  last 7 days, and no more than 2 rest days in a row (all adjustable in Schedule & settings,
+  or switch rest days off). Otherwise it becomes a recovery lock.
+
+The coach decides from your load over the last week (minutes × effort per session), how long ago
+you trained, and your efforts and notes. Sessions are sized to the lock from your measured pace:
+how long your sets, rests and the gaps between exercises really take.
+
+A session where time runs out after all the main work is done (only the cool-down left) still
+counts as a session. The coach may override a rule decision (e.g. hold you back when a note mentions
 pain); the reason is stored. Its output is checked (known exercises, your equipment, sane
 targets) before it is used. If the coach fails, or its plan is out of date, the built-in planner
 builds the session from your ladders, and a notification tells you why. Plans are trimmed to the
@@ -240,7 +267,7 @@ Rebuild one exercise with `sportlock library build <id> --force` (ids: `sportloc
 | `sportlock cancel-override` | cancel it |
 | `sportlock log` | recent locks and how they ended |
 | `sportlock ladders` | your position on every chain, with the reason |
-| `sportlock app [settings]` | profile window, or the Schedule & settings tab |
+| `sportlock app [calendar\|profile\|settings]` | the app, on the given tab (default: calendar) |
 | `sportlock agent status` | the coach's current plan and its recent runs |
 | `sportlock agent run` | plan the next session now, in the foreground |
 | `sportlock reload` | re-read `config.toml` |

@@ -24,6 +24,12 @@ warn_minutes = [10, 2]     # notifications before a lock starts
 [training]
 lead_in_seconds = 5        # get-ready countdown after pressing Start set (0 = none)
 
+[recovery]
+allow_rest_days = true     # the coach may turn a lock into a rest day after a big session
+max_rest_days_in_a_row = 2
+min_sessions_per_week = 3  # no rest day unless you trained at least this often in the last 7 days
+recovery_minutes = 15      # default length of a recovery lock
+
 [override]
 phrase = "I am choosing to skip my training today"
 wait_seconds = 300
@@ -70,6 +76,10 @@ class Config:
     notebook_id: str = DEFAULT_NOTEBOOK
     equipment: frozenset[str] = DEFAULT_EQUIPMENT
     lead_in_seconds: int = 5
+    allow_rest_days: bool = True
+    max_rest_days_in_a_row: int = 2
+    min_sessions_per_week: int = 3
+    recovery_minutes: int = 15
 
 
 def _parse_time(value: object, where: str) -> time:
@@ -104,6 +114,13 @@ def parse(data: dict) -> Config:
     override = data.get("override", {})
     notebook = data.get("notebook", {})
     profile = data.get("profile", {})
+    rec = data.get("recovery", {})
+
+    def ranged(key, default, lo, hi):
+        value = rec.get(key, default)
+        if not isinstance(value, int) or isinstance(value, bool) or not lo <= value <= hi:
+            raise ConfigError(f"recovery.{key} must be a whole number from {lo} to {hi}")
+        return value
     lead_in = data.get("training", {}).get("lead_in_seconds", 5)
     if not isinstance(lead_in, int) or isinstance(lead_in, bool) or not 0 <= lead_in <= 30:
         raise ConfigError("training.lead_in_seconds must be a whole number from 0 to 30")
@@ -140,6 +157,10 @@ def parse(data: dict) -> Config:
         notebook_id=str(notebook.get("id") or DEFAULT_NOTEBOOK),
         equipment=frozenset(e.strip().lower() for e in equipment),
         lead_in_seconds=lead_in,
+        allow_rest_days=bool(rec.get("allow_rest_days", True)),
+        max_rest_days_in_a_row=ranged("max_rest_days_in_a_row", 2, 0, 6),
+        min_sessions_per_week=ranged("min_sessions_per_week", 3, 0, 7),
+        recovery_minutes=ranged("recovery_minutes", 15, 5, 60),
     )
 
 
@@ -165,6 +186,10 @@ def to_settings(config: Config) -> dict:
         "lead_in_seconds": config.lead_in_seconds,
         "override_phrase": config.override_phrase,
         "override_wait_seconds": config.override_wait_seconds,
+        "allow_rest_days": config.allow_rest_days,
+        "max_rest_days_in_a_row": config.max_rest_days_in_a_row,
+        "min_sessions_per_week": config.min_sessions_per_week,
+        "recovery_minutes": config.recovery_minutes,
         "locks": [{"days": [DAYS[d] for d in sorted(lock.days)], "at": lock.at.strftime("%H:%M"),
                    "minutes": lock.minutes} for lock in config.locks],
     }
@@ -193,6 +218,10 @@ def from_settings(settings: dict, current: Config) -> Config:
         "training": {"lead_in_seconds": number("lead_in_seconds", current.lead_in_seconds)},
         "override": {"phrase": str(settings.get("override_phrase", current.override_phrase)),
                      "wait_seconds": number("override_wait_seconds", current.override_wait_seconds)},
+        "recovery": {"allow_rest_days": bool(settings.get("allow_rest_days", current.allow_rest_days)),
+                     "max_rest_days_in_a_row": number("max_rest_days_in_a_row", current.max_rest_days_in_a_row),
+                     "min_sessions_per_week": number("min_sessions_per_week", current.min_sessions_per_week),
+                     "recovery_minutes": number("recovery_minutes", current.recovery_minutes)},
         "profile": {"equipment": sorted(current.equipment)},
         "notebook": {"id": current.notebook_id},
         "lock": locks,
@@ -225,6 +254,12 @@ def dump(config: Config) -> str:
         "",
         "[training]",
         f"lead_in_seconds = {config.lead_in_seconds}        # get-ready countdown after pressing Start set (0 = none)",
+        "",
+        "[recovery]",
+        f"allow_rest_days = {'true' if config.allow_rest_days else 'false'}",
+        f"max_rest_days_in_a_row = {config.max_rest_days_in_a_row}",
+        f"min_sessions_per_week = {config.min_sessions_per_week}",
+        f"recovery_minutes = {config.recovery_minutes}",
         "",
         "[override]",
         f'phrase = "{phrase}"',

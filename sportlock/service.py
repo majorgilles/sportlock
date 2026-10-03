@@ -20,9 +20,10 @@ from pathlib import Path
 
 from . import config as config_mod
 from . import system
-from .schedule import Window, config_frozen, decide
+from .schedule import Window, config_frozen, decide, windows_around
 from .store import Store
 from . import diagnostics
+from . import recovery
 from . import profile as profile_mod
 from .agent import Agent, AgentError
 from .training import Training, TrainingError
@@ -56,6 +57,7 @@ class ActiveLock:
     key: str
     window: Window
     kind: str  # scheduled | manual | test
+    mode: str | None = None  # hard | recovery, as planned for a scheduled lock
 
     @property
     def overridable(self) -> bool:
@@ -133,13 +135,61 @@ class Service:
                 self.store.delete("manual_lock")
 
         if decision.active and self.setup_complete():
-            candidates.append(ActiveLock(decision.active.key, decision.active, "scheduled"))
+            plan = self._lock_plan(decision.active, now)
+            if plan["mode"] == "rest":
+                self._record_rest(decision.active, plan, now)
+            else:
+                end = datetime.fromisoformat(plan["end"])  # recovery locks can be shorter
+                if now < end:
+                    candidates.append(ActiveLock(decision.active.key, Window(decision.active.start, end),
+                                                 "scheduled", mode=plan["mode"]))
 
         # Stay under the lock already on screen while it is still due; overlaps don't swap sessions.
         for lock in candidates:
             if self.current and lock.key == self.current.key:
                 return lock
         return candidates[0] if candidates else None
+
+    # -- what each scheduled lock should be ------------------------------------------------------
+
+    def _policy(self) -> recovery.Policy:
+        c = self.config
+        return recovery.Policy(c.allow_rest_days, c.max_rest_days_in_a_row, c.min_sessions_per_week, c.recovery_minutes)
+
+    def _agent(self) -> Agent:
+        now = now_local()
+        upcoming = [{"start": w.start.isoformat(timespec="minutes"), "minutes": int((w.end - w.start).total_seconds() // 60)}
+                    for w in windows_around(self.config, now) if w.start > now][:3] if self.config.enabled else []
+        p = self._policy()
+        return Agent(self.store, self.training.library, self.config.notebook_id, upcoming_locks=upcoming,
+                     rest_policy={"allow_rest_days": p.allow_rest_days, "max_rest_days_in_a_row": p.max_rest_days_in_a_row,
+                                  "min_sessions_per_week": p.min_sessions_per_week,
+                                  "default_recovery_minutes": p.recovery_minutes})
+
+    def _lock_plan(self, window: Window, now: datetime) -> dict:
+        """Decide once per scheduled lock (from 10 minutes before it) whether it is hard, recovery
+        (maybe shorter) or a rest day; the decision is stored so it survives restarts."""
+        plans = self.store.get("lock_plans", {})
+        if window.key in plans:
+            return plans[window.key]
+        fresh = self._agent().fresh_plan()
+        minutes = int((window.end - window.start).total_seconds() // 60)
+        decided = recovery.plan_lock(self.store, self._policy(), now=window.start, window_minutes=minutes,
+                                     coach=fresh.get("next_lock") if fresh else None)
+        entry = {"mode": decided.mode, "minutes": decided.minutes, "reason": decided.reason,
+                 "end": (window.start + timedelta(minutes=decided.minutes)).isoformat()}
+        plans[window.key] = entry
+        self.store.put("lock_plans", dict(list(plans.items())[-40:]))
+        log.info("lock %s planned as %s (%s min): %s", window.key, decided.mode, decided.minutes, decided.reason)
+        if decided.mode == "rest":
+            system.notify(f"Rest day: no lock at {window.start.strftime('%H:%M')}", decided.reason)
+        return entry
+
+    def _record_rest(self, window: Window, plan: dict, now: datetime) -> None:
+        if window.key in self.store.ended_early():
+            return
+        self.store.lock_began(window.key, window.start, window.end, now)
+        self.store.lock_ended(window.key, "rest", now)
 
     def setup_complete(self) -> bool:
         return profile_mod.load(self.store) is not None
@@ -154,7 +204,7 @@ class Service:
             return
         if self.agent_retry_at and now < self.agent_retry_at:
             return
-        agent = Agent(self.store, self.training.library, self.config.notebook_id)
+        agent = self._agent()
         if not agent.needs_run():
             return
         equipment = self.equipment()
@@ -182,6 +232,8 @@ class Service:
             self._settle_override(now)
 
             decision = self._decision(now)
+            if decision.next and self.setup_complete() and decision.next.start - timedelta(minutes=10) <= now:
+                self._lock_plan(decision.next, now)  # decide early so the warning can say what's coming
             wanted = self._wanted_lock(now, decision)
             self._warn(decision, wanted)
 
@@ -210,10 +262,15 @@ class Service:
         warned = self.store.get("warned", [])
         if tag in warned:
             return
+        plan = self.store.get("lock_plans", {}).get(decision.next.key)
+        if plan and plan["mode"] == "rest":
+            return  # the rest-day notification already went out
         start = decision.next.start.strftime("%H:%M")
+        minutes = plan["minutes"] if plan else int((decision.next.end - decision.next.start).total_seconds() // 60)
+        kind = "Recovery lock" if plan and plan["mode"] == "recovery" else "Training lock"
         system.notify(
-            f"Training lock at {start}",
-            f"Your desktop locks in {decision.warning} min for {int((decision.next.end - decision.next.start).total_seconds() // 60)} min.",
+            f"{kind} at {start}",
+            f"Your desktop locks in {decision.warning} min for {minutes} min." + (f" {plan['reason']}" if plan and plan["reason"] else ""),
             urgent=decision.warning <= 2,
         )
         self.store.put("warned", (warned + [tag])[-50:])
@@ -234,10 +291,9 @@ class Service:
         log.info("lock begins: %s (%s) until %s", lock.key, lock.kind, lock.window.end.isoformat())
         if not lock.test:
             self.store.lock_began(lock.key, lock.window.start, lock.window.end, now)
-        agent = Agent(self.store, self.training.library, self.config.notebook_id)
         self.training.begin(now=now, kind=lock.kind, lock_key=lock.key,
                             minutes=(lock.window.end - now).total_seconds() / 60, equipment=self.equipment(),
-                            generated=agent.fresh_plan())
+                            generated=self._agent().fresh_plan(), mode=lock.mode)
         self.current = lock
 
     def _leave_lock(self, now: datetime) -> None:
@@ -386,6 +442,14 @@ class Service:
                 self.agent_retry_at = None
                 self._schedule_tick()
                 return {"ok": True, "profile": saved}
+
+            if cmd == "calendar":
+                from . import agenda
+
+                return {"ok": True, "calendar": agenda.build(
+                    self.store, self.training.library, self.config, now=now, coach_plan=self._agent().fresh_plan(),
+                    lock_plans=self.store.get("lock_plans", {}), policy=self._policy(),
+                    days_back=int(request.get("days_back", 14)), days_ahead=int(request.get("days_ahead", 14)))}
 
             if cmd == "settings-get":
                 # Show what's in the file (it may be newer than what's applied, while frozen).
