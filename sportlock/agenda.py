@@ -59,6 +59,8 @@ def build(store: Store, library: Library, config: Config, *, now: datetime, coac
             "minutes": round((finished - started).total_seconds() / 60) if started else None,
             "rpe": s["rpe"], "notes": s["notes"] or "", "source": s["plan_source"],
             "exercises": _session_details(store, library, s["id"]),
+            "recommendations": coach_plan.get("recommendations", [])
+                               if coach_plan and coach_plan.get("feedback_session") == s["id"] else [],
         })
     for event in store.db.execute("SELECT * FROM lock_events WHERE substr(start, 1, 10) BETWEEN ? AND ?",
                                   (first.isoformat(), last.isoformat())):
@@ -93,7 +95,8 @@ def build(store: Store, library: Library, config: Config, *, now: datetime, coac
                 if coach_plan and entry["mode"] in ("hard", "recovery"):
                     version = coach_plan[entry["mode"]]
                     entry.update(title=version.get("title", ""), rationale=coach_plan.get("rationale", ""),
-                                 exercises=_plan_details(library, version))
+                                 exercises=_plan_details(library, version),
+                                 recommendations=coach_plan.get("recommendations", []))
                 next_done = True
             days[day.isoformat()].setdefault("planned", []).append(entry)
         day += timedelta(days=1)

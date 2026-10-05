@@ -62,6 +62,16 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(self.agent.fresh_plan()["rationale"], GOOD["rationale"])
         self.assertTrue(self.store.get("agent_runs")[-1]["ok"])
 
+    def test_recommendations_answer_the_last_session(self):
+        self.store.db.execute("INSERT INTO sessions (day, finished_at, kind, status, notes) VALUES"
+                              " ('2026-10-05', ?, 'scheduled', 'finished', 'push-ups way too easy')", (NOW.isoformat(),))
+        session = self.agent.last_session_id()
+        tips = [{"about": " Push-ups too easy ", "advice": " Go down to the bench. "}, {"about": "empty", "advice": " "}]
+        plan = self.run_with({**GOOD, "recommendations": tips})
+        self.assertEqual(plan["recommendations"], [{"about": "Push-ups too easy", "advice": "Go down to the bench."}])
+        self.assertEqual(plan["feedback_session"], session)
+        self.assertIsNone(self.run_with(GOOD)["feedback_session"])  # nothing to answer
+
     def test_plan_goes_stale_after_a_new_session(self):
         self.run_with(GOOD)
         self.store.db.execute("INSERT INTO sessions (day, finished_at, kind, status) VALUES ('2026-10-05', ?, 'scheduled', 'finished')",

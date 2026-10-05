@@ -32,6 +32,7 @@ RUNTIME_DIR = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
 STATE_PATH = RUNTIME_DIR / "state.json"
 SOCKET_PATH = RUNTIME_DIR / "sock"
 LOCKER_DIR = Path(__file__).resolve().parent.parent / "locker"
+POPUP_DIR = Path(__file__).resolve().parent.parent / "popup"
 TEST_SECONDS = 60
 TICK_SECONDS = 1
 log = diagnostics.setup_logging()
@@ -85,6 +86,7 @@ class Service:
         self.current: ActiveLock | None = None  # lock the screen is (or should be) under
         self.waiting_for_omarchy = False
         self.locker: subprocess.Popen | None = None
+        self.popup: subprocess.Popen | None = None
         self.running = True
         self._load_config(force=True)
 
@@ -217,7 +219,11 @@ class Service:
             plan = agent.run(now, equipment)
             log.info("coach planned: hard=%s recovery=%s", plan["hard"]["title"], plan["recovery"]["title"])
             self.agent_retry_at = None
-            system.notify("Next session planned", plan.get("rationale") or plan["hard"]["title"])
+            if plan["recommendations"]:
+                system.notify("Coach's feedback on your session",
+                              "\n".join(f"• {r['advice']}" for r in plan["recommendations"]))
+            else:
+                system.notify("Next session planned", plan.get("rationale") or plan["hard"]["title"])
         except AgentError as error:
             log.warning("coach failed: %s", error)
             self.agent_retry_at = now_local() + timedelta(minutes=30)
@@ -273,7 +279,36 @@ class Service:
             f"Your desktop locks in {decision.warning} min for {minutes} min." + (f" {plan['reason']}" if plan and plan["reason"] else ""),
             urgent=decision.warning <= 2,
         )
+        # The first warning also gets a popup in front of everything: notifications are easy to miss.
+        if self.config.warn_popup and not any(t.startswith(f"{decision.next.key}:") for t in warned):
+            self._show_popup(decision.next, plan, minutes, kind)
         self.store.put("warned", (warned + [tag])[-50:])
+
+    def _show_popup(self, window: Window, plan: dict | None, minutes: int, kind: str) -> None:
+        coach = self._agent().fresh_plan()
+        mode = plan["mode"] if plan else None
+        version = coach.get(mode) if coach and mode in ("hard", "recovery") else None
+        content = {
+            "headline": f"{kind} at {window.start.strftime('%H:%M')}",
+            "start": _epoch_ms(window.start),
+            "minutes": minutes,
+            "title": version["title"] if version else "",
+            "reason": plan["reason"] if plan else "",
+            "recommendations": coach.get("recommendations", []) if coach else [],
+            "theme": system.theme(),
+        }
+        self._close_popup()
+        env = dict(os.environ, SPORTLOCK_POPUP=json.dumps(content))
+        try:
+            self.popup = subprocess.Popen(["qs", "-p", str(POPUP_DIR)], env=env, stdout=subprocess.DEVNULL,
+                                          stderr=subprocess.DEVNULL, start_new_session=True)
+        except OSError as error:
+            log.warning("could not show the warning popup: %s", error)
+
+    def _close_popup(self) -> None:
+        if self.popup and self.popup.poll() is None:
+            self.popup.terminate()
+        self.popup = None
 
     # -- locking -------------------------------------------------------------------------------
 
@@ -283,6 +318,7 @@ class Service:
             self.waiting_for_omarchy = True
             return
         self.waiting_for_omarchy = False
+        self._close_popup()
 
         if self.store.get("restore") is None:
             self.store.put("restore", {"paused": system.pause_media(), "stay_awake": system.idle_stay_awake()})

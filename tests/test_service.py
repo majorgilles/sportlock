@@ -61,7 +61,9 @@ class ServiceTest(unittest.TestCase):
             mock.patch.object(service_mod, "STATE_PATH", self.tmp / "state.json"),
             mock.patch.object(service_mod, "now_local", lambda: self.now),
             mock.patch.object(service_mod.Service, "_ensure_locker", lambda _: None),
+            mock.patch.object(service_mod.Service, "_show_popup", lambda _, window, *a: self.popups.append(window.key)),
         ]
+        self.popups = []
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
@@ -81,8 +83,12 @@ class ServiceTest(unittest.TestCase):
         self.assertFalse(self.at("17:00")["locked"])
         self.at("17:50")
         self.assertEqual(self.desktop.notifications, ["Training lock at 18:00"])
+        self.assertEqual(self.popups, ["2026-10-05T18:00"])
         self.at("17:51")
         self.assertEqual(len(self.desktop.notifications), 1)  # not repeated
+        self.at("17:58")
+        self.assertEqual(len(self.desktop.notifications), 2)  # the 2-minute warning
+        self.assertEqual(len(self.popups), 1)  # the popup only comes with the first one
 
         state = self.at("18:00")
         self.assertTrue(state["locked"])
@@ -245,6 +251,28 @@ class ServiceTest(unittest.TestCase):
         self.assertFalse(self.at("18:10")["locked"])
         self.assertEqual(self.svc.store.recent_locks()[0]["outcome"], "rest")
         self.assertNotIn("Training lock at 18:00", self.desktop.notifications)
+
+    def test_warning_popup_can_be_turned_off(self):
+        (self.tmp / "config.toml").write_text(CONFIG.replace("max_minutes_per_day = 60", "max_minutes_per_day = 60\nwarn_popup = false"))
+        self.svc._load_config(force=True)
+        self.at("17:50")
+        self.assertEqual(self.desktop.notifications, ["Training lock at 18:00"])
+        self.assertEqual(self.popups, [])
+
+    def test_calendar_shows_coach_feedback_on_the_last_session(self):
+        from sportlock.agent import PLAN_KEY
+
+        self.add_session(self.now - timedelta(hours=20))
+        agent = self.svc._agent()
+        tips = [{"about": "Push-ups too easy", "advice": "Lower the hand height."}]
+        self.svc.store.put(PLAN_KEY, {"basis": agent.basis(), "rationale": "", "recommendations": tips,
+                                      "feedback_session": agent.last_session_id(),
+                                      "hard": {"title": "Hard", "plan": []}, "recovery": {"title": "Easy", "plan": []},
+                                      "next_lock": {"mode": "auto", "recovery_minutes": None, "reason": ""}})
+        days = {d["date"]: d for d in self.svc.command({"cmd": "calendar"})["calendar"]["days"]}
+        yesterday = (self.now - timedelta(hours=20)).date().isoformat()
+        self.assertEqual(days[yesterday]["sessions"][0]["recommendations"], tips)
+        self.assertEqual(days[self.now.date().isoformat()]["planned"][0]["recommendations"], tips)
 
     def test_calendar_shows_history_and_plans(self):
         self.add_session(self.now - timedelta(hours=20))

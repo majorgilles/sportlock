@@ -20,6 +20,7 @@ DEFAULT_CONFIG = """\
 enabled = false            # set to true once your schedule below is right
 max_minutes_per_day = 60   # total lock time per day, all locks combined
 warn_minutes = [10, 2]     # notifications before a lock starts
+warn_popup = true          # the first warning is also a popup in front of everything
 
 [training]
 lead_in_seconds = 5        # get-ready countdown after pressing Start set (0 = none)
@@ -70,6 +71,7 @@ class Config:
     enabled: bool = True
     max_minutes_per_day: int = 60
     warn_minutes: tuple[int, ...] = (10, 2)
+    warn_popup: bool = True
     override_phrase: str = "I am choosing to skip my training today"
     override_wait_seconds: int = 300
     locks: tuple[LockEntry, ...] = field(default_factory=tuple)
@@ -151,6 +153,7 @@ def parse(data: dict) -> Config:
         enabled=bool(general.get("enabled", True)),
         max_minutes_per_day=_positive_int(general.get("max_minutes_per_day", 60), "general.max_minutes_per_day"),
         warn_minutes=tuple(sorted(set(warn), reverse=True)),
+        warn_popup=bool(general.get("warn_popup", True)),
         override_phrase=phrase.strip(),
         override_wait_seconds=_positive_int(override.get("wait_seconds", 300), "override.wait_seconds"),
         locks=tuple(locks),
@@ -183,6 +186,7 @@ def to_settings(config: Config) -> dict:
         "enabled": config.enabled,
         "max_minutes_per_day": config.max_minutes_per_day,
         "warn_minutes": list(config.warn_minutes),
+        "warn_popup": config.warn_popup,
         "lead_in_seconds": config.lead_in_seconds,
         "override_phrase": config.override_phrase,
         "override_wait_seconds": config.override_wait_seconds,
@@ -214,7 +218,8 @@ def from_settings(settings: dict, current: Config) -> Config:
     data = {
         "general": {"enabled": bool(settings.get("enabled")),
                     "max_minutes_per_day": number("max_minutes_per_day", current.max_minutes_per_day),
-                    "warn_minutes": [number_in(m, "warning minutes") for m in settings.get("warn_minutes", [])]},
+                    "warn_minutes": [number_in(m, "warning minutes") for m in settings.get("warn_minutes", [])],
+                    "warn_popup": bool(settings.get("warn_popup", current.warn_popup))},
         "training": {"lead_in_seconds": number("lead_in_seconds", current.lead_in_seconds)},
         "override": {"phrase": str(settings.get("override_phrase", current.override_phrase)),
                      "wait_seconds": number("override_wait_seconds", current.override_wait_seconds)},
@@ -251,6 +256,7 @@ def dump(config: Config) -> str:
         f"enabled = {'true' if config.enabled else 'false'}",
         f"max_minutes_per_day = {config.max_minutes_per_day}   # total lock time per day, all locks combined",
         f"warn_minutes = {_toml_list(config.warn_minutes)}     # notifications before a lock starts",
+        f"warn_popup = {'true' if config.warn_popup else 'false'}          # the first warning is also a popup in front of everything",
         "",
         "[training]",
         f"lead_in_seconds = {config.lead_in_seconds}        # get-ready countdown after pressing Start set (0 = none)",

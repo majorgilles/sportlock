@@ -500,6 +500,24 @@ ShellRoot {
                     font.pixelSize: 14
                   }
                 }
+                Column {
+                  visible: !!modelData.recommendations && modelData.recommendations.length > 0
+                  width: detailColumn.width
+                  spacing: 4
+                  topPadding: 4
+                  Text { text: "Coach's feedback"; color: root.accent; font.pixelSize: 12; font.capitalization: Font.AllUppercase; font.letterSpacing: 1 }
+                  Repeater {
+                    model: modelData.recommendations || []
+                    delegate: Text {
+                      required property var modelData
+                      width: detailColumn.width
+                      wrapMode: Text.WordWrap
+                      text: "•  " + (modelData.about ? modelData.about + ": " : "") + modelData.advice
+                      color: root.fg
+                      font.pixelSize: 14
+                    }
+                  }
+                }
               }
             }
 
@@ -557,6 +575,24 @@ ShellRoot {
                           + (modelData.target.progress ? "  — " + modelData.target.progress : "")
                     color: root.fg
                     font.pixelSize: 14
+                  }
+                }
+                Column {
+                  visible: !!modelData.recommendations && modelData.recommendations.length > 0
+                  width: detailColumn.width
+                  spacing: 4
+                  topPadding: 4
+                  Text { text: "Coach, on your last session"; color: root.accent; font.pixelSize: 12; font.capitalization: Font.AllUppercase; font.letterSpacing: 1 }
+                  Repeater {
+                    model: modelData.recommendations || []
+                    delegate: Text {
+                      required property var modelData
+                      width: detailColumn.width
+                      wrapMode: Text.WordWrap
+                      text: "•  " + (modelData.about ? modelData.about + ": " : "") + modelData.advice
+                      color: root.fg
+                      font.pixelSize: 14
+                    }
                   }
                 }
                 Text {
@@ -826,6 +862,17 @@ ShellRoot {
                 placeholder: "10, 2"
                 text: root.settings ? root.settings.warn_minutes.join(", ") : ""
                 onEdited: function(value) { root.settings.warn_minutes = value.split(/[ ,]+/).filter(function(v) { return v.length > 0 }) }
+              }
+            }
+            Column {
+              spacing: 4
+              Text { text: "Popup with the first warning"; color: root.muted; font.pixelSize: 13 }
+              Row {
+                spacing: 8
+                Chip { label: "On"; on: root.rev >= 0 && !!root.settings && root.settings.warn_popup === true
+                       onClicked: { root.settings.warn_popup = true; root.rev += 1 } }
+                Chip { label: "Off"; on: root.rev >= 0 && !!root.settings && root.settings.warn_popup !== true
+                       onClicked: { root.settings.warn_popup = false; root.rev += 1 } }
               }
             }
             Column {

@@ -32,6 +32,9 @@ The full agreed design is in [DESIGN.md](DESIGN.md).
 11. [Troubleshooting and reporting a problem](#troubleshooting-and-reporting-a-problem)
 12. [Uninstall](#uninstall)
 13. [Development](#development)
+14. [License](#license)
+14. [License](#license)
+14. [License](#license)
 
 ---
 
@@ -103,6 +106,7 @@ defaults shown here.
 enabled = true              # false: no scheduled locks at all
 max_minutes_per_day = 60    # total scheduled lock time per day, all locks combined
 warn_minutes = [10, 2]      # notifications before each lock
+warn_popup = true           # the first warning is also a popup in front of everything
 
 [training]
 lead_in_seconds = 5         # get-ready countdown after pressing Start set (0 = none)
@@ -145,7 +149,10 @@ How locks combine:
   started with `sportlock start`.
 - **Wall clock**: if the computer was off or asleep when a lock started, it locks on wake/boot for
   the time that is left. Time asleep counts.
-- **Warnings** arrive as notifications before each lock.
+- **Warnings** arrive as notifications before each lock. The first one also comes as a popup
+  over everything, with a countdown, what the session is and the coach's tips; close it with
+  **Got it**, Enter, Esc or a click outside it. It closes by itself when the lock starts.
+  Switch it off in Schedule & settings.
 - **Omarchy's own lock screen**: if it is up when a lock is due, sportlock takes over as soon as
   you unlock it; the countdown keeps running meanwhile.
 
@@ -219,6 +226,12 @@ NotebookLM books (read-only; it has no other tool). It writes two versions of th
 
 Each exercise gets a one-line reason shown on its card, and the session gets a short rationale
 shown at the top.
+
+The coach also answers your feedback on the last session (its notes, exercise notes, efforts and
+skips) with up to four concrete recommendations: technique, how to make an exercise harder or
+easier at home, recovery, or a setting to change. You get them in a notification once the coach
+has planned, in the warning popup before the next lock, and in the Calendar (under that session
+and under the next planned lock).
 
 **Recovery and rest days.** Each scheduled lock is decided about 10 minutes before it starts:
 
@@ -362,3 +375,7 @@ Layout: `sportlock/` Python service and CLI (`service.py` schedule and locking, 
 session state machine, `rules.py` and `ladders.py` progression, `agent.py` the coach,
 `library.py` exercise library, `profile.py` onboarding), `locker/` lock-screen QML, `app/`
 profile window QML, `tools/` helpers, `tests/`.
+
+## License
+
+[MIT](LICENSE)

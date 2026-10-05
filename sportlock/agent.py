@@ -62,6 +62,11 @@ SCHEMA = {
             },
             "required": ["mode", "recovery_minutes", "reason"],
         },
+        "recommendations": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"about": {"type": "string"}, "advice": {"type": "string"}},
+            "required": ["about", "advice"],
+        }},
         "ladder_overrides": {"type": "array", "items": {
             "type": "object",
             "properties": {"chain": {"type": "string"}, **{k: _ITEM["properties"][k] for k in
@@ -70,7 +75,7 @@ SCHEMA = {
             "required": ["chain", "exercise", "sets", "reps_low", "reps_high", "seconds", "rest", "reason"],
         }},
     },
-    "required": ["rationale", "hard", "recovery", "next_lock", "ladder_overrides"],
+    "required": ["rationale", "recommendations", "hard", "recovery", "next_lock", "ladder_overrides"],
 }
 
 PROMPT = """You are the coach inside "sportlock", a desktop app that locks the user's computer until they
@@ -112,6 +117,14 @@ recent load ("load"), the time since their last session and how they felt (effor
 
 "rationale": 1–2 sentences for the user about the overall idea of the next session.
 
+"recommendations": your answer to the feedback from their most recent session (the first entry
+of "recent_sessions"): its notes, exercise notes, effort ratings, skips, and how the sets went
+against the targets. 1–4 items, each about one thing they said or showed. "about" names it in a
+few words (e.g. "Wall push-ups too easy"); "advice" is 1–2 sentences of concrete advice they can
+act on: technique, how to make an exercise harder or easier at home, household items to add load,
+recovery, or an app setting (e.g. a longer lock in Schedule & settings). Say what changes in the
+next session when something does. Use the books where they help. [] when there is nothing to answer.
+
 Only use exercises whose equipment the user has. Respect injuries and limitations in the profile.
 
 DATA
@@ -135,13 +148,16 @@ class Agent:
 
     # -- freshness -----------------------------------------------------------------------------
 
-    def basis(self) -> str:
-        """Identifies the data a plan was written from: the latest counted session and the profile."""
+    def last_session_id(self) -> int | None:
         row = self.store.db.execute(
             "SELECT MAX(id) AS id FROM sessions WHERE status != 'in_progress' AND kind NOT IN ('test', 'placeholder')"
         ).fetchone()
+        return row["id"]
+
+    def basis(self) -> str:
+        """Identifies the data a plan was written from: the latest counted session and the profile."""
         profile = self.store.get("profile") or {}
-        return f"session:{row['id'] or 0}/profile:{profile.get('updated_at', '-')}"
+        return f"session:{self.last_session_id() or 0}/profile:{profile.get('updated_at', '-')}"
 
     def fresh_plan(self) -> dict | None:
         plan = self.store.get(PLAN_KEY)
@@ -220,6 +236,7 @@ class Agent:
 
         plan["basis"] = basis
         plan["generated_at"] = _iso(now)
+        plan["feedback_session"] = self.last_session_id() if plan["recommendations"] else None
         self._apply_overrides(plan.pop("overrides"), now)
         self.store.put(PLAN_KEY, plan)
         self._log(started, ok=True, error=None)
@@ -282,7 +299,13 @@ class Agent:
         minutes = next_lock.get("recovery_minutes")
         if minutes is not None and (not isinstance(minutes, int) or not 5 <= minutes <= 60):
             raise AgentError(f"next_lock recovery_minutes {minutes!r}")
+        recommendations = []
+        for raw in output.get("recommendations") or []:
+            about, advice = str(raw.get("about", "")).strip(), str(raw.get("advice", "")).strip()
+            if advice:
+                recommendations.append({"about": about, "advice": advice})
         return {
+            "recommendations": recommendations[:4],
             "next_lock": {"mode": next_lock["mode"], "recovery_minutes": minutes,
                           "reason": str(next_lock.get("reason", "")).strip()},
             "rationale": str(output.get("rationale", "")).strip(),
