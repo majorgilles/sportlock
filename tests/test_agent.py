@@ -8,7 +8,7 @@ from unittest import mock
 
 from sportlock import profile as profile_mod
 from sportlock.agent import PLAN_KEY, Agent, AgentError, choose
-from sportlock.ladders import Ladders
+from sportlock.ladders import START, Ladders
 from sportlock.library import Library, load_seed
 from sportlock.store import Store
 from sportlock.training import Training
@@ -133,7 +133,7 @@ class AgentTest(unittest.TestCase):
     def test_context_has_history_and_catalogue(self):
         context = self.agent.context(NOW, HOUSE)
         self.assertEqual(context["profile"]["experience"], "beginner")
-        self.assertEqual(len(context["ladders"]), 8)
+        self.assertEqual(len(context["ladders"]), len(START))
         self.assertTrue(any(c["id"] == "pull-up" and not c["available"] for c in context["catalogue"]))
         json.dumps(context)  # must be serialisable for the prompt
 

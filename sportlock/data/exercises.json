@@ -14,6 +14,55 @@
             "Easy pace, gradually bigger range",
             "No static stretching yet"
           ]
+        },
+        {
+          "id": "wrist-warm-up",
+          "name": "Wrist warm-up",
+          "kind": "timed",
+          "equipment": [],
+          "aliases": [
+            "wrist and hand warmer"
+          ]
+        },
+        {
+          "id": "ankle-rolls",
+          "name": "Ankle rolls",
+          "kind": "reps",
+          "sides": "each",
+          "equipment": [],
+          "fedb": "Ankle Circles",
+          "aliases": [
+            "ankle circles"
+          ]
+        },
+        {
+          "id": "arm-circles",
+          "name": "Arm circles",
+          "kind": "timed",
+          "equipment": [],
+          "fedb": "Arm Circles"
+        },
+        {
+          "id": "leg-swings",
+          "name": "Leg swings",
+          "kind": "reps",
+          "sides": "each",
+          "equipment": [],
+          "fedb": "Front Leg Raises",
+          "aliases": [
+            "front-back leg swing"
+          ]
+        },
+        {
+          "id": "inchworm",
+          "name": "Inchworm",
+          "kind": "reps",
+          "equipment": [],
+          "fedb": "Inchworm",
+          "aliases": [
+            "walkout",
+            "hand walk"
+          ]
         }
       ]
     },
@@ -63,6 +112,16 @@
           "fedb": "Pushups"
         },
         {
+          "id": "wide-push-up",
+          "name": "Wide push-up",
+          "kind": "reps",
+          "equipment": [],
+          "fedb": "Push-Up Wide",
+          "aliases": [
+            "wide-grip push-up"
+          ]
+        },
+        {
           "id": "diamond-push-up",
           "name": "Diamond push-up",
           "kind": "reps",
@@ -107,6 +166,26 @@
           ]
         },
         {
+          "id": "incline-handstand",
+          "name": "Incline handstand (feet on wall)",
+          "kind": "hold",
+          "equipment": [],
+          "aliases": [
+            "wall pike hold",
+            "bench pike handstand hold"
+          ]
+        },
+        {
+          "id": "wall-walk",
+          "name": "Wall walk",
+          "kind": "reps",
+          "equipment": [],
+          "aliases": [
+            "wall-walking handstand",
+            "wall climb"
+          ]
+        },
+        {
           "id": "wall-handstand-hold",
           "name": "Wall handstand hold",
           "kind": "hold",
@@ -125,6 +204,17 @@
       "pattern": "push",
       "exercises": [
         {
+          "id": "bent-knee-bench-dip",
+          "name": "Bent-knee bench dip",
+          "kind": "reps",
+          "equipment": [
+            "bench"
+          ],
+          "aliases": [
+            "box dip with bent knees"
+          ]
+        },
+        {
           "id": "bench-dip",
           "name": "Bench dip",
           "kind": "reps",
@@ -132,6 +222,17 @@
             "bench"
           ],
           "fedb": "Bench Dips"
+        },
+        {
+          "id": "negative-dip",
+          "name": "Negative dip",
+          "kind": "reps",
+          "equipment": [
+            "dip-bars"
+          ],
+          "aliases": [
+            "eccentric dip"
+          ]
         },
         {
           "id": "parallel-bar-dip",
@@ -167,6 +268,18 @@
           "aliases": [
             "Y raise lying face down",
             "prone Y T W raise"
+          ]
+        },
+        {
+          "id": "incline-row",
+          "name": "Incline row (hip-height handles)",
+          "kind": "reps",
+          "equipment": [
+            "rings"
+          ],
+          "aliases": [
+            "high incline row",
+            "suspension row"
           ]
         },
         {
@@ -209,6 +322,18 @@
       "pattern": "pull",
       "exercises": [
         {
+          "id": "dead-hang",
+          "name": "Dead hang",
+          "kind": "hold",
+          "equipment": [
+            "bar"
+          ],
+          "aliases": [
+            "tight hang",
+            "active hang"
+          ]
+        },
+        {
           "id": "scapular-pull-up",
           "name": "Scapular pull-up",
           "kind": "reps",
@@ -216,6 +341,19 @@
             "bar"
           ],
           "fedb": "Scapular Pull-Up"
+        },
+        {
+          "id": "leg-assisted-pull-up",
+          "name": "Chair-assisted pull-up",
+          "kind": "reps",
+          "equipment": [
+            "bar",
+            "chair"
+          ],
+          "aliases": [
+            "leg-assisted pull-up",
+            "foot-assisted pull-up"
+          ]
         },
         {
           "id": "negative-pull-up",
@@ -249,6 +387,17 @@
           "fedb": "Pullups"
         },
         {
+          "id": "wide-grip-pull-up",
+          "name": "Wide-grip pull-up",
+          "kind": "reps",
+          "equipment": [
+            "bar"
+          ],
+          "aliases": [
+            "wide pull-up"
+          ]
+        },
+        {
           "id": "archer-pull-up",
           "name": "Archer pull-up",
           "kind": "reps",
@@ -280,6 +429,16 @@
           ]
         },
         {
+          "id": "wall-sit",
+          "name": "Wall sit",
+          "kind": "hold",
+          "equipment": [],
+          "aliases": [
+            "isometric squat",
+            "wall squat hold"
+          ]
+        },
+        {
           "id": "bodyweight-squat",
           "name": "Bodyweight squat",
           "kind": "reps",
@@ -292,12 +451,47 @@
           ]
         },
         {
+          "id": "step-up",
+          "name": "Step-up",
+          "kind": "reps",
+          "sides": "each",
+          "equipment": [
+            "bench"
+          ],
+          "fedb": "Step-up with Knee Raise",
+          "aliases": [
+            "box step-up"
+          ]
+        },
+        {
           "id": "split-squat",
           "name": "Split squat",
           "kind": "reps",
           "sides": "each",
           "equipment": [],
           "fedb": "Split Squats"
+        },
+        {
+          "id": "reverse-lunge",
+          "name": "Reverse lunge",
+          "kind": "reps",
+          "sides": "alternating",
+          "equipment": [],
+          "aliases": [
+            "backward lunge",
+            "step-back lunge"
+          ]
+        },
+        {
+          "id": "forward-lunge",
+          "name": "Forward lunge",
+          "kind": "reps",
+          "sides": "alternating",
+          "equipment": [],
+          "aliases": [
+            "lunge",
+            "stationary lunge"
+          ]
         },
         {
           "id": "bulgarian-split-squat",
@@ -309,6 +503,31 @@
           ],
           "aliases": [
             "rear foot elevated split squat"
+          ]
+        },
+        {
+          "id": "assisted-pistol-squat",
+          "name": "Assisted pistol squat (door frame)",
+          "kind": "reps",
+          "sides": "each",
+          "equipment": [
+            "doorway"
+          ],
+          "aliases": [
+            "assisted single-leg squat"
+          ]
+        },
+        {
+          "id": "single-leg-box-squat",
+          "name": "Single-leg box squat",
+          "kind": "reps",
+          "sides": "each",
+          "equipment": [
+            "chair"
+          ],
+          "aliases": [
+            "pistol to box",
+            "single-leg sit-to-stand"
           ]
         },
         {
@@ -351,12 +570,54 @@
           ]
         },
         {
+          "id": "glute-bridge-march",
+          "name": "Glute bridge march",
+          "kind": "reps",
+          "sides": "alternating",
+          "equipment": [],
+          "aliases": [
+            "marching bridge"
+          ]
+        },
+        {
+          "id": "table-bridge",
+          "name": "Table bridge",
+          "kind": "reps",
+          "equipment": [],
+          "aliases": [
+            "reverse tabletop",
+            "tabletop bridge"
+          ]
+        },
+        {
           "id": "single-leg-glute-bridge",
           "name": "Single-leg glute bridge",
           "kind": "reps",
           "sides": "each",
           "equipment": [],
           "fedb": "Single Leg Glute Bridge"
+        },
+        {
+          "id": "reverse-plank",
+          "name": "Reverse plank",
+          "kind": "hold",
+          "equipment": [],
+          "aliases": [
+            "rear support",
+            "straight-leg bridge"
+          ]
+        },
+        {
+          "id": "elevated-single-leg-glute-bridge",
+          "name": "Elevated single-leg glute bridge",
+          "kind": "reps",
+          "sides": "each",
+          "equipment": [
+            "bench"
+          ],
+          "aliases": [
+            "foot-elevated single-leg hip bridge"
+          ]
         },
         {
           "id": "hamstring-walkout",
@@ -369,6 +630,29 @@
           ]
         },
         {
+          "id": "piked-nordic-curl",
+          "name": "Piked nordic curl",
+          "kind": "reps",
+          "equipment": [
+            "anchor"
+          ],
+          "aliases": [
+            "piked hamstring curl"
+          ]
+        },
+        {
+          "id": "assisted-nordic-curl",
+          "name": "Assisted nordic curl",
+          "kind": "reps",
+          "equipment": [
+            "anchor",
+            "chair"
+          ],
+          "aliases": [
+            "hand-assisted hamstring curl"
+          ]
+        },
+        {
           "id": "nordic-curl-negative",
           "name": "Nordic curl negative",
           "kind": "reps",
@@ -378,6 +662,17 @@
           "aliases": [
             "nordic hamstring curl",
             "natural leg curl"
+          ]
+        },
+        {
+          "id": "nordic-curl",
+          "name": "Nordic curl",
+          "kind": "reps",
+          "equipment": [
+            "anchor"
+          ],
+          "aliases": [
+            "natural hamstring curl"
           ]
         }
       ]
@@ -421,12 +716,33 @@
           ]
         },
         {
+          "id": "knee-side-plank",
+          "name": "Knee side plank",
+          "kind": "hold",
+          "sides": "each",
+          "equipment": [],
+          "aliases": [
+            "modified side plank",
+            "bent-knee side plank"
+          ]
+        },
+        {
           "id": "side-plank",
           "name": "Side plank",
           "kind": "hold",
           "sides": "each",
           "equipment": [],
           "fedb": "Side Bridge"
+        },
+        {
+          "id": "starfish-plank",
+          "name": "Starfish plank",
+          "kind": "hold",
+          "sides": "each",
+          "equipment": [],
+          "aliases": [
+            "side plank with leg lift"
+          ]
         },
         {
           "id": "hollow-body-hold",
@@ -470,6 +786,202 @@
         }
       ]
     },
+    "core-flexion": {
+      "pattern": "core",
+      "exercises": [
+        {
+          "id": "crunch",
+          "name": "Crunch",
+          "kind": "reps",
+          "equipment": [],
+          "fedb": "Crunches"
+        },
+        {
+          "id": "reverse-crunch",
+          "name": "Reverse crunch",
+          "kind": "reps",
+          "equipment": [],
+          "fedb": "Reverse Crunch"
+        },
+        {
+          "id": "sit-up",
+          "name": "Sit-up",
+          "kind": "reps",
+          "equipment": [],
+          "fedb": "Sit-Up"
+        },
+        {
+          "id": "lying-leg-raise",
+          "name": "Lying leg raise",
+          "kind": "reps",
+          "equipment": [],
+          "aliases": [
+            "supine leg raise"
+          ]
+        },
+        {
+          "id": "v-up",
+          "name": "V-up",
+          "kind": "reps",
+          "equipment": [],
+          "aliases": [
+            "V-sit up",
+            "jackknife"
+          ]
+        }
+      ]
+    },
+    "calf": {
+      "pattern": "calf",
+      "exercises": [
+        {
+          "id": "calf-raise",
+          "name": "Calf raise",
+          "kind": "reps",
+          "equipment": [],
+          "aliases": [
+            "standing calf raise"
+          ]
+        },
+        {
+          "id": "elevated-calf-raise",
+          "name": "Calf raise on a step",
+          "kind": "reps",
+          "equipment": [],
+          "aliases": [
+            "deficit calf raise"
+          ]
+        },
+        {
+          "id": "single-leg-calf-raise",
+          "name": "Single-leg calf raise",
+          "kind": "reps",
+          "sides": "each",
+          "equipment": []
+        },
+        {
+          "id": "elevated-single-leg-calf-raise",
+          "name": "Single-leg calf raise on a step",
+          "kind": "reps",
+          "sides": "each",
+          "equipment": []
+        }
+      ]
+    },
+    "hip": {
+      "pattern": "hip",
+      "exercises": [
+        {
+          "id": "standing-hip-abduction",
+          "name": "Standing side leg raise",
+          "kind": "reps",
+          "sides": "each",
+          "equipment": [
+            "chair"
+          ],
+          "fedb": "Side Leg Raises",
+          "aliases": [
+            "standing hip abduction"
+          ]
+        },
+        {
+          "id": "side-lying-leg-raise",
+          "name": "Side-lying leg raise",
+          "kind": "reps",
+          "sides": "each",
+          "equipment": [],
+          "aliases": [
+            "side leg lift",
+            "lying hip abduction"
+          ]
+        },
+        {
+          "id": "donkey-kick",
+          "name": "Donkey kick",
+          "kind": "reps",
+          "sides": "each",
+          "equipment": [],
+          "fedb": "Glute Kickback",
+          "aliases": [
+            "quadruped hip extension",
+            "glute kickback"
+          ]
+        }
+      ]
+    },
+    "conditioning": {
+      "pattern": "conditioning",
+      "exercises": [
+        {
+          "id": "marching",
+          "name": "Marching in place",
+          "kind": "timed",
+          "equipment": [],
+          "aliases": [
+            "high-knee march"
+          ]
+        },
+        {
+          "id": "cross-punches",
+          "name": "Cross-punches",
+          "kind": "timed",
+          "equipment": []
+        },
+        {
+          "id": "jumping-jack",
+          "name": "Jumping jack",
+          "kind": "timed",
+          "equipment": [],
+          "aliases": [
+            "star jumps"
+          ]
+        },
+        {
+          "id": "mountain-climber",
+          "name": "Mountain climber",
+          "kind": "timed",
+          "equipment": [],
+          "fedb": "Mountain Climbers"
+        },
+        {
+          "id": "squat-thrust",
+          "name": "Squat thrust",
+          "kind": "reps",
+          "equipment": [],
+          "aliases": [
+            "half burpee"
+          ]
+        },
+        {
+          "id": "jump-squat",
+          "name": "Jump squat",
+          "kind": "reps",
+          "equipment": [],
+          "fedb": "Freehand Jump Squat",
+          "aliases": [
+            "squat jump"
+          ]
+        },
+        {
+          "id": "burpee",
+          "name": "Burpee",
+          "kind": "reps",
+          "equipment": []
+        },
+        {
+          "id": "jumping-lunge",
+          "name": "Jumping lunge",
+          "kind": "reps",
+          "sides": "alternating",
+          "equipment": [],
+          "fedb": "Split Jump",
+          "aliases": [
+            "split jump",
+            "lunge jump"
+          ]
+        }
+      ]
+    },
     "mobility": {
       "pattern": "mobility",
       "exercises": [
@@ -492,6 +1004,33 @@
           "fedb": "Cat Stretch"
         },
         {
+          "id": "childs-pose",
+          "name": "Child's pose",
+          "kind": "hold",
+          "equipment": [],
+          "fedb": "Child's Pose"
+        },
+        {
+          "id": "cobra-stretch",
+          "name": "Cobra stretch",
+          "kind": "hold",
+          "equipment": [],
+          "aliases": [
+            "cobra pose",
+            "sphinx"
+          ]
+        },
+        {
+          "id": "quadruped-thoracic-rotation",
+          "name": "Quadruped thoracic rotation",
+          "kind": "reps",
+          "sides": "each",
+          "equipment": [],
+          "aliases": [
+            "thoracic rotation on all fours"
+          ]
+        },
+        {
           "id": "worlds-greatest-stretch",
           "name": "World's greatest stretch",
           "kind": "reps",
@@ -511,12 +1050,76 @@
           "fedb": "Kneeling Hip Flexor"
         },
         {
+          "id": "butterfly-stretch",
+          "name": "Butterfly stretch",
+          "kind": "hold",
+          "equipment": [],
+          "aliases": [
+            "seated butterfly",
+            "bound angle stretch"
+          ]
+        },
+        {
+          "id": "figure-four-stretch",
+          "name": "Figure-four stretch",
+          "kind": "hold",
+          "sides": "each",
+          "equipment": [],
+          "aliases": [
+            "supine piriformis stretch",
+            "eye of the needle"
+          ]
+        },
+        {
+          "id": "pigeon-stretch",
+          "name": "Pigeon stretch",
+          "kind": "hold",
+          "sides": "each",
+          "equipment": [],
+          "aliases": [
+            "pigeon pose"
+          ]
+        },
+        {
+          "id": "deep-squat-hold",
+          "name": "Deep squat hold",
+          "kind": "hold",
+          "equipment": [],
+          "aliases": [
+            "resting squat",
+            "bottom squat hold"
+          ]
+        },
+        {
           "id": "hamstring-stretch",
           "name": "Hamstring stretch",
           "kind": "hold",
           "sides": "each",
           "equipment": [],
           "fedb": "Hamstring Stretch"
+        },
+        {
+          "id": "standing-quad-stretch",
+          "name": "Standing quad stretch",
+          "kind": "hold",
+          "sides": "each",
+          "equipment": [
+            "chair"
+          ],
+          "aliases": [
+            "quad stretch"
+          ]
+        },
+        {
+          "id": "calf-stretch-wall",
+          "name": "Wall calf stretch",
+          "kind": "hold",
+          "sides": "each",
+          "equipment": [],
+          "fedb": "Calf Stretch Hands Against Wall",
+          "aliases": [
+            "standing calf stretch"
+          ]
         },
         {
           "id": "chest-doorway-stretch",
@@ -529,6 +1132,17 @@
           "aliases": [
             "chest stretch in a doorway",
             "pectoral stretch against a wall"
+          ]
+        },
+        {
+          "id": "cross-body-shoulder-stretch",
+          "name": "Cross-body shoulder stretch",
+          "kind": "hold",
+          "sides": "each",
+          "equipment": [],
+          "fedb": "Shoulder Stretch",
+          "aliases": [
+            "arm across chest stretch"
           ]
         }
       ]

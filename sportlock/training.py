@@ -16,12 +16,12 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta
 
-from .ladders import Ladders
+from .ladders import START, Ladders
 from .library import Library
 from .store import Store, _iso
 
 RUN_KEY = "training"
-LADDERED_CHAINS = {"push-horizontal", "push-vertical", "dip", "pull-horizontal", "pull-vertical", "squat", "hinge", "core"}
+LADDERED_CHAINS = set(START)
 DEFAULT_SECONDS = {"hold": 30, "timed": 120}
 SECONDS_PER_REP = 3
 MIN_TIMED_SECONDS = 120

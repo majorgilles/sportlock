@@ -25,6 +25,9 @@ PRESETS = {
         "squat": ("split-squat", {"sets": 3, "reps": [8, 12], "rest": 60}),
         "hinge": ("single-leg-glute-bridge", {"sets": 3, "reps": [8, 12], "rest": 45}),
         "core": ("plank", {"sets": 3, "seconds": 45, "rest": 45}),
+        "core-flexion": ("sit-up", {"sets": 3, "reps": [10, 15], "rest": 60}),
+        "calf": ("single-leg-calf-raise", {"sets": 3, "reps": [10, 15], "rest": 45}),
+        "hip": ("side-lying-leg-raise", {"sets": 2, "reps": [15, 20], "rest": 30}),
     },
     "advanced": {
         "push-horizontal": ("diamond-push-up", {"sets": 4, "reps": [8, 12], "rest": 90}),
@@ -35,6 +38,9 @@ PRESETS = {
         "squat": ("bulgarian-split-squat", {"sets": 4, "reps": [8, 12], "rest": 90}),
         "hinge": ("hamstring-walkout", {"sets": 3, "reps": [6, 10], "rest": 90}),
         "core": ("hollow-body-hold", {"sets": 3, "seconds": 40, "rest": 60}),
+        "core-flexion": ("v-up", {"sets": 3, "reps": [8, 12], "rest": 60}),
+        "calf": ("elevated-single-leg-calf-raise", {"sets": 3, "reps": [12, 15], "rest": 45}),
+        "hip": ("donkey-kick", {"sets": 3, "reps": [12, 15], "rest": 30}),
     },
 }
 

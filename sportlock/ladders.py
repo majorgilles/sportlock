@@ -21,6 +21,9 @@ START = {
     "squat": ("bodyweight-squat", {"sets": 3, "reps": [12, 15], "rest": 60}),
     "hinge": ("glute-bridge", {"sets": 3, "reps": [12, 15], "rest": 45}),
     "core": ("plank", {"sets": 3, "seconds": 30, "rest": 45}),
+    "core-flexion": ("crunch", {"sets": 3, "reps": [12, 15], "rest": 45}),
+    "calf": ("calf-raise", {"sets": 3, "reps": [15, 20], "rest": 45}),
+    "hip": ("standing-hip-abduction", {"sets": 2, "reps": [12, 15], "rest": 30}),
 }
 WARMUP = {"exercise": "dynamic-warmup", "sets": 1, "seconds": 300, "rest": 0}
 COOLDOWN = {"exercise": "static-stretch", "sets": 1, "seconds": 300, "rest": 0}

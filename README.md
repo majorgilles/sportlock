@@ -263,7 +263,11 @@ lock's length, dropping lower-priority main work first.
 
 ## The exercise library
 
-48 exercises, built from your NotebookLM notebook by `sportlock library build`:
+107 exercises in 14 chains, chosen from the books in your NotebookLM notebook. Main patterns:
+horizontal and vertical push, dips, horizontal and vertical pull, squat and single-leg, hinge, and
+core. Accessory chains: core flexion, calves, hips, and conditioning. Plus warm-up drills and
+stretches. Every chain except warm-up, mobility and conditioning is a progression ladder.
+Instructions and pictures are built by `sportlock library build`:
 
 - **Instructions** come from passages in your books, found with NotebookLM's passage search. This
   is read-only and never writes into the notebook's chat. Claude turns the passages into steps,

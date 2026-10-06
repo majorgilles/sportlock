@@ -93,6 +93,10 @@ Produce two versions of the next session — the app picks one when the lock sta
   (static-stretch). Build it around the ladder positions, which already include the rule
   engine's adjustments; deviate when the history gives a reason (skips, pain, notes, fatigue,
   repeated grinding, long breaks) and say why in that exercise's note.
+  Besides the main patterns, the catalogue has accessory chains you may add when they serve the
+  user's goals or limitations: "calf", "hip" (glute medius, hip extension), "core-flexion",
+  "conditioning" (cardio intervals, mostly "timed"), and extra warm-up drills ("warmup" chain)
+  and stretches ("mobility" chain) to pick from for the warm-up, cool-down and recovery days.
 - "recovery": used within 48 h of a hard session. "mobility" (stretching/mobility only) or
   "light" (easy volume on patterns NOT trained hard in the last 48 h, plus mobility).
 Plans are trimmed automatically to the lock's length (often 20–30 min), from the end of the main
