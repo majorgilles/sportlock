@@ -37,6 +37,42 @@ class FitPlanTest(unittest.TestCase):
         self.assertEqual(plan, before)
 
 
+class SidesTest(unittest.TestCase):
+    """Exercises done on both sides: reps and seconds count per side."""
+
+    def setUp(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.store = Store(tmp / "db.sqlite")
+        self.training = Training(self.store, library=Library(root=tmp / "library"))
+        plan = [{"exercise": "dead-bug", "sets": 1, "reps": [8, 10], "rest": 30},
+                {"exercise": "hip-flexor-stretch", "sets": 1, "seconds": 30, "rest": 15},
+                {"exercise": "glute-bridge", "sets": 1, "reps": [12, 15], "rest": 30}]
+        generated = {"rationale": "", "hard": {"title": "Sides", "day_type": "hard", "plan": plan}, "recovery": {}}
+        self.training.begin(now=T0, kind="scheduled", lock_key="k", minutes=60, generated=generated, mode="hard")
+
+    def test_targets_and_snapshot_carry_sides(self):
+        exercises = self.training.snapshot()["exercises"]
+        self.assertEqual([e["sides"] for e in exercises], ["alternating", "each", ""])
+        self.assertEqual(exercises[0]["target"]["sides"], "alternating")
+        self.assertNotIn("sides", exercises[2]["target"])
+        self.assertEqual(exercises[0]["times_done"], 0)
+
+    def test_hold_on_each_side_is_logged_per_side(self):
+        self.training.start_set(now=T0)
+        self.training.stop_set(now=T0 + timedelta(seconds=10))
+        self.training.save_set(now=T0 + timedelta(seconds=11), reps=8)
+        self.training.rate(now=T0 + timedelta(seconds=15), rpe=3)
+        self.training.start_set(now=T0 + timedelta(seconds=20))
+        self.training.stop_set(now=T0 + timedelta(seconds=82))  # 31 s on each side
+        self.training.save_set(now=T0 + timedelta(seconds=83))
+        seconds = [r["seconds"] for r in self.store.db.execute("SELECT seconds FROM sets ORDER BY id")]
+        self.assertEqual(seconds, [10, 31])
+
+    def test_both_sides_count_in_the_time_estimate(self):
+        one = {"exercise": "hip-flexor-stretch", "sets": 2, "seconds": 30, "rest": 0}
+        self.assertEqual(estimate_seconds([{**one, "sides": "each"}]), 2 * estimate_seconds([one]))
+
+
 class TrainingTest(unittest.TestCase):
     def setUp(self):
         tmp = Path(tempfile.mkdtemp())

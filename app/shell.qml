@@ -86,7 +86,7 @@ ShellRoot {
     if (!t) return ""
     var work = t.reps ? t.reps[0] + "–" + t.reps[1] + " reps" : (t.seconds >= 120 && t.sets === 1
                ? Math.round(t.seconds / 60) + " min" : t.seconds + " s")
-    return (t.sets > 1 ? t.sets + " × " : "") + work
+    return (t.sets > 1 ? t.sets + " × " : "") + work + (t.sides ? " per side" : "")
   }
 
   function setsText(sets) {

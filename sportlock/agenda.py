@@ -27,7 +27,8 @@ def _session_details(store: Store, library: Library, session_id: int) -> list[di
 
 
 def _plan_details(library: Library, version: dict) -> list[dict]:
-    return [{"name": library.get(item["exercise"])["name"], "target": {k: v for k, v in item.items() if k != "exercise"}}
+    return [{"name": library.get(item["exercise"])["name"],
+             "target": {k: v for k, v in item.items() if k != "exercise"} | {"sides": library.get(item["exercise"]).get("sides")}}
             for item in version.get("plan", [])]
 
 

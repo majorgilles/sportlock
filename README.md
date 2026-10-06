@@ -164,8 +164,15 @@ resumed afterwards) and Omarchy's idle lock is kept off.
 **The flow, per exercise:**
 
 1. Read the card: name, target (e.g. *3 sets × 8–12 reps · rest 60 s*), why it is at this level,
-   and the picture with cues beside it. **D** shows the full instructions: steps, cues, common
-   mistakes, breathing, easier/harder variations and which book they come from.
+   and the picture with cues beside it. The full instructions (steps, cues, common mistakes,
+   breathing, easier/harder variations and which book they come from) are open for exercises
+   you have done fewer than 3 times; **D** shows or hides them.
+
+   **Exercises done on both sides** always count reps and seconds *per side*: *8 reps per side*
+   means 8 on the left and 8 on the right. The card says how: *one side, then the other* (all
+   reps on one side, then switch) or *alternating* (switch every rep; count one side only, so
+   8 per side = 16 moves). Holds on each side run one timer for both: it dings and shows
+   **Switch sides** halfway, and the time is logged per side.
 2. **Start set** (Space). A get-ready countdown (5 s by default, `lead_in_seconds`) ticks down
    while you get into position; **Space** skips it, **Esc** cancels. Then the set clock runs
    with a tick every second (a deeper knock when it starts and every 10 s). The countdown is not

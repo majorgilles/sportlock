@@ -1,5 +1,5 @@
 {
-  "_comment": "Seed library. Chains are ordered easiest → hardest; easier/harder variations follow the chain. 'fedb' is the matching free-exercise-db name (fallback photo). Details, instructions and pictures are filled in by `sportlock library build` from the NotebookLM notebook.",
+  "_comment": "Seed library. Chains are ordered easiest → hardest; easier/harder variations follow the chain. 'sides': 'each' = all reps (or the hold) on one side, then the other; 'alternating' = switch side every rep. Reps and seconds always count per side. 'fedb' is the matching free-exercise-db name (fallback photo). Details, instructions and pictures are filled in by `sportlock library build` from the NotebookLM notebook.",
   "chains": {
     "warmup": {
       "pattern": "warmup",
@@ -72,12 +72,14 @@
           "id": "archer-push-up",
           "name": "Archer push-up",
           "kind": "reps",
+          "sides": "alternating",
           "equipment": []
         },
         {
           "id": "one-arm-push-up",
           "name": "One-arm push-up",
           "kind": "reps",
+          "sides": "each",
           "equipment": [],
           "fedb": "Single-Arm Push-Up"
         }
@@ -250,6 +252,7 @@
           "id": "archer-pull-up",
           "name": "Archer pull-up",
           "kind": "reps",
+          "sides": "alternating",
           "equipment": [
             "bar"
           ],
@@ -292,6 +295,7 @@
           "id": "split-squat",
           "name": "Split squat",
           "kind": "reps",
+          "sides": "each",
           "equipment": [],
           "fedb": "Split Squats"
         },
@@ -299,6 +303,7 @@
           "id": "bulgarian-split-squat",
           "name": "Bulgarian split squat",
           "kind": "reps",
+          "sides": "each",
           "equipment": [
             "bench"
           ],
@@ -310,6 +315,7 @@
           "id": "shrimp-squat",
           "name": "Shrimp squat",
           "kind": "reps",
+          "sides": "each",
           "equipment": [],
           "aliases": [
             "skater squat",
@@ -320,6 +326,7 @@
           "id": "pistol-squat",
           "name": "Pistol squat",
           "kind": "reps",
+          "sides": "each",
           "equipment": [],
           "aliases": [
             "one-leg squat",
@@ -347,6 +354,7 @@
           "id": "single-leg-glute-bridge",
           "name": "Single-leg glute bridge",
           "kind": "reps",
+          "sides": "each",
           "equipment": [],
           "fedb": "Single Leg Glute Bridge"
         },
@@ -381,6 +389,7 @@
           "id": "dead-bug",
           "name": "Dead bug",
           "kind": "reps",
+          "sides": "alternating",
           "equipment": [],
           "fedb": "Dead Bug"
         },
@@ -415,6 +424,7 @@
           "id": "side-plank",
           "name": "Side plank",
           "kind": "hold",
+          "sides": "each",
           "equipment": [],
           "fedb": "Side Bridge"
         },
@@ -485,6 +495,7 @@
           "id": "worlds-greatest-stretch",
           "name": "World's greatest stretch",
           "kind": "reps",
+          "sides": "alternating",
           "equipment": [],
           "aliases": [
             "lunge with rotation stretch",
@@ -495,6 +506,7 @@
           "id": "hip-flexor-stretch",
           "name": "Kneeling hip flexor stretch",
           "kind": "hold",
+          "sides": "each",
           "equipment": [],
           "fedb": "Kneeling Hip Flexor"
         },
@@ -502,6 +514,7 @@
           "id": "hamstring-stretch",
           "name": "Hamstring stretch",
           "kind": "hold",
+          "sides": "each",
           "equipment": [],
           "fedb": "Hamstring Stretch"
         },
@@ -509,6 +522,7 @@
           "id": "chest-doorway-stretch",
           "name": "Doorway chest stretch",
           "kind": "hold",
+          "sides": "each",
           "equipment": [
             "doorway"
           ],

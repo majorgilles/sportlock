@@ -47,6 +47,7 @@ class LockPlan:
 
 def naive_seconds(target: dict, sets: int | None = None) -> int:
     work = target["reps"][1] * 3 if "reps" in target else target.get("seconds", 0)
+    work *= 2 if target.get("sides") else 1  # reps and seconds count per side
     return (sets or target["sets"]) * (work + target.get("rest", 0))
 
 

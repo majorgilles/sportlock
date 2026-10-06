@@ -32,7 +32,8 @@ class TrainingError(ValueError):
 
 
 def _work_seconds(item: dict) -> int:
-    return item["reps"][1] * SECONDS_PER_REP if "reps" in item else item["seconds"]
+    work = item["reps"][1] * SECONDS_PER_REP if "reps" in item else item["seconds"]
+    return work * 2 if item.get("sides") else work  # reps and seconds count per side
 
 
 def _estimate(plan: list[dict], *, pace: float = 1.0, transition: int = 0) -> int:
@@ -131,6 +132,9 @@ class Training:
 
     def _insert_exercise(self, session_id: int, exercise_id: str, target: dict) -> int:
         spec = self.library.get(exercise_id)
+        target = {k: v for k, v in target.items() if k != "sides"}
+        if spec.get("sides"):
+            target["sides"] = spec["sides"]  # "each" | "alternating": reps and seconds count per side
         cursor = self.store.db.execute(
             "INSERT INTO session_exercises (session_id, exercise, name, pattern, kind, target) VALUES (?, ?, ?, ?, ?, ?)",
             (session_id, exercise_id, spec["name"], spec["pattern"], spec["kind"], json.dumps(target)),
@@ -160,7 +164,8 @@ class Training:
         else:
             planned = self.ladders.plan(now, set(equipment), mode=mode)
             source = "local"
-        plan = fit_plan(planned["plan"], minutes, pace=recovery.pace_factor(self.store),
+        plan = [{**item, "sides": self.library.get(item["exercise"]).get("sides")} for item in planned["plan"]]
+        plan = fit_plan(plan, minutes, pace=recovery.pace_factor(self.store),
                         transition=recovery.transition_seconds(self.store))
         # finished_at is NOT NULL from the first schema; it is rewritten when the session closes.
         cursor = self.store.db.execute(
@@ -264,10 +269,13 @@ class Training:
         ended = datetime.fromisoformat(run["set_ended_at"])
         last_end = run["last_set_end"] and datetime.fromisoformat(run["last_set_end"])
         done = self._sets(row["id"])
+        seconds = (ended - started).total_seconds()
+        if row["kind"] != "reps" and target.get("sides") == "each":
+            seconds /= 2  # one timer runs both sides; holds are logged per side
         self.store.db.execute(
             "INSERT INTO sets (session_exercise_id, set_no, reps, seconds, load_kg, rest_seconds, started_at, ended_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (row["id"], len(done) + 1, None if row["kind"] != "reps" else int(reps), (ended - started).total_seconds(),
+            (row["id"], len(done) + 1, None if row["kind"] != "reps" else int(reps), seconds,
              load_kg, last_end and (started - last_end).total_seconds(), _iso(started), _iso(ended)),
         )
 
@@ -332,6 +340,11 @@ class Training:
 
     # -- state for the locker ------------------------------------------------------------------
 
+    def _times_done(self, exercise: str, session_id: int) -> int:
+        return self.store.db.execute(
+            "SELECT COUNT(*) FROM session_exercises WHERE exercise = ? AND status = 'done' AND session_id != ?",
+            (exercise, session_id)).fetchone()[0]
+
     def snapshot(self) -> dict | None:
         run = self.run
         if run is None:
@@ -350,7 +363,8 @@ class Training:
                 "easier_name": self.library.get(spec["easier"])["name"] if spec.get("easier") else "",
                 "harder_name": self.library.get(spec["harder"])["name"] if spec.get("harder") else "",
                 "has_easier": bool(spec.get("easier")) and spec.get("chain") in LADDERED_CHAINS,
-                "status": row["status"], "rpe": row["rpe"],
+                "status": row["status"], "rpe": row["rpe"], "sides": spec.get("sides") or "",
+                "times_done": self._times_done(row["exercise"], run["session_id"]),
                 "sets": [{"reps": s["reps"], "seconds": s["seconds"], "load_kg": s["load_kg"]} for s in self._sets(row_id)],
             })
         pending = None

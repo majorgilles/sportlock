@@ -99,7 +99,9 @@ Plans are trimmed automatically to the lock's length (often 20–30 min), from t
 work, so order exercises by priority. The first and last item are kept.
 
 Each exercise: "exercise" is a catalogue id; "reps"-kind exercises use reps_low/reps_high
-(seconds null); "hold" and "timed" use seconds (reps null). Sets 1–6, rest in seconds. "note" is
+(seconds null); "hold" and "timed" use seconds (reps null). For catalogue entries with "sides"
+("each": one side then the other; "alternating": switch every rep), reps and seconds count PER
+SIDE, so 8 reps means 8 on each side; the app tells the user this, don't restate it in notes. Sets 1–6, rest in seconds. "note" is
 shown to the user on the exercise card: one short sentence on why this exercise at this level.
 
 "ladder_overrides": only when you disagree with where the rule engine put a chain for the
@@ -207,6 +209,7 @@ class Agent:
 
         load = recovery.load_summary(self.store, now)
         catalogue = [{"id": i, "name": spec["name"], "chain": spec["chain"], "step": spec["step"], "kind": spec["kind"],
+                      **({"sides": spec["sides"]} if spec.get("sides") else {}),
                       "equipment": spec.get("equipment", []), "available": set(spec.get("equipment", [])) <= equipment}
                      for i, spec in self.library.seed.items()]
         return {

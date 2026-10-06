@@ -40,6 +40,7 @@ ShellRoot {
   readonly property var tr: st && st.training ? st.training : null
   readonly property string phase: tr ? tr.phase : ""
   readonly property var ex: tr && tr.current < tr.exercises.length ? tr.exercises[tr.current] : null
+  readonly property string exKey: tr ? tr.id + ":" + tr.current : ""  // changes only when the exercise does
   readonly property int setNo: ex ? ex.sets.length + 1 : 0
   readonly property double elapsedMs: tr && tr.set_started_at && phase === "running" ? Math.max(0, nowMs - tr.set_started_at) : 0
   // Get-ready countdown between pressing Start and the set clock starting.
@@ -73,7 +74,19 @@ ShellRoot {
     if (e.kind === "timed") return t.seconds ? clock(t.seconds * 1000) : (t.sets + " × timed")
     var setsText = t.sets + (t.sets === 1 ? " set" : " sets")
     var work = e.kind === "reps" ? t.reps[0] + "–" + t.reps[1] + " reps" : "hold " + t.seconds + " s"
+    if (e.sides) work += " per side"
     return setsText + " × " + work + (t.rest ? " · rest " + t.rest + " s" : "")
+  }
+
+  // How to count and when to switch, for exercises done on both sides.
+  function sidesText(e) {
+    if (!e || !e.sides) return ""
+    if (e.sides === "alternating") {
+      var r = e.kind === "reps" ? e.target.reps : null
+      return "Alternate sides every rep. Count one side only: " + (r ? r[0] + " per side = " + 2 * r[0] + " moves in total." : "each side counts once.")
+    }
+    return e.kind === "reps" ? "All reps on one side, then switch and do the same number on the other side."
+                             : "One timer for both sides: it rings and says when to switch."
   }
 
   function setText(s, e) {
@@ -85,7 +98,9 @@ ShellRoot {
   }
 
   // Target duration for holds and timed blocks, in ms (0 for rep sets).
-  readonly property double targetMs: ex && ex.kind !== "reps" ? ex.target.seconds * 1000 : 0
+  readonly property bool holdEachSide: ex !== null && ex.kind !== "reps" && ex.sides === "each"
+  readonly property double targetMs: ex && ex.kind !== "reps" ? ex.target.seconds * 1000 * (holdEachSide ? 2 : 1) : 0
+  readonly property bool secondSide: holdEachSide && phase === "running" && !leadIn && elapsedMs >= targetMs / 2
 
   function send(payload) {
     var next = queue.slice()
@@ -177,10 +192,11 @@ ShellRoot {
 
   property int lastSecond: -1
   property bool targetDinged: false
+  property bool switchDinged: false
   property bool restDinged: false
   property bool inLeadIn: false
 
-  onPhaseChanged: { lastSecond = -1; targetDinged = false; restDinged = false }
+  onPhaseChanged: { lastSecond = -1; targetDinged = false; switchDinged = false; restDinged = false }
 
   Timer {
     interval: 50
@@ -204,6 +220,10 @@ ShellRoot {
           if (second % 10 === 0) tock.play(); else tick.play()
         }
         root.lastSecond = second
+        if (root.secondSide && !root.switchDinged) {
+          root.switchDinged = true
+          ding.play()
+        }
         if (root.targetMs > 0 && root.elapsedMs >= root.targetMs && !root.targetDinged) {
           root.targetDinged = true
           ding.play()
@@ -423,7 +443,11 @@ ShellRoot {
     id: surface
     anchors.fill: parent
 
-    property bool showCues: root.preview && Quickshell.env("SPORTLOCK_SHOW_DETAILS") === "1"
+    // Full instructions are open for exercises done fewer than 3 times; D (or the link) toggles them.
+    property var detailsToggled: null
+    readonly property bool showCues: detailsToggled !== null ? detailsToggled
+                                     : (root.preview && Quickshell.env("SPORTLOCK_SHOW_DETAILS") === "1") || (root.ex !== null && root.ex.times_done < 3)
+    function toggleDetails() { detailsToggled = !showCues }
     property bool skipOpen: false
 
     // Space / Enter drive the session when no text field has focus.
@@ -441,13 +465,14 @@ ShellRoot {
         if (root.phase === "rating") ratePicker.value = n; else sessionPicker.value = n
         event.accepted = true
       } else if (event.key === Qt.Key_D) {
-        surface.showCues = !surface.showCues
+        surface.toggleDetails()
         event.accepted = true
       }
     }
 
     Connections {
       target: root
+      function onExKeyChanged() { surface.detailsToggled = null }
       function onPhaseChanged() {
         surface.skipOpen = false
         ratePicker.value = 0
@@ -612,6 +637,15 @@ ShellRoot {
 
             Text {
               width: parent.width
+              visible: root.sidesText(root.ex) !== ""
+              wrapMode: Text.WordWrap
+              text: "⇄  " + root.sidesText(root.ex)
+              color: root.fg
+              font.pixelSize: 15
+            }
+
+            Text {
+              width: parent.width
               visible: root.ex !== null && !!root.ex.target.progress
               wrapMode: Text.WordWrap
               text: root.ex && root.ex.target.progress ? "Why this level: " + root.ex.target.progress : ""
@@ -620,10 +654,10 @@ ShellRoot {
             }
 
             Text {
-              text: (surface.showCues ? "▾ Hide" : "▸ Show") + " full instructions  (D)"
-              color: root.muted
+              text: surface.showCues ? "▾ Hide the step-by-step instructions  (D)" : "▸ How to do it: steps, mistakes, breathing  (D)"
+              color: surface.showCues ? root.muted : root.accent
               font.pixelSize: 14
-              MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: surface.showCues = !surface.showCues }
+              MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: surface.toggleDetails() }
             }
 
             // Sets done so far
@@ -660,12 +694,19 @@ ShellRoot {
                 font.family: "monospace"
               }
               Text {
-                anchors.horizontalCenter: parent.horizontalCenter
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
                 text: root.leadIn ? "get into position — set " + root.setNo + " starts"
-                      : root.phase === "running" ? (root.targetMs > 0 ? "target " + root.clock(root.targetMs) : "set " + root.setNo + " running")
+                      : root.phase === "running" ? (root.holdEachSide ? (root.secondSide ? "⇄  Switch sides" : "first side  ·  target " + root.clock(root.targetMs) + " for both")
+                                                     : root.targetMs > 0 ? "target " + root.clock(root.targetMs)
+                                                     : root.ex && root.ex.sides === "each" ? "set " + root.setNo + " running — one side, then the other"
+                                                     : root.ex && root.ex.sides === "alternating" ? "set " + root.setNo + " running — alternate sides, count one side"
+                                                     : "set " + root.setNo + " running")
                       : root.phase === "resting" ? "rest" : "press Start when you begin"
-                color: root.muted
-                font.pixelSize: 15
+                color: root.secondSide ? root.accent : root.muted
+                font.pixelSize: root.secondSide ? 22 : 15
+                font.weight: root.secondSide ? Font.DemiBold : Font.Normal
               }
             }
 
@@ -676,6 +717,7 @@ ShellRoot {
               visible: root.phase === "logging"
               Text {
                 text: "Set " + root.setNo + " took " + root.clock((root.tr && root.tr.pending_seconds || 0) * 1000)
+                      + (root.holdEachSide ? "  (" + root.clock((root.tr && root.tr.pending_seconds || 0) * 500) + " per side)" : "")
                 color: root.fg
                 font.pixelSize: 20
               }
@@ -685,7 +727,7 @@ ShellRoot {
                 Field {
                   id: repsField
                   visible: root.ex && root.ex.kind === "reps"
-                  placeholder: root.ex && root.ex.kind === "reps" ? "reps (" + root.ex.target.reps[0] + "–" + root.ex.target.reps[1] + ")" : ""
+                  placeholder: root.ex && root.ex.kind === "reps" ? (root.ex.sides ? "reps per side (" : "reps (") + root.ex.target.reps[0] + "–" + root.ex.target.reps[1] + ")" : ""
                   input.validator: IntValidator { bottom: 0; top: 500 }
                   onAccepted: saveSet.clicked()
                   Keys.onTabPressed: loadField.input.forceActiveFocus()
