@@ -36,8 +36,9 @@ def test_finish__easy_push_ups__ladder_moves_up_and_the_next_plan_uses_it(world)
     position = _ladder(world, "push-horizontal")
     assert position.exercise == "knee-push-up" and "Knee push-up" in position.reason
     world.clock.time += timedelta(days=3)
-    session = world.c.begin_session.execute(BeginTrainingSessionCommand(
-        kind="manual", lock_key=None, minutes=60, equipment=HOUSE), world.clock.time)
+    session = world.c.begin_session.execute(
+        BeginTrainingSessionCommand(kind="manual", lock_key=None, minutes=60, equipment=HOUSE), world.clock.time
+    )
     [push] = [e for e in session.exercises if e.exercise == "knee-push-up"]
     assert "top of the range" in push.target.progress
 
@@ -112,9 +113,18 @@ def test_session__survives_a_restart_of_the_service(world, tmp_path, catalogue):
     restarted.__dict__.update(world.__dict__)
     from sportlock.app.container import Container
     from sportlock.app.daemon import Daemon
-    restarted.c = Container(db_path=tmp_path / "db.sqlite", config_path=world.config_path, library_dir=tmp_path / "library",
-                            desktop=world.desktop, lock_screen=world.lock_screen, popup=world.popup, coach=world.coach,
-                            clock=world.clock, catalogue=catalogue)
+
+    restarted.c = Container(
+        db_path=tmp_path / "db.sqlite",
+        config_path=world.config_path,
+        library_dir=tmp_path / "library",
+        desktop=world.desktop,
+        lock_screen=world.lock_screen,
+        popup=world.popup,
+        coach=world.coach,
+        clock=world.clock,
+        catalogue=catalogue,
+    )
     restarted.daemon = Daemon(restarted.c, state_path=tmp_path / "state.json")
     restarted.daemon.running = False
     restarted.daemon.coach_enabled = False

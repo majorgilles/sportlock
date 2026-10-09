@@ -116,8 +116,12 @@ class NotebookLMLibraryBuilder:
         for exercise_id in built:
             source = self.get(exercise_id).get("image_source", "none").split(":")[0]
             pictures[source] = pictures.get(source, 0) + 1
-        return {"total": len(self.seed), "built": len(built), "pictures": pictures,
-                "missing": [i for i in self.seed if i not in built]}
+        return {
+            "total": len(self.seed),
+            "built": len(built),
+            "pictures": pictures,
+            "missing": [i for i in self.seed if i not in built],
+        }
 
     # -- building ------------------------------------------------------------------------------
 
@@ -158,23 +162,28 @@ class NotebookLMLibraryBuilder:
             for image in passage["images"]:
                 book_pictures.setdefault(Path(image["file"]).name, passage["source_title"])
         fedb_pictures = self._fedb_pictures(spec, fedb, candidates_dir)
-        candidates = list(book_pictures)[:MAX_PICTURE_CANDIDATES - len(fedb_pictures)] + fedb_pictures
+        candidates = list(book_pictures)[: MAX_PICTURE_CANDIDATES - len(fedb_pictures)] + fedb_pictures
 
         details = self._distill(spec, passages, candidates, candidates_dir)
 
         entry = {
-            "id": exercise_id, "name": spec["name"],
-            "steps": details["steps"], "cues": details["cues"], "mistakes": details["mistakes"],
-            "breathing": details.get("breathing"), "sources": details["sources"], "grounded": details["grounded"],
-            "picture_reason": details["picture_reason"], "built_at": datetime.now().isoformat(timespec="seconds"),
+            "id": exercise_id,
+            "name": spec["name"],
+            "steps": details["steps"],
+            "cues": details["cues"],
+            "mistakes": details["mistakes"],
+            "breathing": details.get("breathing"),
+            "sources": details["sources"],
+            "grounded": details["grounded"],
+            "picture_reason": details["picture_reason"],
+            "built_at": datetime.now().isoformat(timespec="seconds"),
         }
         chosen = details.get("picture")
         if chosen and (candidates_dir / chosen).exists() and chosen in candidates:
             target = "picture" + Path(chosen).suffix
             shutil.copyfile(candidates_dir / chosen, folder / target)
             entry["image"] = target
-            entry["image_source"] = (f"book: {book_pictures[chosen]}" if chosen in book_pictures
-                                     else "free-exercise-db")
+            entry["image_source"] = f"book: {book_pictures[chosen]}" if chosen in book_pictures else "free-exercise-db"
         else:
             (folder / "stick.svg").write_text(stick_figure(spec["pattern"]))
             entry["image"] = "stick.svg"
@@ -225,9 +234,14 @@ class NotebookLMLibraryBuilder:
 
         chain = " → ".join(self.seed[i]["name"] for i in spec["chain_ids"])
         kind_text = {"reps": "repetitions", "hold": "timed hold", "timed": "timed block"}[spec["kind"]]
-        prompt = PICTURE_PROMPT.format(name=spec["name"], kind_text=kind_text, pattern=spec["pattern"], chain=chain,
-                                       aliases=", ".join(spec.get("aliases", [])) or "—",
-                                       candidates=", ".join(candidates))
+        prompt = PICTURE_PROMPT.format(
+            name=spec["name"],
+            kind_text=kind_text,
+            pattern=spec["pattern"],
+            chain=chain,
+            aliases=", ".join(spec.get("aliases", [])) or "—",
+            candidates=", ".join(candidates),
+        )
         choice = self._claude(prompt, PICTURE_SCHEMA, candidates_dir)
         chosen = choice.get("picture")
         source = None
@@ -257,14 +271,27 @@ class NotebookLMLibraryBuilder:
 
         # Finish anything a previous run left behind (generated but not yet downloaded/deleted).
         pending = {a: info for a, info in ledger["artifacts"].items() if not info.get("deleted")}
-        targets = [i for i in (ids or self.seed) if self.get(i).get("image_source") == "stick figure"
-                   and i not in {info["exercise"] for info in pending.values()}]
+        targets = [
+            i
+            for i in (ids or self.seed)
+            if self.get(i).get("image_source") == "stick figure"
+            and i not in {info["exercise"] for info in pending.values()}
+        ]
         room = max(0, per_day - ledger["days"].get(today, 0))
         if len(targets) > room:
             log(f"daily limit: generating {room} of {len(targets)} today")
         for exercise_id in targets[:room]:
-            task = self._nlm_json("generate", "infographic", self._infographic_prompt(exercise_id),
-                                  "--orientation", "landscape", "--detail", "concise", "--style", "instructional")
+            task = self._nlm_json(
+                "generate",
+                "infographic",
+                self._infographic_prompt(exercise_id),
+                "--orientation",
+                "landscape",
+                "--detail",
+                "concise",
+                "--style",
+                "instructional",
+            )
             artifact = task["task_id"]
             ledger["artifacts"][artifact] = {"exercise": exercise_id, "created": today}
             ledger["days"][today] = ledger["days"].get(today, 0) + 1
@@ -285,8 +312,11 @@ class NotebookLMLibraryBuilder:
                     self._nlm("download", "infographic", str(folder / "picture.png"), "-a", artifact)
                     entry_path = folder / "exercise.json"
                     entry = json.loads(entry_path.read_text())
-                    entry.update(image="picture.png", image_source="NotebookLM infographic",
-                                 picture_reason="Generated from your notebook: no book illustration shows this exercise.")
+                    entry.update(
+                        image="picture.png",
+                        image_source="NotebookLM infographic",
+                        picture_reason="Generated from your notebook: no book illustration shows this exercise.",
+                    )
                     entry_path.write_text(json.dumps(entry, indent=2, ensure_ascii=False))
                     (folder / "stick.svg").unlink(missing_ok=True)
                     info["downloaded"] = True
@@ -304,27 +334,36 @@ class NotebookLMLibraryBuilder:
     def _infographic_prompt(self, exercise_id: str) -> str:
         entry = self.get(exercise_id)
         cues = "; ".join(entry.get("cues", [])[:3])
-        return (f"A single clear instructional illustration of ONE exercise: the {entry['name']}"
-                f"{' (also called ' + ', '.join(entry['aliases']) + ')' if entry.get('aliases') else ''}. "
-                f"Show the start position and the end position of the movement side by side. "
-                f"Minimal text: the exercise name and at most 3 short form cues ({cues}). No other exercises.")
+        return (
+            f"A single clear instructional illustration of ONE exercise: the {entry['name']}"
+            f"{' (also called ' + ', '.join(entry['aliases']) + ')' if entry.get('aliases') else ''}. "
+            f"Show the start position and the end position of the movement side by side. "
+            f"Minimal text: the exercise name and at most 3 short form cues ({cues}). No other exercises."
+        )
 
     def _nlm(self, *args: str) -> str:
         notebooklm = shutil.which("notebooklm") or str(Path.home() / ".local/bin/notebooklm")
-        result = subprocess.run([notebooklm, *args, "-n", self.notebook_id], capture_output=True, text=True, timeout=1200)
+        result = subprocess.run(
+            [notebooklm, *args, "-n", self.notebook_id], capture_output=True, text=True, timeout=1200
+        )
         if result.returncode != 0:
-            raise RuntimeError(f"notebooklm {args[0]} {args[1]} failed: {(result.stderr or result.stdout).strip()[-300:]}")
+            raise RuntimeError(
+                f"notebooklm {args[0]} {args[1]} failed: {(result.stderr or result.stdout).strip()[-300:]}"
+            )
         return result.stdout
 
     def _nlm_json(self, *args: str) -> dict:
         return json.loads(self._nlm(*args, "--json"))
 
-    def _search(self, spec: dict, candidates_dir: Path, *, query: str | None = None,
-                limit: int = MAX_PASSAGES) -> list[dict]:
+    def _search(
+        self, spec: dict, candidates_dir: Path, *, query: str | None = None, limit: int = MAX_PASSAGES
+    ) -> list[dict]:
         query = query or f"{spec['name']} exercise: how to perform it, technique, form, common mistakes"
         result = subprocess.run(
             [str(NLM_SEARCH), self.notebook_id, query, "--limit", str(limit), "--images-dir", str(candidates_dir)],
-            capture_output=True, text=True, timeout=180,
+            capture_output=True,
+            text=True,
+            timeout=180,
         )
         if result.returncode != 0:
             raise RuntimeError(f"NotebookLM search failed: {result.stderr.strip()[-300:]}")
@@ -355,16 +394,37 @@ class NotebookLMLibraryBuilder:
         chain = " → ".join(self.seed[i]["name"] for i in spec["chain_ids"])
         kind_text = {"reps": "repetitions", "hold": "timed hold (isometric)", "timed": "timed block"}[spec["kind"]]
         text = "\n\n".join(f"[{p['source_title']}]\n{p['text'].strip()[:1500]}" for p in passages if p["text"].strip())
-        prompt = PROMPT.format(name=spec["name"], pattern=spec["pattern"], chain=chain, kind_text=kind_text,
-                               candidates=", ".join(candidates) or "(none)", passages=text or "(no passages found)")
+        prompt = PROMPT.format(
+            name=spec["name"],
+            pattern=spec["pattern"],
+            chain=chain,
+            kind_text=kind_text,
+            candidates=", ".join(candidates) or "(none)",
+            passages=text or "(no passages found)",
+        )
         return self._claude(prompt, DETAILS_SCHEMA, candidates_dir)
 
     def _claude(self, prompt: str, schema: dict, workdir: Path) -> dict:
         claude = shutil.which("claude") or str(Path.home() / ".local/bin/claude")
         result = subprocess.run(
-            [claude, "-p", prompt, "--output-format", "json", "--no-session-persistence",
-             "--json-schema", json.dumps(schema), "--tools", "Read", "--allowedTools", "Read"],
-            capture_output=True, text=True, timeout=600, cwd=workdir,
+            [
+                claude,
+                "-p",
+                prompt,
+                "--output-format",
+                "json",
+                "--no-session-persistence",
+                "--json-schema",
+                json.dumps(schema),
+                "--tools",
+                "Read",
+                "--allowedTools",
+                "Read",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            cwd=workdir,
         )
         try:
             response = json.loads(result.stdout)
@@ -381,16 +441,31 @@ class NotebookLMLibraryBuilder:
 _POSES = {
     # (head (x, y), list of line segments) on a 200 × 140 canvas
     "push": ((40, 62), [(48, 66, 150, 92), (60, 70, 60, 104), (150, 92, 175, 104)]),
-    "pull": ((100, 46), [(100, 56, 100, 100), (100, 62, 72, 20), (100, 62, 128, 20), (60, 18, 140, 18),
-                         (100, 100, 88, 132), (100, 100, 112, 132)]),
-    "squat": ((96, 36), [(96, 46, 104, 82), (100, 56, 140, 60), (104, 82, 136, 92), (136, 92, 120, 124),
-                         (120, 124, 136, 124)]),
+    "pull": (
+        (100, 46),
+        [
+            (100, 56, 100, 100),
+            (100, 62, 72, 20),
+            (100, 62, 128, 20),
+            (60, 18, 140, 18),
+            (100, 100, 88, 132),
+            (100, 100, 112, 132),
+        ],
+    ),
+    "squat": (
+        (96, 36),
+        [(96, 46, 104, 82), (100, 56, 140, 60), (104, 82, 136, 92), (136, 92, 120, 124), (120, 124, 136, 124)],
+    ),
     "hinge": ((36, 104), [(46, 104, 110, 76), (110, 76, 140, 104), (140, 104, 140, 124), (46, 104, 60, 124)]),
     "core": ((40, 70), [(48, 74, 160, 96), (56, 76, 60, 104), (60, 104, 80, 104), (160, 96, 170, 104)]),
-    "mobility": ((100, 30), [(100, 40, 100, 86), (100, 52, 70, 80), (100, 52, 140, 30), (100, 86, 80, 126),
-                             (100, 86, 130, 120)]),
-    "warmup": ((100, 30), [(100, 40, 100, 86), (100, 52, 70, 22), (100, 52, 130, 22), (100, 86, 86, 128),
-                           (100, 86, 114, 128)]),
+    "mobility": (
+        (100, 30),
+        [(100, 40, 100, 86), (100, 52, 70, 80), (100, 52, 140, 30), (100, 86, 80, 126), (100, 86, 130, 120)],
+    ),
+    "warmup": (
+        (100, 30),
+        [(100, 40, 100, 86), (100, 52, 70, 22), (100, 52, 130, 22), (100, 86, 86, 128), (100, 86, 114, 128)],
+    ),
 }
 
 
@@ -408,6 +483,15 @@ def stick_figure(pattern: str) -> str:
 
 def _spec(exercise: Exercise) -> dict:
     """The dict shape the builder's prompts were written for."""
-    return {"id": exercise.id, "name": exercise.name, "kind": exercise.kind, "pattern": exercise.pattern,
-            "chain": exercise.chain, "chain_ids": list(exercise.chain_ids), "step": exercise.step,
-            "aliases": list(exercise.aliases), "fedb": exercise.fedb, "cues": list(exercise.cues)}
+    return {
+        "id": exercise.id,
+        "name": exercise.name,
+        "kind": exercise.kind,
+        "pattern": exercise.pattern,
+        "chain": exercise.chain,
+        "chain_ids": list(exercise.chain_ids),
+        "step": exercise.step,
+        "aliases": list(exercise.aliases),
+        "fedb": exercise.fedb,
+        "cues": list(exercise.cues),
+    }

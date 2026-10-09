@@ -27,8 +27,12 @@ if TYPE_CHECKING:
     from sportlock.app.daemon import Daemon
 
 log = logging.getLogger("sportlock")
-TRAIN_ARGS = {"save_set": ("reps", "load_kg"), "rate": ("rpe", "note"), "skip": ("reason",),
-              "finish": ("rpe", "notes", "calories", "avg_hr", "body_weight")}
+TRAIN_ARGS = {
+    "save_set": ("reps", "load_kg"),
+    "rate": ("rpe", "note"),
+    "skip": ("reason",),
+    "finish": ("rpe", "notes", "calories", "avg_hr", "body_weight"),
+}
 
 
 def handle(daemon: Daemon, request: dict) -> dict:
@@ -66,20 +70,33 @@ def _dispatch(daemon: Daemon, request: dict) -> dict:
         return _train(daemon, request, now)
     if cmd == "profile-get":
         profile = c.profiles.get()
-        return {"ok": True, "profile": profile.to_dict() if profile else None,
-                "choices": {"experience": EXPERIENCE, "goals": GOALS, "equipment": EQUIPMENT, "locations": LOCATIONS}}
+        return {
+            "ok": True,
+            "profile": profile.to_dict() if profile else None,
+            "choices": {"experience": EXPERIENCE, "goals": GOALS, "equipment": EQUIPMENT, "locations": LOCATIONS},
+        }
     if cmd == "profile-save":
         profile = c.save_profile.execute(request.get("profile") or {}, now)
         daemon.coach_retry_at = None
         daemon.schedule_tick()
         return {"ok": True, "profile": profile.to_dict()}
     if cmd == "calendar":
-        return {"ok": True, "calendar": c.calendar.execute(c.settings.settings, now,
-                                                           days_back=int(request.get("days_back", 14)),
-                                                           days_ahead=int(request.get("days_ahead", 14)))}
+        return {
+            "ok": True,
+            "calendar": c.calendar.execute(
+                c.settings.settings,
+                now,
+                days_back=int(request.get("days_back", 14)),
+                days_ahead=int(request.get("days_ahead", 14)),
+            ),
+        }
     if cmd == "settings-get":
-        return {"ok": True, "settings": c.get_settings.execute().to_form(), "pending": c.settings.pending,
-                "frozen": daemon.frozen(now)}
+        return {
+            "ok": True,
+            "settings": c.get_settings.execute().to_form(),
+            "pending": c.settings.pending,
+            "frozen": daemon.frozen(now),
+        }
     if cmd == "settings-save":
         pending = c.save_settings.execute(request.get("settings") or {}, decision=c.tick.decision(now), now=now)
         daemon.schedule_tick()
@@ -87,12 +104,19 @@ def _dispatch(daemon: Daemon, request: dict) -> dict:
     if cmd == "agent-status":
         stored = c.coach_plans.get()
         fresh = c.freshness.fresh_plan()
-        return {"ok": True, "plan": fresh.to_dict() if fresh else None, "stale_plan": stored.to_dict() if stored else None,
-                "runs": [r.model_dump() for r in c.coach_runs.recent(20)], "running": daemon.coach_running()}
+        return {
+            "ok": True,
+            "plan": fresh.to_dict() if fresh else None,
+            "stale_plan": stored.to_dict() if stored else None,
+            "runs": [r.model_dump() for r in c.coach_runs.recent(20)],
+            "running": daemon.coach_running(),
+        }
     if cmd == "memory-get":
         notes = c.get_memory.execute()
-        return {"ok": True, "notes": [{"id": n.id, "topic": n.topic, "note": n.text, "since": n.since.isoformat()}
-                                      for n in notes]}
+        return {
+            "ok": True,
+            "notes": [{"id": n.id, "topic": n.topic, "note": n.text, "since": n.since.isoformat()} for n in notes],
+        }
     if cmd == "memory-history":
         return {"ok": True, "history": c.memory.history(int(request.get("limit", 100)))}
     if cmd == "memory-forget":
@@ -103,8 +127,9 @@ def _dispatch(daemon: Daemon, request: dict) -> dict:
         status = NotebookLMLibraryBuilder(c.catalogue, c.details.root).status()
         issues = doctor.check(c.database, c.catalogue, c.details, status, lock_active=c.runtime.current is not None)
         if cmd == "report":
-            path = report.build_report(c.database, status, state=daemon.state, issues=issues,
-                                       note=str(request.get("note", "")))
+            path = report.build_report(
+                c.database, status, state=daemon.state, issues=issues, note=str(request.get("note", ""))
+            )
             log.info("problem report written: %s", path)
             return {"ok": True, "path": str(path)}
         fixed = doctor.repair(issues) if request.get("fix") else 0
@@ -128,8 +153,12 @@ def _train(daemon: Daemon, request: dict, now) -> dict:
     try:
         command = RecordTrainingActionCommand(action=action, **args)
     except ValidationError:
-        return {"ok": False, "error": f"unknown training action {action!r}" if action not in TRAIN_ACTIONS
-                else f"invalid values for {action}"}
+        return {
+            "ok": False,
+            "error": f"unknown training action {action!r}"
+            if action not in TRAIN_ACTIONS
+            else f"invalid values for {action}",
+        }
     try:
         session, moves = c.record_training_action.execute(command, now)
     except DomainError as error:
@@ -141,8 +170,18 @@ def _train(daemon: Daemon, request: dict, now) -> dict:
     return {"ok": True}
 
 
-TRAIN_ACTIONS = {"start_set", "stop_set", "end_sets", "swap_easier", "go_now", "cancel_set", "save_set", "rate", "skip",
-                 "finish"}
+TRAIN_ACTIONS = {
+    "start_set",
+    "stop_set",
+    "end_sets",
+    "swap_easier",
+    "go_now",
+    "cancel_set",
+    "save_set",
+    "rate",
+    "skip",
+    "finish",
+}
 
 
 class _Handler(socketserver.StreamRequestHandler):

@@ -25,8 +25,15 @@ class SaveProfileService:
         starting_points = STARTING_POINTS.get(profile.experience)
         if first_time and starting_points and not self.ladders.saved():
             for chain, (exercise, target) in starting_points.items():
-                self.ladders.set(LadderPosition(chain=chain, exercise=exercise, target=target,
-                                                reason=f"Starting point for {profile.experience} level"), now)
+                self.ladders.set(
+                    LadderPosition(
+                        chain=chain,
+                        exercise=exercise,
+                        target=target,
+                        reason=f"Starting point for {profile.experience} level",
+                    ),
+                    now,
+                )
         return profile
 
 

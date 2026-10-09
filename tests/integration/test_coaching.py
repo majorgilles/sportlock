@@ -61,9 +61,12 @@ def test_run_coach__override__moves_the_ladder_and_marks_the_rule_move(world):
     world.c.database.execute(
         "INSERT INTO proposals (session_id, chain, rule, from_exercise, from_target, to_exercise, to_target, reason,"
         " status, decided_by, created_at) VALUES (1, 'squat', 'up', 'bodyweight-squat', '{}', 'split-squat', '{}',"
-        " 'top of range', 'applied', 'rules', '2026-10-05T17:00:00')")
+        " 'top of range', 'applied', 'rules', '2026-10-05T17:00:00')"
+    )
     output = copy.deepcopy(GOOD_PLAN)
-    output["ladder_overrides"] = [{"chain": "squat", **item("bodyweight-squat", 3, 12, 15), "reason": "Knee pain in notes"}]
+    output["ladder_overrides"] = [
+        {"chain": "squat", **item("bodyweight-squat", 3, 12, 15), "reason": "Knee pain in notes"}
+    ]
     # when
     _run(world, output)
     # then
@@ -75,13 +78,29 @@ def test_run_coach__override__moves_the_ladder_and_marks_the_rule_move(world):
 
 def test_run_coach__memory_operations__versioned_notes_fed_back_next_time(world):
     # given
-    _run(world, {**GOOD_PLAN, "memory": [{"op": "add", "id": None, "topic": "body", "note": "Right shoulder pinches."},
-                                         {"op": "add", "id": None, "topic": "plans", "note": "Wants 30 minutes."}]})
+    _run(
+        world,
+        {
+            **GOOD_PLAN,
+            "memory": [
+                {"op": "add", "id": None, "topic": "body", "note": "Right shoulder pinches."},
+                {"op": "add", "id": None, "topic": "plans", "note": "Wants 30 minutes."},
+            ],
+        },
+    )
     # when: three days later the coach refines one note and drops the other
     world.clock.time += timedelta(days=3)
-    _run(world, {**GOOD_PLAN, "memory": [{"op": "update", "id": 2, "topic": None, "note": "Moved to 30 minutes."},
-                                         {"op": "delete", "id": 1, "topic": None, "note": None},
-                                         {"op": "update", "id": 99, "topic": None, "note": "ghost"}]})
+    _run(
+        world,
+        {
+            **GOOD_PLAN,
+            "memory": [
+                {"op": "update", "id": 2, "topic": None, "note": "Moved to 30 minutes."},
+                {"op": "delete", "id": 1, "topic": None, "note": None},
+                {"op": "update", "id": 99, "topic": None, "note": "ghost"},
+            ],
+        },
+    )
     # then
     notes = world.cmd(cmd="memory-get")["notes"]
     assert [(n["id"], n["note"], n["since"]) for n in notes] == [(2, "Moved to 30 minutes.", "2026-10-08")]
@@ -113,7 +132,11 @@ def test_context__what_the_coach_sees__profile_ladders_catalogue_serialisable(wo
 def test_begin__fresh_coach_plan__served_with_its_rationale(world):
     _run(world)
     training = world.at("18:00")["training"]
-    assert (training["title"], training["source"], training["note"]) == ("Push focus", "generated", GOOD_PLAN["rationale"])
+    assert (training["title"], training["source"], training["note"]) == (
+        "Push focus",
+        "generated",
+        GOOD_PLAN["rationale"],
+    )
     assert training["exercises"][1]["name"] == "Knee push-up"
     assert training["exercises"][1]["target"]["progress"] == "Up a step: 3×12 felt easy"
 

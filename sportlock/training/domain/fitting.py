@@ -7,8 +7,9 @@ from sportlock.shared_kernel.plans import PlannedExercise, SessionPlan
 MIN_TIMED_SECONDS = 120
 
 
-def estimate_seconds(items: list[PlannedExercise] | tuple[PlannedExercise, ...], *, pace: float = 1.0,
-                     transition: int = 0) -> int:
+def estimate_seconds(
+    items: list[PlannedExercise] | tuple[PlannedExercise, ...], *, pace: float = 1.0, transition: int = 0
+) -> int:
     """Expected session length: sets × (work + rest) scaled by the measured pace, plus the
     measured gap between exercises."""
     work = sum(item.target.naive_seconds() for item in items)
@@ -33,8 +34,11 @@ def fit_plan(plan: SessionPlan, minutes: float, *, pace: float = 1.0, transition
             i = max(reducible, key=lambda i: items[i].target.sets)
             items[i] = items[i].model_copy(update={"target": items[i].target.with_(sets=items[i].target.sets - 1)})
             continue
-        ends = [i for i in {0, len(items) - 1} if items[i].target.seconds and items[i].target.sets == 1
-                and items[i].target.seconds > MIN_TIMED_SECONDS]
+        ends = [
+            i
+            for i in {0, len(items) - 1}
+            if items[i].target.seconds and items[i].target.sets == 1 and items[i].target.seconds > MIN_TIMED_SECONDS
+        ]
         if ends:
             for i in ends:
                 seconds = max(MIN_TIMED_SECONDS, items[i].target.seconds - 60)  # type: ignore[operator]

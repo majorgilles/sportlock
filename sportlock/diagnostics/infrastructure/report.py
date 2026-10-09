@@ -46,25 +46,37 @@ def _quickshell_logs(limit: int = 4) -> list[tuple[str, str]]:
     return found
 
 
-def build_report(database: Database, library_status: dict, *, state: dict | None, issues: list[Issue],
-                 note: str = "") -> Path:
+def build_report(
+    database: Database, library_status: dict, *, state: dict | None, issues: list[Issue], note: str = ""
+) -> Path:
     """Write the report; returns its path."""
     now = datetime.now()
     sections = [f"# sportlock problem report — {now.isoformat(timespec='seconds')}"]
     if note:
         sections.append(f"## What happened (user)\n\n{note}")
 
-    sections.append("## Versions\n\n```\n" + "\n".join([
-        f"sportlock {_cmd('git', '-C', str(REPO_DIR), 'describe', '--always', '--dirty')}",
-        f"python {_cmd('/usr/bin/python3', '--version')}",
-        _cmd("qs", "--version"),
-        f"claude {_cmd('claude', '--version')}",
-        _cmd("notebooklm", "--version"),
-        f"omarchy {_cmd('cat', '/usr/share/omarchy/version')}",
-    ]) + "\n```")
+    sections.append(
+        "## Versions\n\n```\n"
+        + "\n".join(
+            [
+                f"sportlock {_cmd('git', '-C', str(REPO_DIR), 'describe', '--always', '--dirty')}",
+                f"python {_cmd('/usr/bin/python3', '--version')}",
+                _cmd("qs", "--version"),
+                f"claude {_cmd('claude', '--version')}",
+                _cmd("notebooklm", "--version"),
+                f"omarchy {_cmd('cat', '/usr/share/omarchy/version')}",
+            ]
+        )
+        + "\n```"
+    )
 
-    sections.append("## Doctor\n\n" + ("\n".join(f"- **{i.severity}**: {i.what}" + (f" → fix: {i.fix}" if i.fix else "")
-                                               for i in issues) or "No problems found."))
+    sections.append(
+        "## Doctor\n\n"
+        + (
+            "\n".join(f"- **{i.severity}**: {i.what}" + (f" → fix: {i.fix}" if i.fix else "") for i in issues)
+            or "No problems found."
+        )
+    )
     sections.append("## Live state\n\n```json\n" + json.dumps(state, indent=1, ensure_ascii=False)[:20000] + "\n```")
 
     run = database.get(RUN_KEY)
@@ -73,10 +85,18 @@ def build_report(database: Database, library_status: dict, *, state: dict | None
     for s in database.db.execute("SELECT * FROM sessions ORDER BY id DESC LIMIT 3"):
         detail.append(json.dumps({k: s[k] for k in s.keys()}, ensure_ascii=False))
         for e in database.db.execute("SELECT * FROM session_exercises WHERE session_id = ? ORDER BY id", (s["id"],)):
-            sets = [dict(x) for x in database.db.execute("SELECT set_no, reps, seconds, load_kg, rest_seconds FROM sets"
-                                                       " WHERE session_exercise_id = ? ORDER BY set_no", (e["id"],))]
-            detail.append(f"  {e['id']} {e['exercise']} [{e['kind']}] {e['status']} rpe={e['rpe']} target={e['target']}"
-                          f" sets={sets} skip={e['skip_reason']!r}")
+            sets = [
+                dict(x)
+                for x in database.db.execute(
+                    "SELECT set_no, reps, seconds, load_kg, rest_seconds FROM sets"
+                    " WHERE session_exercise_id = ? ORDER BY set_no",
+                    (e["id"],),
+                )
+            ]
+            detail.append(
+                f"  {e['id']} {e['exercise']} [{e['kind']}] {e['status']} rpe={e['rpe']} target={e['target']}"
+                f" sets={sets} skip={e['skip_reason']!r}"
+            )
     sections.append("## Last 3 sessions\n\n```\n" + "\n".join(detail) + "\n```")
     runs = [dict(r) for r in database.db.execute("SELECT * FROM coach_runs ORDER BY id DESC LIMIT 10")]
     sections.append("## Coach runs\n\n```json\n" + json.dumps(runs, indent=1) + "\n```")
@@ -84,13 +104,19 @@ def build_report(database: Database, library_status: dict, *, state: dict | None
 
     config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "sportlock" / "config.toml"
     sections.append("## config.toml\n\n```toml\n" + _tail(config, 200) + "\n```")
-    sections.append("## Service\n\n```\n" + _cmd("systemctl", "--user", "status", "sportlock", "--no-pager", "-n", "0")
-                    + "\n```\n\n### Journal (last 80 lines)\n\n```\n"
-                    + _cmd("journalctl", "--user", "-u", "sportlock", "-n", "80", "--no-pager") + "\n```")
+    sections.append(
+        "## Service\n\n```\n"
+        + _cmd("systemctl", "--user", "status", "sportlock", "--no-pager", "-n", "0")
+        + "\n```\n\n### Journal (last 80 lines)\n\n```\n"
+        + _cmd("journalctl", "--user", "-u", "sportlock", "-n", "80", "--no-pager")
+        + "\n```"
+    )
     sections.append(f"## sportlock.log (last 200 lines)\n\n```\n{_tail(LOG_PATH, 200)}\n```")
     for name, text in _quickshell_logs():
         sections.append(f"## Quickshell log {name}\n\n```\n{text}\n```")
-    sections.append("## Recent core dumps\n\n```\n" + _cmd("coredumpctl", "list", "--since", "-2d", "--no-pager") + "\n```")
+    sections.append(
+        "## Recent core dumps\n\n```\n" + _cmd("coredumpctl", "list", "--since", "-2d", "--no-pager") + "\n```"
+    )
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     path = REPORTS_DIR / f"report-{now.strftime('%Y%m%d-%H%M%S')}.md"

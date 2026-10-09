@@ -20,8 +20,12 @@ REST = CoachAdvice(mode="rest", reason="45 min at effort 8 yesterday")
 
 
 def _state(last_credited=None, last_hard=None, sessions=0, rest_in_a_row=0):
-    return RecoveryState(last_credited=last_credited, last_hard=last_hard, sessions_last_7_days=sessions,
-                         rest_days_in_a_row=rest_in_a_row)
+    return RecoveryState(
+        last_credited=last_credited,
+        last_hard=last_hard,
+        sessions_last_7_days=sessions,
+        rest_days_in_a_row=rest_in_a_row,
+    )
 
 
 def _decide(state, advice=None, policy=Policy(), minutes=30):
@@ -77,10 +81,21 @@ def test_rest_days_in_a_row__counts_back_from_yesterday():
 
 
 def test_load_summary__one_session__minutes_times_effort():
-    session = SessionSummary(id=1, day=date(2026, 10, 5), finished_at=NOW - timedelta(hours=24), day_type="hard",
-                             title="x", minutes=45, rpe=8)
+    session = SessionSummary(
+        id=1,
+        day=date(2026, 10, 5),
+        finished_at=NOW - timedelta(hours=24),
+        day_type="hard",
+        title="x",
+        minutes=45,
+        rpe=8,
+    )
     summary = load_summary([session], 0, NOW)
-    assert (summary["sessions_last_7_days"], summary["minutes_last_7_days"], summary["load_last_7_days"]) == (1, 45, 360)
+    assert (summary["sessions_last_7_days"], summary["minutes_last_7_days"], summary["load_last_7_days"]) == (
+        1,
+        45,
+        360,
+    )
     assert len(summary["last_48h"]) == 1
 
 

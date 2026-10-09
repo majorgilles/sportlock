@@ -26,13 +26,17 @@ class SqliteLockEventRepository(LockEventRepositoryProtocol):
 
     @override
     def began(self, key: str, start: datetime, end: datetime, now: datetime) -> None:
-        self.database.execute("INSERT OR IGNORE INTO lock_events (key, start, end, began_at) VALUES (?, ?, ?, ?)",
-                              (key, iso(start), iso(end), iso(now)))
+        self.database.execute(
+            "INSERT OR IGNORE INTO lock_events (key, start, end, began_at) VALUES (?, ?, ?, ?)",
+            (key, iso(start), iso(end), iso(now)),
+        )
 
     @override
     def ended(self, key: str, outcome: LockOutcome, now: datetime) -> None:
-        self.database.execute("UPDATE lock_events SET ended_at = ?, outcome = ? WHERE key = ? AND ended_at IS NULL",
-                              (iso(now), outcome, key))
+        self.database.execute(
+            "UPDATE lock_events SET ended_at = ?, outcome = ? WHERE key = ? AND ended_at IS NULL",
+            (iso(now), outcome, key),
+        )
 
     @override
     def outcome(self, key: str) -> str | None:
@@ -56,8 +60,10 @@ class SqliteLockEventRepository(LockEventRepositoryProtocol):
 
     @override
     def between(self, first: date, last: date) -> list[dict]:
-        rows = self.database.execute("SELECT * FROM lock_events WHERE substr(start, 1, 10) BETWEEN ? AND ?",
-                                     (first.isoformat(), last.isoformat()))
+        rows = self.database.execute(
+            "SELECT * FROM lock_events WHERE substr(start, 1, 10) BETWEEN ? AND ?",
+            (first.isoformat(), last.isoformat()),
+        )
         return [dict(row) for row in rows]
 
 
@@ -69,16 +75,23 @@ class SqliteOverrideRepository(OverrideRepositoryProtocol):
 
     @override
     def start(self, lock_key: str, now: datetime, unlock_at: datetime) -> None:
-        self.database.execute("INSERT INTO overrides (lock_key, requested_at, unlock_at) VALUES (?, ?, ?)",
-                              (lock_key, iso(now), iso(unlock_at)))
+        self.database.execute(
+            "INSERT INTO overrides (lock_key, requested_at, unlock_at) VALUES (?, ?, ?)",
+            (lock_key, iso(now), iso(unlock_at)),
+        )
 
     @override
     def pending(self, lock_key: str) -> PendingOverride | None:
         row = self.database.execute(
             "SELECT * FROM overrides WHERE lock_key = ? AND cancelled_at IS NULL AND completed_at IS NULL"
-            " ORDER BY id DESC LIMIT 1", (lock_key,)).fetchone()
-        return PendingOverride(id=row["id"], lock_key=row["lock_key"],
-                               unlock_at=datetime.fromisoformat(row["unlock_at"])) if row else None
+            " ORDER BY id DESC LIMIT 1",
+            (lock_key,),
+        ).fetchone()
+        return (
+            PendingOverride(id=row["id"], lock_key=row["lock_key"], unlock_at=datetime.fromisoformat(row["unlock_at"]))
+            if row
+            else None
+        )
 
     @override
     def finish(self, override_id: int, now: datetime, *, cancelled: bool) -> None:
@@ -115,8 +128,10 @@ class KvLockStateRepository(LockStateRepositoryProtocol):
         if lock is None:
             self.database.delete("manual_lock")
         else:
-            self.database.put("manual_lock", {"key": lock.key, "start": lock.window.start.isoformat(),
-                                              "end": lock.window.end.isoformat()})
+            self.database.put(
+                "manual_lock",
+                {"key": lock.key, "start": lock.window.start.isoformat(), "end": lock.window.end.isoformat()},
+            )
 
     @override
     def warned(self) -> list[str]:

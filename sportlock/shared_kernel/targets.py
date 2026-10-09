@@ -31,8 +31,14 @@ class Target(ValueObject):
     @classmethod
     def from_dict(cls, data: dict) -> Target:
         """Read the stored JSON shape (unknown keys are ignored)."""
-        return cls(sets=data["sets"], rest=data.get("rest", 0), reps=data.get("reps"), seconds=data.get("seconds"),
-                   sides=data.get("sides") or None, progress=data.get("progress") or None)
+        return cls(
+            sets=data["sets"],
+            rest=data.get("rest", 0),
+            reps=data.get("reps"),
+            seconds=data.get("seconds"),
+            sides=data.get("sides") or None,
+            progress=data.get("progress") or None,
+        )
 
     def to_dict(self) -> dict:
         """The stored JSON shape."""

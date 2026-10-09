@@ -54,7 +54,9 @@ class ReloadSettingsService:
 class SaveSettingsService:
     """The settings form was saved."""
 
-    def __init__(self, state: SettingsState, repository: SettingsRepositoryProtocol, reload: ReloadSettingsService) -> None:
+    def __init__(
+        self, state: SettingsState, repository: SettingsRepositoryProtocol, reload: ReloadSettingsService
+    ) -> None:
         self.state = state
         self.repository = repository
         self.reload = reload
@@ -64,7 +66,9 @@ class SaveSettingsService:
         Raises SettingsError."""
         self.repository.save(self.state.settings.with_form(form))
         self.reload.execute(decision=decision, now=now)
-        log.info("settings saved from the app (%s)", "pending until the lock is over" if self.state.pending else "applied")
+        log.info(
+            "settings saved from the app (%s)", "pending until the lock is over" if self.state.pending else "applied"
+        )
         return self.state.pending
 
 

@@ -31,11 +31,16 @@ class FileExerciseDetailsRepository(ExerciseDetailsRepositoryProtocol):
         path = self.root / exercise_id / "exercise.json"
         try:
             data = json.loads(path.read_text())
-        except (OSError, ValueError):
+        except OSError, ValueError:
             return ExerciseDetails()
         image = data.get("image")
         return ExerciseDetails(
-            steps=data.get("steps") or (), cues=data.get("cues") or (), mistakes=data.get("mistakes") or (),
-            breathing=data.get("breathing") or "", sources=data.get("sources") or (),
-            image=str(self.root / exercise_id / image) if image else "", image_source=data.get("image_source") or "",
-            built=bool(data.get("built_at")))
+            steps=data.get("steps") or (),
+            cues=data.get("cues") or (),
+            mistakes=data.get("mistakes") or (),
+            breathing=data.get("breathing") or "",
+            sources=data.get("sources") or (),
+            image=str(self.root / exercise_id / image) if image else "",
+            image_source=data.get("image_source") or "",
+            built=bool(data.get("built_at")),
+        )

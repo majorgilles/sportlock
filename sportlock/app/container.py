@@ -77,11 +77,20 @@ class SystemClock(ClockProtocol):
 class Container:
     """Everything the service and the CLI use, built once."""
 
-    def __init__(self, *, db_path: Path = DB_PATH, config_path: Path = CONFIG_PATH, library_dir: Path = LIBRARY_DIR,
-                 state_path: Path | None = None, desktop: DesktopProtocol | None = None,
-                 lock_screen: LockScreenProtocol | None = None, popup: WarningPopupProtocol | None = None,
-                 coach: CoachProtocol | None = None, clock: ClockProtocol | None = None,
-                 catalogue: Catalogue | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        db_path: Path = DB_PATH,
+        config_path: Path = CONFIG_PATH,
+        library_dir: Path = LIBRARY_DIR,
+        state_path: Path | None = None,
+        desktop: DesktopProtocol | None = None,
+        lock_screen: LockScreenProtocol | None = None,
+        popup: WarningPopupProtocol | None = None,
+        coach: CoachProtocol | None = None,
+        clock: ClockProtocol | None = None,
+        catalogue: Catalogue | None = None,
+    ) -> None:
         self.clock = clock or SystemClock()
         self.desktop = desktop or OmarchyDesktop()
         self.database = Database(db_path)
@@ -114,26 +123,53 @@ class Container:
         self.freshness = CoachPlanFreshness(self.coach_plans, self.history, self.profiles)
         self.progression = ApplySessionProgressionService(self.ladders, self.catalogue)
         self.save_profile = SaveProfileService(self.profiles, self.ladders)
-        self.begin_session = BeginTrainingSessionService(self.sessions, self.history, self.ladders, self.freshness,
-                                                         self.catalogue)
+        self.begin_session = BeginTrainingSessionService(
+            self.sessions, self.history, self.ladders, self.freshness, self.catalogue
+        )
         self.close_session = CloseTrainingSessionService(self.sessions, self.progression)
         self.record_training_action = RecordTrainingActionService(self.sessions, self.catalogue, self.progression)
         self.training_snapshot = TrainingSnapshotService(self.sessions, self.history, self.catalogue, self.details)
-        self.plan_lock = PlanScheduledLockService(self.lock_state, self.freshness, self.history, self.lock_events,
-                                                  self.desktop)
-        self.tick = RunLockTickService(self.settings, self.runtime, self.lock_events, self.overrides, self.lock_state,
-                                       self.history, self.profiles, self.plan_lock, self.begin_session,
-                                       self.close_session, self.freshness, self.desktop, self.lock_screen, self.popup)
+        self.plan_lock = PlanScheduledLockService(
+            self.lock_state, self.freshness, self.history, self.lock_events, self.desktop
+        )
+        self.tick = RunLockTickService(
+            self.settings,
+            self.runtime,
+            self.lock_events,
+            self.overrides,
+            self.lock_state,
+            self.history,
+            self.profiles,
+            self.plan_lock,
+            self.begin_session,
+            self.close_session,
+            self.freshness,
+            self.desktop,
+            self.lock_screen,
+            self.popup,
+        )
         self.start_test_lock = StartTestLockService(self.runtime)
         self.start_manual_lock = StartManualLockService(self.runtime, self.lock_state)
         self.request_override = RequestOverrideService(self.runtime, self.overrides, self.settings)
         self.cancel_override = CancelOverrideService(self.runtime, self.overrides)
-        self.end_lock_on_finish = EndLockOnSessionFinishedService(self.runtime, self.lock_events, self.catalogue,
-                                                                  self.desktop)
-        self.run_coach = RunCoachService(self.coach, self.catalogue, self.coach_plans, self.coach_runs, self.memory,
-                                         self.ladders, self.history, self.profiles, self.lock_events, self.desktop,
-                                         self.clock)
+        self.end_lock_on_finish = EndLockOnSessionFinishedService(
+            self.runtime, self.lock_events, self.catalogue, self.desktop
+        )
+        self.run_coach = RunCoachService(
+            self.coach,
+            self.catalogue,
+            self.coach_plans,
+            self.coach_runs,
+            self.memory,
+            self.ladders,
+            self.history,
+            self.profiles,
+            self.lock_events,
+            self.desktop,
+            self.clock,
+        )
         self.get_memory = GetMemoryService(self.memory)
         self.forget_memory_note = ForgetMemoryNoteService(self.memory, self.clock)
-        self.calendar = BuildCalendarService(self.history, self.lock_events, self.lock_state, self.freshness,
-                                             self.catalogue)
+        self.calendar = BuildCalendarService(
+            self.history, self.lock_events, self.lock_state, self.freshness, self.catalogue
+        )

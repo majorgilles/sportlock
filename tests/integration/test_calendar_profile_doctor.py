@@ -49,18 +49,23 @@ def test_doctor__clean_data__no_errors(world):
 
 
 def test_doctor__timed_exercise_with_a_rep_target__found_and_repaired(world):
-    world.c.database.execute("INSERT INTO sessions (id, day, finished_at, kind, status) VALUES (1, '2026-10-05', 'x', 'test', 'abandoned')")
+    world.c.database.execute(
+        "INSERT INTO sessions (id, day, finished_at, kind, status) VALUES (1, '2026-10-05', 'x', 'test', 'abandoned')"
+    )
     world.c.database.execute(
         "INSERT INTO session_exercises (session_id, exercise, name, pattern, kind, target, status)"
         " VALUES (1, 'static-stretch', 'Cool-down stretching', 'mobility', 'timed', ?, 'done')",
-        (json.dumps({"sets": 2, "rest": 15, "reps": [8, 10]}),))
+        (json.dumps({"sets": 2, "rest": 15, "reps": [8, 10]}),),
+    )
     assert world.cmd(cmd="doctor", fix=True)["fixed"] == 1
     target = json.loads(world.c.database.execute("SELECT target FROM session_exercises").fetchone()[0])
     assert target == {"sets": 2, "rest": 15, "seconds": 120}
 
 
 def test_doctor__stuck_session_and_leftover_run__repaired_outside_a_lock(world):
-    world.c.database.execute("INSERT INTO sessions (id, day, finished_at, kind, status) VALUES (2, '2026-10-05', 'x', 'scheduled', 'in_progress')")
+    world.c.database.execute(
+        "INSERT INTO sessions (id, day, finished_at, kind, status) VALUES (2, '2026-10-05', 'x', 'scheduled', 'in_progress')"
+    )
     world.c.database.put("training", {"session_id": 99})
     world.cmd(cmd="doctor", fix=True)
     assert world.c.database.execute("SELECT status FROM sessions WHERE id = 2").fetchone()[0] == "abandoned"
@@ -85,8 +90,10 @@ def test_database__version_two_database__coach_runs_moved_out_of_the_key_value_t
     Database(path).db.close()
     db = sqlite3.connect(path)
     db.executescript("DROP TABLE coach_runs; DROP TABLE coach_memory_notes; PRAGMA user_version = 2;")
-    db.execute("INSERT INTO kv VALUES ('agent_runs', ?)", (json.dumps([{"at": "2026-10-01T10:00:00", "seconds": 60,
-                                                                        "ok": True, "error": None}]),))
+    db.execute(
+        "INSERT INTO kv VALUES ('agent_runs', ?)",
+        (json.dumps([{"at": "2026-10-01T10:00:00", "seconds": 60, "ok": True, "error": None}]),),
+    )
     db.commit()
     db.close()
     # when

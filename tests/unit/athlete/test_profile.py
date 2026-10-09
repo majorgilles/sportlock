@@ -18,13 +18,22 @@ def test_from_form__age_not_a_number__rejected():
 
 
 def test_from_form__unknown_goals_and_equipment__ignored():
-    profile = Profile.from_form({"experience": "beginner", "goals": ["strength", "flying"],
-                                 "equipment": ["bar", "jetpack"]}, NOW)
+    profile = Profile.from_form(
+        {"experience": "beginner", "goals": ["strength", "flying"], "equipment": ["bar", "jetpack"]}, NOW
+    )
     assert (profile.goals, profile.equipment) == (("strength",), ("bar",))
 
 
 def test_profile__stored_shape__round_trips():
-    profile = Profile.from_form({"experience": "beginner", "goals": ["strength"], "equipment": ["chair"],
-                                 "weight_kg": "78.5", "injuries": "right shoulder"}, NOW)
+    profile = Profile.from_form(
+        {
+            "experience": "beginner",
+            "goals": ["strength"],
+            "equipment": ["chair"],
+            "weight_kg": "78.5",
+            "injuries": "right shoulder",
+        },
+        NOW,
+    )
     assert Profile.from_dict(profile.to_dict()) == profile
     assert profile.to_dict()["goals"] == ["strength"]

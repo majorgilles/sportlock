@@ -110,27 +110,48 @@ class FakeClock:
         return self.time
 
 
-def item(exercise: str, sets: int = 3, lo: int | None = None, hi: int | None = None, seconds: int | None = None,
-         rest: int = 60, note: str = "") -> dict:
+def item(
+    exercise: str,
+    sets: int = 3,
+    lo: int | None = None,
+    hi: int | None = None,
+    seconds: int | None = None,
+    rest: int = 60,
+    note: str = "",
+) -> dict:
     """One exercise as the coach writes it."""
-    return {"exercise": exercise, "sets": sets, "reps_low": lo, "reps_high": hi, "seconds": seconds, "rest": rest,
-            "note": note}
+    return {
+        "exercise": exercise,
+        "sets": sets,
+        "reps_low": lo,
+        "reps_high": hi,
+        "seconds": seconds,
+        "rest": rest,
+        "note": note,
+    }
 
 
 GOOD_PLAN = {
     "rationale": "Push day focus after a solid squat session.",
-    "hard": {"title": "Push focus", "exercises": [
-        item("dynamic-warmup", 1, seconds=300, rest=0),
-        item("knee-push-up", 3, 8, 12, note="Up a step: 3×12 felt easy"),
-        item("bodyweight-squat", 3, 12, 15),
-        item("plank", 3, seconds=40, rest=45),
-        item("static-stretch", 1, seconds=300, rest=0),
-    ]},
-    "recovery": {"title": "Easy mobility", "day_type": "mobility", "exercises": [
-        item("dynamic-warmup", 1, seconds=300, rest=0),
-        item("cat-cow", 2, 8, 10, rest=15),
-        item("static-stretch", 1, seconds=300, rest=0),
-    ]},
+    "hard": {
+        "title": "Push focus",
+        "exercises": [
+            item("dynamic-warmup", 1, seconds=300, rest=0),
+            item("knee-push-up", 3, 8, 12, note="Up a step: 3×12 felt easy"),
+            item("bodyweight-squat", 3, 12, 15),
+            item("plank", 3, seconds=40, rest=45),
+            item("static-stretch", 1, seconds=300, rest=0),
+        ],
+    },
+    "recovery": {
+        "title": "Easy mobility",
+        "day_type": "mobility",
+        "exercises": [
+            item("dynamic-warmup", 1, seconds=300, rest=0),
+            item("cat-cow", 2, 8, 10, rest=15),
+            item("static-stretch", 1, seconds=300, rest=0),
+        ],
+    },
     "next_lock": {"mode": "auto", "recovery_minutes": None, "reason": ""},
     "recommendations": [],
     "memory": [],
@@ -150,15 +171,24 @@ class World:
         self.popup = FakePopup()
         self.coach = FakeCoach()
         self.clock = FakeClock(datetime(2026, 10, 5, 17, 0))
-        self.c = Container(db_path=tmp / "db.sqlite", config_path=self.config_path, library_dir=tmp / "library",
-                           desktop=self.desktop, lock_screen=self.lock_screen, popup=self.popup, coach=self.coach,
-                           clock=self.clock, catalogue=catalogue)
+        self.c = Container(
+            db_path=tmp / "db.sqlite",
+            config_path=self.config_path,
+            library_dir=tmp / "library",
+            desktop=self.desktop,
+            lock_screen=self.lock_screen,
+            popup=self.popup,
+            coach=self.coach,
+            clock=self.clock,
+            catalogue=catalogue,
+        )
         self.daemon = Daemon(self.c, state_path=tmp / "state.json")
         self.daemon.running = False  # no background ticks
         self.daemon.coach_enabled = False  # the coach only runs when a test asks
         if profile:
-            assert self.cmd(cmd="profile-save", profile={"experience": "beginner", "goals": ["general fitness"],
-                                                          "equipment": HOUSE})["ok"]
+            assert self.cmd(
+                cmd="profile-save", profile={"experience": "beginner", "goals": ["general fitness"], "equipment": HOUSE}
+            )["ok"]
 
     def at(self, hhmm: str, *, second: int = 0) -> dict:
         """Move the clock to that time today, tick, return the state file's content."""
@@ -182,16 +212,27 @@ class World:
             assert self.train("skip", reason="testing")["ok"]
         return self.train("finish", rpe=5)
 
-    def add_session(self, finished: datetime, *, minutes: int = 45, rpe: int = 8, day_type: str = "hard",
-                    kind: str = "scheduled", status: str = "finished") -> None:
+    def add_session(
+        self,
+        finished: datetime,
+        *,
+        minutes: int = 45,
+        rpe: int = 8,
+        day_type: str = "hard",
+        kind: str = "scheduled",
+        status: str = "finished",
+    ) -> None:
         """A past session, written straight into the database."""
         started = finished - timedelta(minutes=minutes)
         self.c.database.execute(
             "INSERT INTO sessions (day, started_at, finished_at, kind, status, day_type, rpe) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (finished.date().isoformat(), iso(started), iso(finished), kind, status, day_type, rpe))
+            (finished.date().isoformat(), iso(started), iso(finished), kind, status, day_type, rpe),
+        )
 
     def rest_day(self, day) -> None:
         """A past scheduled lock that became a rest day."""
         key = f"{day.isoformat()}T18:00"
-        self.c.database.execute("INSERT INTO lock_events (key, start, end, began_at, ended_at, outcome)"
-                                " VALUES (?, ?, ?, ?, ?, 'rest')", (key, key, key, key, key))
+        self.c.database.execute(
+            "INSERT INTO lock_events (key, start, end, began_at, ended_at, outcome) VALUES (?, ?, ?, ?, ?, 'rest')",
+            (key, key, key, key, key),
+        )

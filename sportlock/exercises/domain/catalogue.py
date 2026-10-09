@@ -59,11 +59,21 @@ class Catalogue(ValueObject):
             ids = tuple(e["id"] for e in chain["exercises"])
             for index, entry in enumerate(chain["exercises"]):
                 exercises[entry["id"]] = Exercise(
-                    id=entry["id"], name=entry["name"], kind=entry["kind"], chain=chain_id, pattern=chain["pattern"],
-                    step=index + 1, chain_ids=ids, easier=ids[index - 1] if index > 0 else None,
+                    id=entry["id"],
+                    name=entry["name"],
+                    kind=entry["kind"],
+                    chain=chain_id,
+                    pattern=chain["pattern"],
+                    step=index + 1,
+                    chain_ids=ids,
+                    easier=ids[index - 1] if index > 0 else None,
                     harder=ids[index + 1] if index + 1 < len(ids) else None,
-                    equipment=frozenset(entry.get("equipment", [])), sides=entry.get("sides"),
-                    aliases=tuple(entry.get("aliases", [])), cues=tuple(entry.get("cues", [])), fedb=entry.get("fedb"))
+                    equipment=frozenset(entry.get("equipment", [])),
+                    sides=entry.get("sides"),
+                    aliases=tuple(entry.get("aliases", [])),
+                    cues=tuple(entry.get("cues", [])),
+                    fedb=entry.get("fedb"),
+                )
         return cls(exercises=exercises)
 
     def __contains__(self, exercise_id: object) -> bool:

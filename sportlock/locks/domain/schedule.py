@@ -51,8 +51,11 @@ class Decision(ValueObject):
 
 def windows_for_day(settings: Settings, day: date) -> list[Window]:
     """Windows starting on `day`: overlaps merged, then truncated to the daily cap in order."""
-    raw = sorted((datetime.combine(day, entry.at), timedelta(minutes=entry.minutes))
-                 for entry in settings.locks if day.weekday() in entry.days)
+    raw = sorted(
+        (datetime.combine(day, entry.at), timedelta(minutes=entry.minutes))
+        for entry in settings.locks
+        if day.weekday() in entry.days
+    )
     merged: list[list[datetime]] = []
     for start, length in raw:
         end = start + length

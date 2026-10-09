@@ -41,15 +41,26 @@ def test_local_plan__hard_day__warm_up_main_patterns_cool_down(catalogue):
     plan = local_plan(_start_positions(), catalogue, HOUSE, recovery=False, hours_since_hard=None)
     # then
     assert plan.day_type == "hard"
-    assert [i.exercise for i in plan.items] == ["dynamic-warmup", "incline-push-up", "bodyweight-squat",
-                                                "prone-y-raise", "glute-bridge", "plank", "static-stretch"]
+    assert [i.exercise for i in plan.items] == [
+        "dynamic-warmup",
+        "incline-push-up",
+        "bodyweight-squat",
+        "prone-y-raise",
+        "glute-bridge",
+        "plank",
+        "static-stretch",
+    ]
 
 
 def test_local_plan__position_with_a_reason__shown_on_the_card(catalogue):
     # given
     saved = _start_positions()
-    saved["push-horizontal"] = LadderPosition(chain="push-horizontal", exercise="knee-push-up",
-                                              target=Target(sets=3, rest=60, reps=(8, 12)), reason="top of the range")
+    saved["push-horizontal"] = LadderPosition(
+        chain="push-horizontal",
+        exercise="knee-push-up",
+        target=Target(sets=3, rest=60, reps=(8, 12)),
+        reason="top of the range",
+    )
     # when
     plan = local_plan(saved, catalogue, HOUSE, recovery=False, hours_since_hard=None)
     # then
@@ -81,16 +92,42 @@ def test_moves_for_session__done_and_swapped_exercises__move_their_chains(catalo
     # given
     target = Target(sets=3, rest=60, reps=(8, 12))
     results = [
-        ExerciseResult(session_exercise_id=1, exercise="dynamic-warmup", name="Dynamic warm-up", kind="timed",
-                       target=Target(sets=1, seconds=300), status="done", rpe=3, sets=(SetResult(reps=None, seconds=300),)),
-        ExerciseResult(session_exercise_id=2, exercise="incline-push-up", name="Incline push-up", kind="reps",
-                       target=target, status="done", rpe=5, sets=(SetResult(reps=12, seconds=30),) * 3),
-        ExerciseResult(session_exercise_id=3, exercise="bodyweight-squat", name="Bodyweight squat", kind="reps",
-                       target=target, status="swapped", rpe=None, sets=()),
+        ExerciseResult(
+            session_exercise_id=1,
+            exercise="dynamic-warmup",
+            name="Dynamic warm-up",
+            kind="timed",
+            target=Target(sets=1, seconds=300),
+            status="done",
+            rpe=3,
+            sets=(SetResult(reps=None, seconds=300),),
+        ),
+        ExerciseResult(
+            session_exercise_id=2,
+            exercise="incline-push-up",
+            name="Incline push-up",
+            kind="reps",
+            target=target,
+            status="done",
+            rpe=5,
+            sets=(SetResult(reps=12, seconds=30),) * 3,
+        ),
+        ExerciseResult(
+            session_exercise_id=3,
+            exercise="bodyweight-squat",
+            name="Bodyweight squat",
+            kind="reps",
+            target=target,
+            status="swapped",
+            rpe=None,
+            sets=(),
+        ),
     ]
     # when
     moves = moves_for_session(results, catalogue)
     # then
     assert [(m.chain, m.proposal.rule, m.proposal.exercise) for m in moves] == [
-        ("push-horizontal", "up", "knee-push-up"), ("squat", "too-hard", "wall-sit")]
+        ("push-horizontal", "up", "knee-push-up"),
+        ("squat", "too-hard", "wall-sit"),
+    ]
     assert moves[1].proposal.target.seconds == 30 and moves[1].proposal.target.reps is None  # a hold now

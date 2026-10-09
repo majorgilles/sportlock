@@ -27,13 +27,30 @@ class ApplySessionProgressionService:
         """The applied moves, in order."""
         if session.kind == "test" or session.id is None:
             return []
-        results = [ExerciseResult(session_exercise_id=e.id or 0, exercise=e.exercise, name=e.name, kind=e.kind,
-                                  target=e.target, status=e.status, rpe=e.rpe,
-                                  sets=tuple(SetResult(reps=s.reps, seconds=s.seconds) for s in e.sets))
-                   for e in sorted(session.exercises, key=lambda e: e.id or 0) if e.status in ("done", "swapped")]
+        results = [
+            ExerciseResult(
+                session_exercise_id=e.id or 0,
+                exercise=e.exercise,
+                name=e.name,
+                kind=e.kind,
+                target=e.target,
+                status=e.status,
+                rpe=e.rpe,
+                sets=tuple(SetResult(reps=s.reps, seconds=s.seconds) for s in e.sets),
+            )
+            for e in sorted(session.exercises, key=lambda e: e.id or 0)
+            if e.status in ("done", "swapped")
+        ]
         moves = moves_for_session(results, self.catalogue)
         for move in moves:
             self.ladders.record_move(session.id, move, decided_by="rules", now=now)
-            self.ladders.set(LadderPosition(chain=move.chain, exercise=move.proposal.exercise,
-                                            target=move.proposal.target, reason=move.proposal.reason), now)
+            self.ladders.set(
+                LadderPosition(
+                    chain=move.chain,
+                    exercise=move.proposal.exercise,
+                    target=move.proposal.target,
+                    reason=move.proposal.reason,
+                ),
+                now,
+            )
         return moves

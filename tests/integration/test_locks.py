@@ -162,12 +162,18 @@ def test_tick__coach_advises_rest_and_guardrails_allow__no_lock(world):
     assert "Training lock at 18:00" not in world.desktop.notifications
 
 
-GOAL_REST = {**GOOD_PLAN, "next_lock": {"mode": "rest", "recovery_minutes": None, "reason": "Yesterday's 45 min at effort 8"}}
+GOAL_REST = {
+    **GOOD_PLAN,
+    "next_lock": {"mode": "rest", "recovery_minutes": None, "reason": "Yesterday's 45 min at effort 8"},
+}
 
 
 def test_tick__popup_off_in_settings__notification_only(tmp_path, catalogue):
-    world = World(tmp_path, catalogue, config=CONFIG.replace("max_minutes_per_day = 60",
-                                                             "max_minutes_per_day = 60\nwarn_popup = false"))
+    world = World(
+        tmp_path,
+        catalogue,
+        config=CONFIG.replace("max_minutes_per_day = 60", "max_minutes_per_day = 60\nwarn_popup = false"),
+    )
     world.at("17:50")
     assert world.desktop.notifications == ["Training lock at 18:00"]
     assert world.popup.shown == []

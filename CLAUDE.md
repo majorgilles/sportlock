@@ -6,7 +6,9 @@ words, and docs/architecture-decision-records/ for why it is built this way.
 ## Commands
 
 ```bash
-uv sync                  # environment (pydantic, pytest)
+uv sync                  # environment (pydantic, pytest, ruff)
+uv run ruff format       # format; run before every commit
+uv run ruff check --fix  # lint (pyflakes, import order)
 uv run pytest            # all tests; must pass before every commit
 systemctl --user restart sportlock   # load code changes into the running service (only while unlocked)
 ```

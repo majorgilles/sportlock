@@ -42,8 +42,14 @@ def _walk_parts(parts, images_dir: Path | None):
     for part in parts if isinstance(parts, list) else []:
         if isinstance(part, list) and part and isinstance(part[0], str):
             texts.append(part[0])
-        elif (isinstance(part, list) and len(part) > 1 and isinstance(part[1], list) and len(part[1]) > 3
-              and isinstance(part[1][2], str) and str(part[1][3]).startswith("image/")):
+        elif (
+            isinstance(part, list)
+            and len(part) > 1
+            and isinstance(part[1], list)
+            and len(part[1]) > 3
+            and isinstance(part[1][2], str)
+            and str(part[1][3]).startswith("image/")
+        ):
             data = base64.b64decode(part[1][2])
             if images_dir is not None and len(data) > 2000:  # skip tiny glyphs/bullets
                 name = hashlib.sha1(data).hexdigest()[:16] + ".jpg"
@@ -63,7 +69,7 @@ def _chunks(payload, images_dir: Path | None) -> list[dict]:
             try:
                 parts = chunk[0][0]
                 rank = chunk[1]
-            except (IndexError, TypeError):
+            except IndexError, TypeError:
                 continue
             text, images = _walk_parts(parts, images_dir)
             out.append({"source_id": source[0], "rank": rank, "text": text, "images": images})

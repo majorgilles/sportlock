@@ -16,7 +16,7 @@ THEME_COLORS = Path.home() / ".local/state/omarchy/current/theme/colors.toml"
 def _run(*command: str, timeout: float = 5) -> subprocess.CompletedProcess | None:
     try:
         return subprocess.run(command, capture_output=True, text=True, timeout=timeout)
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         return None
 
 
@@ -62,7 +62,7 @@ def idle_stay_awake() -> bool | None:
     result = _run("omarchy-shell", "idle", "status")
     try:
         return bool(json.loads(result.stdout)["stayAwake"]) if result else None
-    except (ValueError, KeyError):
+    except ValueError, KeyError:
         return None
 
 
@@ -79,11 +79,16 @@ def omarchy_lock_active() -> bool:
 
 def theme() -> dict[str, str]:
     """The current Omarchy theme's colours."""
-    colors = {"background": "#121212", "foreground": "#bebebe", "accent": "#e68e0d",
-              "muted": "#555555", "urgent": "#d35f5f"}
+    colors = {
+        "background": "#121212",
+        "foreground": "#bebebe",
+        "accent": "#e68e0d",
+        "muted": "#555555",
+        "urgent": "#d35f5f",
+    }
     try:
         data = tomllib.loads(THEME_COLORS.read_text())
-    except (OSError, tomllib.TOMLDecodeError):
+    except OSError, tomllib.TOMLDecodeError:
         return colors
     for key in ("background", "foreground", "accent"):
         if isinstance(data.get(key), str):

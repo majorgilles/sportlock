@@ -8,8 +8,18 @@ import sys
 from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parents[2] / "sportlock"
-FEATURES = {"athlete", "calendar", "coaching", "diagnostics", "exercises", "locks", "progression", "recovery",
-            "settings", "training"}
+FEATURES = {
+    "athlete",
+    "calendar",
+    "coaching",
+    "diagnostics",
+    "exercises",
+    "locks",
+    "progression",
+    "recovery",
+    "settings",
+    "training",
+}
 # Which features' domains a feature's domain may use (the context map). Everything else crosses
 # features in the application layer.
 DOMAIN_CONTEXT_MAP = {

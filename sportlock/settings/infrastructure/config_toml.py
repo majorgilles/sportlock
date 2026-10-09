@@ -124,6 +124,11 @@ def dump(config: Settings) -> str:
         "# One block per scheduled lock.",
     ]
     for lock in config.locks:
-        lines += ["[[lock]]", f"days = {_toml_list([DAYS[d] for d in sorted(lock.days)])}",
-                  f'at = "{lock.at.strftime("%H:%M")}"', f"minutes = {lock.minutes}", ""]
+        lines += [
+            "[[lock]]",
+            f"days = {_toml_list([DAYS[d] for d in sorted(lock.days)])}",
+            f'at = "{lock.at.strftime("%H:%M")}"',
+            f"minutes = {lock.minutes}",
+            "",
+        ]
     return "\n".join(lines).rstrip() + "\n"

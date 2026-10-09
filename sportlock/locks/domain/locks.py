@@ -43,8 +43,12 @@ class LockPlan(ValueObject):
     @classmethod
     def from_dict(cls, data: dict) -> LockPlan:
         """Read the stored JSON shape."""
-        return cls(mode=data["mode"], minutes=data["minutes"], reason=data.get("reason", ""),
-                   end=datetime.fromisoformat(data["end"]))
+        return cls(
+            mode=data["mode"],
+            minutes=data["minutes"],
+            reason=data.get("reason", ""),
+            end=datetime.fromisoformat(data["end"]),
+        )
 
     def to_dict(self) -> dict:
         """The stored JSON shape."""

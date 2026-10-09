@@ -69,6 +69,7 @@ def cmd_status(args) -> None:
 
 def cmd_simple(name):
     """A command that sends one request and prints ok."""
+
     def run(args) -> None:
         payload = {"cmd": name}
         if name == "override":
@@ -110,8 +111,10 @@ def cmd_library(args) -> None:
             sys.exit(1)
     elif args.library_command == "pictures":
         results = library.retry_pictures(args.ids or None, workers=args.workers)
-        print(f"new pictures {len(results['found'])}, still stick figures {len(results['none'])}, "
-              f"failed {len(results['failed'])}")
+        print(
+            f"new pictures {len(results['found'])}, still stick figures {len(results['none'])}, "
+            f"failed {len(results['failed'])}"
+        )
     elif args.library_command == "infographics":
         results = library.infographics(args.ids or None)
         print(f"installed {len(results['installed'])}, failed {len(results['failed'])}")
@@ -151,8 +154,10 @@ def cmd_ladders(args) -> None:
     for position in positions(SqliteLadderRepository(Database()).saved()):
         exercise = catalogue.find(position.exercise)
         step = f"{exercise.step}/{len(exercise.chain_ids)}" if exercise else "?"
-        print(f"{position.chain:<16} {step:>5}  {catalogue.name(position.exercise):<26} "
-              f"{_target_text(position.target.to_dict()):<16}{position.reason or 'starting point'}")
+        print(
+            f"{position.chain:<16} {step:>5}  {catalogue.name(position.exercise):<26} "
+            f"{_target_text(position.target.to_dict()):<16}{position.reason or 'starting point'}"
+        )
 
 
 def cmd_doctor(args) -> None:
@@ -199,10 +204,15 @@ def cmd_app(args) -> None:
                 return
             subprocess.run(["kill", pid], capture_output=True)
 
-    env = dict(os.environ, SPORTLOCK_STATE=str(STATE_PATH), SPORTLOCK_BIN=str(repo / "bin" / "sportlock"),
-               SPORTLOCK_TAB=args.tab)
-    subprocess.Popen(["qs", "-p", app_dir], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     start_new_session=True)
+    env = dict(
+        os.environ,
+        SPORTLOCK_STATE=str(STATE_PATH),
+        SPORTLOCK_BIN=str(repo / "bin" / "sportlock"),
+        SPORTLOCK_TAB=args.tab,
+    )
+    subprocess.Popen(
+        ["qs", "-p", app_dir], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True
+    )
 
 
 def _print_plan(plan: dict) -> None:
@@ -242,7 +252,9 @@ def cmd_memory(args) -> None:
     """`sportlock memory [history|forget]`: what the coach remembers."""
     if args.memory_command == "history":
         for row in _check(request({"cmd": "memory-history", "limit": args.limit}))["history"]:
-            until = f" → {row['valid_to']} ({row['end_reason']} by {row['ended_by']})" if row["valid_to"] else " (current)"
+            until = (
+                f" → {row['valid_to']} ({row['end_reason']} by {row['ended_by']})" if row["valid_to"] else " (current)"
+            )
             print(f"#{row['note_id']:<3} {row['valid_from']}{until}  [{row['topic']}] {row['text']}")
         return
     if args.memory_command == "forget":

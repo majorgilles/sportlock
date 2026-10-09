@@ -49,8 +49,10 @@ CREATE TABLE IF NOT EXISTS kv (
 def _move_coach_runs(db: sqlite3.Connection) -> None:
     row = db.execute("SELECT value FROM kv WHERE key = 'agent_runs'").fetchone()
     for run in json.loads(row[0]) if row else []:
-        db.execute("INSERT INTO coach_runs (at, seconds, ok, error) VALUES (?, ?, ?, ?)",
-                   (run["at"], run["seconds"], int(run["ok"]), run.get("error")))
+        db.execute(
+            "INSERT INTO coach_runs (at, seconds, ok, error) VALUES (?, ?, ?, ?)",
+            (run["at"], run["seconds"], int(run["ok"]), run.get("error")),
+        )
     db.execute("DELETE FROM kv WHERE key IN ('agent_runs', 'coach_memory', 'coach_memory_previous')")
 
 

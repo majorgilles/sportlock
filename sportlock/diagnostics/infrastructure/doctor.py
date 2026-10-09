@@ -34,7 +34,9 @@ def _target_problem(kind: str, target: dict) -> str | None:
         return f"sets is {sets!r}"
     if kind == "reps":
         reps = target.get("reps")
-        if not (isinstance(reps, list) and len(reps) == 2 and all(isinstance(r, int) for r in reps) and reps[0] <= reps[1]):
+        if not (
+            isinstance(reps, list) and len(reps) == 2 and all(isinstance(r, int) for r in reps) and reps[0] <= reps[1]
+        ):
             return f"a reps exercise without a valid rep range ({target})"
     else:
         seconds = target.get("seconds")
@@ -43,8 +45,14 @@ def _target_problem(kind: str, target: dict) -> str | None:
     return None
 
 
-def check(database: Database, catalogue: Catalogue, details: FileExerciseDetailsRepository, library_status: dict, *,
-          lock_active: bool) -> list[Issue]:
+def check(
+    database: Database,
+    catalogue: Catalogue,
+    details: FileExerciseDetailsRepository,
+    library_status: dict,
+    *,
+    lock_active: bool,
+) -> list[Issue]:
     """Consistency checks over the data; repairs are attached, never applied here."""
     issues: list[Issue] = []
     db = database.db
@@ -54,11 +62,21 @@ def check(database: Database, catalogue: Catalogue, details: FileExerciseDetails
         target = json.loads(row["target"])
         problem = _target_problem(row["kind"], target)
         if problem:
+
             def repair(row=row, target=target):
-                db.execute("UPDATE session_exercises SET target = ? WHERE id = ?",
-                           (json.dumps(Target.from_dict(target).for_kind(row["kind"]).to_dict()), row["id"]))
-            issues.append(Issue("error", f"session {row['session_id']}: {row['name']} has {problem}",
-                                "convert the target to the exercise's kind", repair))
+                db.execute(
+                    "UPDATE session_exercises SET target = ? WHERE id = ?",
+                    (json.dumps(Target.from_dict(target).for_kind(row["kind"]).to_dict()), row["id"]),
+                )
+
+            issues.append(
+                Issue(
+                    "error",
+                    f"session {row['session_id']}: {row['name']} has {problem}",
+                    "convert the target to the exercise's kind",
+                    repair,
+                )
+            )
 
     # Sets that can't be right.
     for row in db.execute(
@@ -66,30 +84,53 @@ def check(database: Database, catalogue: Catalogue, details: FileExerciseDetails
         " JOIN session_exercises e ON e.id = s.session_exercise_id"
     ):
         if row["seconds"] is None or row["seconds"] < 0:
-            issues.append(Issue("error", f"session {row['session_id']}: a set of {row['name']} has duration {row['seconds']!r}"))
+            issues.append(
+                Issue("error", f"session {row['session_id']}: a set of {row['name']} has duration {row['seconds']!r}")
+            )
         if row["kind"] == "reps" and row["reps"] is None:
-            issues.append(Issue("warning", f"session {row['session_id']}: a set of {row['name']} has no reps "
-                                           "(logged while the exercise was set up wrongly)"))
+            issues.append(
+                Issue(
+                    "warning",
+                    f"session {row['session_id']}: a set of {row['name']} has no reps "
+                    "(logged while the exercise was set up wrongly)",
+                )
+            )
 
     # Sessions stuck "in progress" with nothing running them.
     run = database.get(RUN_KEY)
     for row in db.execute("SELECT id, started_at FROM sessions WHERE status = 'in_progress'"):
         if run and run.get("session_id") == row["id"]:
             continue
+
         def repair(row=row):
             db.execute("UPDATE sessions SET status = 'abandoned' WHERE id = ?", (row["id"],))
-        issues.append(Issue("warning", f"session {row['id']} (started {row['started_at']}) is still marked in progress",
-                            "mark it abandoned", repair))
+
+        issues.append(
+            Issue(
+                "warning",
+                f"session {row['id']} (started {row['started_at']}) is still marked in progress",
+                "mark it abandoned",
+                repair,
+            )
+        )
 
     # A live training run that points at nothing.
     if run:
         session = db.execute("SELECT status FROM sessions WHERE id = ?", (run.get("session_id"),)).fetchone()
         if session is None or session["status"] != "in_progress":
             if lock_active:
-                issues.append(Issue("error", "the running session's record is missing or closed (not repaired during a lock)"))
+                issues.append(
+                    Issue("error", "the running session's record is missing or closed (not repaired during a lock)")
+                )
             else:
-                issues.append(Issue("error", "a leftover training run points at a closed or missing session",
-                                    "discard the leftover run", lambda: database.delete(RUN_KEY)))
+                issues.append(
+                    Issue(
+                        "error",
+                        "a leftover training run points at a closed or missing session",
+                        "discard the leftover run",
+                        lambda: database.delete(RUN_KEY),
+                    )
+                )
 
     # Ladders that point at unknown exercises, the wrong chain, or a bad target.
     for row in db.execute("SELECT chain, exercise, target FROM ladders"):
@@ -104,17 +145,29 @@ def check(database: Database, catalogue: Catalogue, details: FileExerciseDetails
         else:
             problem = _target_problem(spec.kind, json.loads(row["target"]))
         if problem:
+
             def repair(chain=row["chain"]):
                 db.execute("DELETE FROM ladders WHERE chain = ?", (chain,))
-            issues.append(Issue("error", f"ladder {row['chain']} {problem}", "reset that chain to its starting point", repair))
+
+            issues.append(
+                Issue("error", f"ladder {row['chain']} {problem}", "reset that chain to its starting point", repair)
+            )
 
     # Lock records left open while no lock is active.
     if not lock_active:
         for row in db.execute("SELECT key FROM lock_events WHERE ended_at IS NULL"):
+
             def repair(key=row["key"]):
                 db.execute("UPDATE lock_events SET ended_at = end, outcome = 'expired' WHERE key = ?", (key,))
-            issues.append(Issue("warning", f"lock {row['key']} was never closed (service stopped mid-lock?)",
-                                "close it as expired", repair))
+
+            issues.append(
+                Issue(
+                    "warning",
+                    f"lock {row['key']} was never closed (service stopped mid-lock?)",
+                    "close it as expired",
+                    repair,
+                )
+            )
 
     # Library files.
     for exercise in catalogue.all():

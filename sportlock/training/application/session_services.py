@@ -34,8 +34,14 @@ class BeginTrainingSessionCommand(ValueObject):
 class BeginTrainingSessionService:
     """Picks the coach's fresh plan (or the built-in one), fits it to the lock and starts it."""
 
-    def __init__(self, sessions: TrainingSessionRepositoryProtocol, history: TrainingHistoryProtocol,
-                 ladders: LadderRepositoryProtocol, freshness: CoachPlanFreshness, catalogue: Catalogue) -> None:
+    def __init__(
+        self,
+        sessions: TrainingSessionRepositoryProtocol,
+        history: TrainingHistoryProtocol,
+        ladders: LadderRepositoryProtocol,
+        freshness: CoachPlanFreshness,
+        catalogue: Catalogue,
+    ) -> None:
         self.sessions = sessions
         self.history = history
         self.ladders = ladders
@@ -53,24 +59,39 @@ class BeginTrainingSessionService:
             source = "generated"
         else:
             hours = int((now - last_hard).total_seconds() // 3600) if last_hard else None
-            plan = local_plan({p.chain: p for p in positions(self.ladders.saved())}, self.catalogue, set(command.equipment),
-                              recovery=is_recovery_day(command.mode, last_hard, now), hours_since_hard=hours)
+            plan = local_plan(
+                {p.chain: p for p in positions(self.ladders.saved())},
+                self.catalogue,
+                set(command.equipment),
+                recovery=is_recovery_day(command.mode, last_hard, now),
+                hours_since_hard=hours,
+            )
             source = "local"
         plan = self._with_sides(plan)
-        plan = fit_plan(plan, command.minutes, pace=pace_factor(self.history.exercise_timings(HISTORY_FOR_PACE)),
-                        transition=transition_seconds(self.history.transition_gaps(HISTORY_FOR_PACE)))
-        session = TrainingSession.begin(plan, self.catalogue, now=now, kind=command.kind, lock_key=command.lock_key,
-                                        source=source)
+        plan = fit_plan(
+            plan,
+            command.minutes,
+            pace=pace_factor(self.history.exercise_timings(HISTORY_FOR_PACE)),
+            transition=transition_seconds(self.history.transition_gaps(HISTORY_FOR_PACE)),
+        )
+        session = TrainingSession.begin(
+            plan, self.catalogue, now=now, kind=command.kind, lock_key=command.lock_key, source=source
+        )
         return self.sessions.add(session)
 
     def _with_sides(self, plan: SessionPlan) -> SessionPlan:
         """Both sides count in the time estimate."""
-        return plan.with_items([i.model_copy(update={"target": i.target.with_(sides=self.catalogue.get(i.exercise).sides)})
-                                for i in plan.items])
+        return plan.with_items(
+            [
+                i.model_copy(update={"target": i.target.with_(sides=self.catalogue.get(i.exercise).sides)})
+                for i in plan.items
+            ]
+        )
 
 
-type TrainingAction = Literal["start_set", "stop_set", "end_sets", "swap_easier", "go_now", "cancel_set", "save_set",
-                              "rate", "skip", "finish"]
+type TrainingAction = Literal[
+    "start_set", "stop_set", "end_sets", "swap_easier", "go_now", "cancel_set", "save_set", "rate", "skip", "finish"
+]
 
 
 class RecordTrainingActionCommand(ValueObject):
@@ -92,8 +113,12 @@ class RecordTrainingActionCommand(ValueObject):
 class RecordTrainingActionService:
     """Applies one action to the active session; a finished session moves the ladders."""
 
-    def __init__(self, sessions: TrainingSessionRepositoryProtocol, catalogue: Catalogue,
-                 progression: ApplySessionProgressionService) -> None:
+    def __init__(
+        self,
+        sessions: TrainingSessionRepositoryProtocol,
+        catalogue: Catalogue,
+        progression: ApplySessionProgressionService,
+    ) -> None:
         self.sessions = sessions
         self.catalogue = catalogue
         self.progression = progression
@@ -123,8 +148,9 @@ class RecordTrainingActionService:
             case "swap_easier":
                 session.swap_easier(now, self.catalogue, set(START))
             case "finish":
-                session.finish(now, _required(command.rpe), command.notes, command.calories, command.avg_hr,
-                               command.body_weight)
+                session.finish(
+                    now, _required(command.rpe), command.notes, command.calories, command.avg_hr, command.body_weight
+                )
         self.sessions.save(session)
         moves = self.progression.execute(session, now) if not session.active else []
         return session, moves
@@ -133,7 +159,9 @@ class RecordTrainingActionService:
 class CloseTrainingSessionService:
     """The lock ended before the session did: abandoned (time ran out) or overridden."""
 
-    def __init__(self, sessions: TrainingSessionRepositoryProtocol, progression: ApplySessionProgressionService) -> None:
+    def __init__(
+        self, sessions: TrainingSessionRepositoryProtocol, progression: ApplySessionProgressionService
+    ) -> None:
         self.sessions = sessions
         self.progression = progression
 

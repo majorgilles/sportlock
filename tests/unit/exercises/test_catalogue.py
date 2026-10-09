@@ -23,8 +23,11 @@ def test_easiest_available__missing_equipment__walks_down_the_chain(catalogue):
 
 def test_details_repository__built_entry__read_with_an_absolute_picture_path(tmp_path):
     (tmp_path / "plank").mkdir()
-    (tmp_path / "plank" / "exercise.json").write_text(json.dumps(
-        {"steps": ["a", "b"], "cues": ["x"], "image": "picture.jpg", "image_source": "book: B", "built_at": "now"}))
+    (tmp_path / "plank" / "exercise.json").write_text(
+        json.dumps(
+            {"steps": ["a", "b"], "cues": ["x"], "image": "picture.jpg", "image_source": "book: B", "built_at": "now"}
+        )
+    )
     details = FileExerciseDetailsRepository(tmp_path).get("plank")
     assert (details.steps, details.cues, details.built) == (("a", "b"), ("x",), True)
     assert details.image == str(tmp_path / "plank" / "picture.jpg")

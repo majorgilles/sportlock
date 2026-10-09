@@ -45,17 +45,26 @@ class LockError(DomainError):
 
 def policy_of(settings: Settings) -> Policy:
     """The recovery guardrails from settings."""
-    return Policy(allow_rest_days=settings.allow_rest_days, max_rest_days_in_a_row=settings.max_rest_days_in_a_row,
-                  min_sessions_per_week=settings.min_sessions_per_week, recovery_minutes=settings.recovery_minutes)
+    return Policy(
+        allow_rest_days=settings.allow_rest_days,
+        max_rest_days_in_a_row=settings.max_rest_days_in_a_row,
+        min_sessions_per_week=settings.min_sessions_per_week,
+        recovery_minutes=settings.recovery_minutes,
+    )
 
 
 class PlanScheduledLockService:
     """Decides once per scheduled lock whether it is hard, recovery (maybe shorter) or a rest day;
     the decision is stored so it survives restarts."""
 
-    def __init__(self, lock_state: LockStateRepositoryProtocol, freshness: CoachPlanFreshness,
-                 history: TrainingHistoryProtocol, lock_events: LockEventRepositoryProtocol,
-                 desktop: DesktopProtocol) -> None:
+    def __init__(
+        self,
+        lock_state: LockStateRepositoryProtocol,
+        freshness: CoachPlanFreshness,
+        history: TrainingHistoryProtocol,
+        lock_events: LockEventRepositoryProtocol,
+        desktop: DesktopProtocol,
+    ) -> None:
         self.lock_state = lock_state
         self.freshness = freshness
         self.history = history
@@ -68,12 +77,21 @@ class PlanScheduledLockService:
             return plan
         coach = self.freshness.fresh_plan()
         advice = CoachAdvice(**coach.next_lock.model_dump()) if coach else None
-        state = RecoveryState(last_credited=self.history.last_credited(), last_hard=self.history.last_hard(),
-                              sessions_last_7_days=len(self.history.credited_since(window.start - timedelta(days=7))),
-                              rest_days_in_a_row=rest_days_in_a_row(self.lock_events.rest_days(), window.day))
-        decided = decide_lock(state, policy_of(settings), now=window.start, window_minutes=window.minutes, advice=advice)
-        plan = LockPlan(mode=decided.mode, minutes=decided.minutes, reason=decided.reason,
-                        end=window.start + timedelta(minutes=decided.minutes))
+        state = RecoveryState(
+            last_credited=self.history.last_credited(),
+            last_hard=self.history.last_hard(),
+            sessions_last_7_days=len(self.history.credited_since(window.start - timedelta(days=7))),
+            rest_days_in_a_row=rest_days_in_a_row(self.lock_events.rest_days(), window.day),
+        )
+        decided = decide_lock(
+            state, policy_of(settings), now=window.start, window_minutes=window.minutes, advice=advice
+        )
+        plan = LockPlan(
+            mode=decided.mode,
+            minutes=decided.minutes,
+            reason=decided.reason,
+            end=window.start + timedelta(minutes=decided.minutes),
+        )
         self.lock_state.save_plan(window.key, plan)
         log.info("lock %s planned as %s (%s min): %s", window.key, plan.mode, plan.minutes, plan.reason)
         if plan.mode == "rest":
@@ -85,12 +103,23 @@ class RunLockTickService:
     """Once a second: settle overrides, decide which lock should hold the screen, warn ahead of
     the next one, and lock or unlock."""
 
-    def __init__(self, settings: SettingsState, runtime: LockRuntimeProtocol, lock_events: LockEventRepositoryProtocol,
-                 overrides: OverrideRepositoryProtocol, lock_state: LockStateRepositoryProtocol,
-                 history: TrainingHistoryProtocol, profiles: ProfileRepositoryProtocol, planner: PlanScheduledLockService,
-                 begin_session: BeginTrainingSessionService, close_session: CloseTrainingSessionService,
-                 freshness: CoachPlanFreshness, desktop: DesktopProtocol, lock_screen: LockScreenProtocol,
-                 popup: WarningPopupProtocol) -> None:
+    def __init__(
+        self,
+        settings: SettingsState,
+        runtime: LockRuntimeProtocol,
+        lock_events: LockEventRepositoryProtocol,
+        overrides: OverrideRepositoryProtocol,
+        lock_state: LockStateRepositoryProtocol,
+        history: TrainingHistoryProtocol,
+        profiles: ProfileRepositoryProtocol,
+        planner: PlanScheduledLockService,
+        begin_session: BeginTrainingSessionService,
+        close_session: CloseTrainingSessionService,
+        freshness: CoachPlanFreshness,
+        desktop: DesktopProtocol,
+        lock_screen: LockScreenProtocol,
+        popup: WarningPopupProtocol,
+    ) -> None:
         self.settings = settings
         self.runtime = runtime
         self.lock_events = lock_events
@@ -108,8 +137,9 @@ class RunLockTickService:
 
     def decision(self, now: datetime) -> Decision:
         """What the schedule says now."""
-        return decide(self.settings.settings, now, trained_days=self.history.trained_days(),
-                      ended=self.lock_events.ended_early())
+        return decide(
+            self.settings.settings, now, trained_days=self.history.trained_days(), ended=self.lock_events.ended_early()
+        )
 
     def setup_complete(self) -> bool:
         """Scheduled locks wait for the profile."""
@@ -120,7 +150,9 @@ class RunLockTickService:
         self._settle_override(now)
         decision = self.decision(now)
         if decision.next and self.setup_complete() and decision.next.start - PLAN_AHEAD <= now:
-            self.planner.execute(decision.next, self.settings.settings)  # decide early so the warning can say what's coming
+            self.planner.execute(
+                decision.next, self.settings.settings
+            )  # decide early so the warning can say what's coming
         wanted = self._wanted(now, decision)
         self._warn(decision, wanted)
         current = self.runtime.current
@@ -160,8 +192,14 @@ class RunLockTickService:
                     self.lock_events.began(decision.active.key, decision.active.start, decision.active.end, now)
                     self.lock_events.ended(decision.active.key, "rest", now)
             elif now < plan.end:  # recovery locks can be shorter
-                candidates.append(ActiveLock(key=decision.active.key, kind="scheduled", mode=plan.mode,
-                                             window=Window(start=decision.active.start, end=plan.end)))
+                candidates.append(
+                    ActiveLock(
+                        key=decision.active.key,
+                        kind="scheduled",
+                        mode=plan.mode,
+                        window=Window(start=decision.active.start, end=plan.end),
+                    )
+                )
         # Stay under the lock already on screen while it is still due; overlaps don't swap sessions.
         for lock in candidates:
             if self.runtime.current and lock.key == self.runtime.current.key:
@@ -182,16 +220,27 @@ class RunLockTickService:
         minutes = plan.minutes if plan else upcoming.minutes
         kind = "Recovery lock" if plan and plan.mode == "recovery" else "Training lock"
         headline = f"{kind} at {upcoming.start.strftime('%H:%M')}"
-        self.desktop.notify(headline, f"Your desktop locks in {decision.warning} min for {minutes} min."
-                            + (f" {plan.reason}" if plan and plan.reason else ""), urgent=decision.warning <= 2)
+        self.desktop.notify(
+            headline,
+            f"Your desktop locks in {decision.warning} min for {minutes} min."
+            + (f" {plan.reason}" if plan and plan.reason else ""),
+            urgent=decision.warning <= 2,
+        )
         # The first warning also gets a popup in front of everything: notifications are easy to miss.
         if self.settings.settings.warn_popup and not any(t.startswith(f"{upcoming.key}:") for t in warned):
             coach = self.freshness.fresh_plan()
             version = getattr(coach, plan.mode) if coach and plan and plan.mode in ("hard", "recovery") else None
-            self.popup.show({"headline": headline, "start": epoch_ms(upcoming.start), "minutes": minutes,
-                             "title": version.title if version else "", "reason": plan.reason if plan else "",
-                             "recommendations": [r.model_dump() for r in coach.recommendations] if coach else [],
-                             "theme": self.desktop.theme()})
+            self.popup.show(
+                {
+                    "headline": headline,
+                    "start": epoch_ms(upcoming.start),
+                    "minutes": minutes,
+                    "title": version.title if version else "",
+                    "reason": plan.reason if plan else "",
+                    "recommendations": [r.model_dump() for r in coach.recommendations] if coach else [],
+                    "theme": self.desktop.theme(),
+                }
+            )
         self.lock_state.add_warned(tag)
 
     def _enter(self, lock: ActiveLock, now: datetime) -> None:
@@ -202,16 +251,23 @@ class RunLockTickService:
         self.runtime.waiting_for_omarchy = False
         self.popup.close()
         if self.lock_state.desktop_to_restore() is None:
-            self.lock_state.set_desktop_to_restore({"paused": self.desktop.pause_media(),
-                                                    "stay_awake": self.desktop.idle_stay_awake()})
+            self.lock_state.set_desktop_to_restore(
+                {"paused": self.desktop.pause_media(), "stay_awake": self.desktop.idle_stay_awake()}
+            )
         self.desktop.set_idle_stay_awake(True)
         log.info("lock begins: %s (%s) until %s", lock.key, lock.kind, lock.window.end.isoformat())
         if not lock.test:
             self.lock_events.began(lock.key, lock.window.start, lock.window.end, now)
-        self.begin_session.execute(BeginTrainingSessionCommand(
-            kind=lock.kind, lock_key=lock.key, minutes=(lock.window.end - now).total_seconds() / 60,
-            equipment=equipment_of(self.profiles, self.settings.settings),
-            mode=lock.mode if lock.mode in ("hard", "recovery") else None), now)  # type: ignore[arg-type]
+        self.begin_session.execute(
+            BeginTrainingSessionCommand(
+                kind=lock.kind,
+                lock_key=lock.key,
+                minutes=(lock.window.end - now).total_seconds() / 60,
+                equipment=equipment_of(self.profiles, self.settings.settings),
+                mode=lock.mode if lock.mode in ("hard", "recovery") else None,
+            ),
+            now,
+        )  # type: ignore[arg-type]
         self.runtime.current = lock
 
     def _leave(self, now: datetime) -> None:
@@ -253,8 +309,11 @@ class StartTestLockService:
         """Raises LockError while a lock is active."""
         if self.runtime.current:
             raise LockError("a lock is already active")
-        self.runtime.test_lock = ActiveLock(key=f"test-{now.isoformat()}", kind="test",
-                                            window=Window(start=now, end=now + timedelta(seconds=TEST_SECONDS)))
+        self.runtime.test_lock = ActiveLock(
+            key=f"test-{now.isoformat()}",
+            kind="test",
+            window=Window(start=now, end=now + timedelta(seconds=TEST_SECONDS)),
+        )
 
 
 class StartManualLockCommand(ValueObject):
@@ -276,8 +335,13 @@ class StartManualLockService:
             raise LockError("a lock is already active")
         if not MANUAL_MINUTES[0] <= command.minutes <= MANUAL_MINUTES[1]:
             raise LockError(f"minutes must be between {MANUAL_MINUTES[0]} and {MANUAL_MINUTES[1]}")
-        self.lock_state.set_manual_lock(ActiveLock(key=f"manual-{now.isoformat()}", kind="manual",
-                                                   window=Window(start=now, end=now + timedelta(minutes=command.minutes))))
+        self.lock_state.set_manual_lock(
+            ActiveLock(
+                key=f"manual-{now.isoformat()}",
+                kind="manual",
+                window=Window(start=now, end=now + timedelta(minutes=command.minutes)),
+            )
+        )
 
 
 class RequestOverrideCommand(ValueObject):
@@ -289,7 +353,9 @@ class RequestOverrideCommand(ValueObject):
 class RequestOverrideService:
     """Starts the countdown after which the lock ends; the phrase must be typed exactly."""
 
-    def __init__(self, runtime: LockRuntimeProtocol, overrides: OverrideRepositoryProtocol, settings: SettingsState) -> None:
+    def __init__(
+        self, runtime: LockRuntimeProtocol, overrides: OverrideRepositoryProtocol, settings: SettingsState
+    ) -> None:
         self.runtime = runtime
         self.overrides = overrides
         self.settings = settings
@@ -323,8 +389,13 @@ class CancelOverrideService:
 class EndLockOnSessionFinishedService:
     """A finished session ends its lock early, and says what changes next time."""
 
-    def __init__(self, runtime: LockRuntimeProtocol, lock_events: LockEventRepositoryProtocol, catalogue: Catalogue,
-                 desktop: DesktopProtocol) -> None:
+    def __init__(
+        self,
+        runtime: LockRuntimeProtocol,
+        lock_events: LockEventRepositoryProtocol,
+        catalogue: Catalogue,
+        desktop: DesktopProtocol,
+    ) -> None:
         self.runtime = runtime
         self.lock_events = lock_events
         self.catalogue = catalogue
@@ -340,6 +411,9 @@ class EndLockOnSessionFinishedService:
             return
         self.lock_events.ended(lock.key, "completed", now)
         arrows = {"up": "↑", "add": "+", "down": "↓", "too-hard": "↓"}
-        lines = [f"{arrows.get(m.proposal.rule, '·')} {self.catalogue.name(m.proposal.exercise)}"
-                 for m in moves if m.proposal.rule != "hold"]
+        lines = [
+            f"{arrows.get(m.proposal.rule, '·')} {self.catalogue.name(m.proposal.exercise)}"
+            for m in moves
+            if m.proposal.rule != "hold"
+        ]
         self.desktop.notify("Session done ✓", "Next time: " + ", ".join(lines) if lines else "Same targets next time.")

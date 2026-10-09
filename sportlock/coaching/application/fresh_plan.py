@@ -12,8 +12,9 @@ from sportlock.training.domain.repositories import TrainingHistoryProtocol
 class CoachPlanFreshness:
     """Computes the basis a plan must have been written from, and returns the plan only if it was."""
 
-    def __init__(self, plans: CoachPlanRepositoryProtocol, history: TrainingHistoryProtocol,
-                 profiles: ProfileRepositoryProtocol) -> None:
+    def __init__(
+        self, plans: CoachPlanRepositoryProtocol, history: TrainingHistoryProtocol, profiles: ProfileRepositoryProtocol
+    ) -> None:
         self.plans = plans
         self.history = history
         self.profiles = profiles

@@ -27,13 +27,21 @@ def is_recovery_day(mode: str | None, last_hard: datetime | None, now: datetime)
     return mode == "recovery" or (mode is None and last_hard is not None and now - last_hard < HARD_GAP)
 
 
-def local_plan(positions: dict[str, LadderPosition], catalogue: Catalogue, equipment: set[str], *,
-               recovery: bool, hours_since_hard: int | None) -> SessionPlan:
+def local_plan(
+    positions: dict[str, LadderPosition],
+    catalogue: Catalogue,
+    equipment: set[str],
+    *,
+    recovery: bool,
+    hours_since_hard: int | None,
+) -> SessionPlan:
     """A hard full-body day from the ladders, or a mobility day."""
     if recovery:
         note = f"Hard session {hours_since_hard} h ago" if hours_since_hard is not None else "Recovery day"
         items = [i for i in MOBILITY_DAY if catalogue.get(i.exercise).available_with(equipment)]
-        return SessionPlan(title="Mobility & recovery", day_type="mobility", items=(WARMUP, *items, COOLDOWN), note=note)
+        return SessionPlan(
+            title="Mobility & recovery", day_type="mobility", items=(WARMUP, *items, COOLDOWN), note=note
+        )
 
     items = [WARMUP]
     for chain in HARD_DAY:
@@ -48,4 +56,3 @@ def local_plan(positions: dict[str, LadderPosition], catalogue: Catalogue, equip
         items.append(PlannedExercise(exercise=exercise, target=position.target.with_(progress=why or None)))
     items.append(COOLDOWN)
     return SessionPlan(title="Full body", day_type="hard", items=tuple(items))
-

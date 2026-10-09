@@ -37,9 +37,11 @@ SCHEMA = {
     "properties": {
         "rationale": {"type": "string"},
         "hard": _PLAN,
-        "recovery": {**_PLAN, "properties": {**_PLAN["properties"],
-                                             "day_type": {"type": "string", "enum": ["light", "mobility"]}},
-                     "required": ["title", "day_type", "exercises"]},
+        "recovery": {
+            **_PLAN,
+            "properties": {**_PLAN["properties"], "day_type": {"type": "string", "enum": ["light", "mobility"]}},
+            "required": ["title", "day_type", "exercises"],
+        },
         "next_lock": {
             "type": "object",
             "properties": {
@@ -49,26 +51,42 @@ SCHEMA = {
             },
             "required": ["mode", "recovery_minutes", "reason"],
         },
-        "memory": {"type": "array", "items": {
-            "type": "object",
-            "properties": {"op": {"type": "string", "enum": ["add", "update", "delete"]},
-                           "id": {"type": ["integer", "null"]},
-                           "topic": {"type": ["string", "null"], "enum": [*TOPICS, None]},
-                           "note": {"type": ["string", "null"]}},
-            "required": ["op", "id", "topic", "note"],
-        }},
-        "recommendations": {"type": "array", "items": {
-            "type": "object",
-            "properties": {"about": {"type": "string"}, "advice": {"type": "string"}},
-            "required": ["about", "advice"],
-        }},
-        "ladder_overrides": {"type": "array", "items": {
-            "type": "object",
-            "properties": {"chain": {"type": "string"}, **{k: _ITEM["properties"][k] for k in
-                           ("exercise", "sets", "reps_low", "reps_high", "seconds", "rest")},
-                           "reason": {"type": "string"}},
-            "required": ["chain", "exercise", "sets", "reps_low", "reps_high", "seconds", "rest", "reason"],
-        }},
+        "memory": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "op": {"type": "string", "enum": ["add", "update", "delete"]},
+                    "id": {"type": ["integer", "null"]},
+                    "topic": {"type": ["string", "null"], "enum": [*TOPICS, None]},
+                    "note": {"type": ["string", "null"]},
+                },
+                "required": ["op", "id", "topic", "note"],
+            },
+        },
+        "recommendations": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"about": {"type": "string"}, "advice": {"type": "string"}},
+                "required": ["about", "advice"],
+            },
+        },
+        "ladder_overrides": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "chain": {"type": "string"},
+                    **{
+                        k: _ITEM["properties"][k]
+                        for k in ("exercise", "sets", "reps_low", "reps_high", "seconds", "rest")
+                    },
+                    "reason": {"type": "string"},
+                },
+                "required": ["chain", "exercise", "sets", "reps_low", "reps_high", "seconds", "rest", "reason"],
+            },
+        },
     },
     "required": ["rationale", "memory", "recommendations", "hard", "recovery", "next_lock", "ladder_overrides"],
 }
@@ -149,7 +167,6 @@ DATA
 """
 
 
-
 class ClaudeCoach(CoachProtocol):
     """Asks Claude for the plan, forcing its answer into SCHEMA."""
 
@@ -159,14 +176,34 @@ class ClaudeCoach(CoachProtocol):
 
     @override
     def write_plan(self, context: dict) -> dict:
-        prompt = PROMPT.format(search=self.search_tool, notebook=self.notebook_id, max_notes=MAX_NOTES,
-                               context=json.dumps(context, ensure_ascii=False, indent=1))
+        prompt = PROMPT.format(
+            search=self.search_tool,
+            notebook=self.notebook_id,
+            max_notes=MAX_NOTES,
+            context=json.dumps(context, ensure_ascii=False, indent=1),
+        )
         claude = shutil.which("claude") or str(Path.home() / ".local/bin/claude")
         try:
             result = subprocess.run(
-                [claude, "-p", prompt, "--output-format", "json", "--no-session-persistence",
-                 "--json-schema", json.dumps(SCHEMA), "--tools", "Bash", "--allowedTools", f"Bash({self.search_tool} *)"],
-                capture_output=True, text=True, timeout=TIMEOUT_SECONDS, cwd=self.search_tool.parent)
+                [
+                    claude,
+                    "-p",
+                    prompt,
+                    "--output-format",
+                    "json",
+                    "--no-session-persistence",
+                    "--json-schema",
+                    json.dumps(SCHEMA),
+                    "--tools",
+                    "Bash",
+                    "--allowedTools",
+                    f"Bash({self.search_tool} *)",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=TIMEOUT_SECONDS,
+                cwd=self.search_tool.parent,
+            )
         except (OSError, subprocess.TimeoutExpired) as error:
             raise CoachUnavailableError(f"could not run Claude: {error}") from None
         try:

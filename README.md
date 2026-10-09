@@ -385,7 +385,9 @@ Also remove the `"sportlock…"` lines from `~/.config/omarchy/extensions/omarch
 ## Development
 
 ```bash
-uv sync                         # the environment, with pytest
+uv sync                         # the environment, with pytest and ruff
+uv run ruff format              # format the code
+uv run ruff check --fix         # lint
 uv run pytest                   # all tests: unit (domain), integration (use cases on SQLite), architecture
 tools/make_sounds.py            # regenerate the tick sounds
 

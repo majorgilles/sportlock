@@ -37,8 +37,13 @@ class QuickshellLockScreen(LockScreenProtocol):
         if self.process is not None:
             log.warning("lock screen exited with code %s while a lock is active; relaunching", self.process.returncode)
         env = dict(os.environ, SPORTLOCK_STATE=str(self.state_path), SPORTLOCK_BIN=str(self.cli))
-        self.process = subprocess.Popen(["qs", "-p", str(LOCK_SCREEN_DIR)], env=env, stdout=subprocess.DEVNULL,
-                                        stderr=subprocess.DEVNULL, start_new_session=True)
+        self.process = subprocess.Popen(
+            ["qs", "-p", str(LOCK_SCREEN_DIR)],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
 
 
 class QuickshellWarningPopup(WarningPopupProtocol):
@@ -52,8 +57,13 @@ class QuickshellWarningPopup(WarningPopupProtocol):
         self.close()
         env = dict(os.environ, SPORTLOCK_POPUP=json.dumps(content))
         try:
-            self.process = subprocess.Popen(["qs", "-p", str(WARNING_POPUP_DIR)], env=env, stdout=subprocess.DEVNULL,
-                                            stderr=subprocess.DEVNULL, start_new_session=True)
+            self.process = subprocess.Popen(
+                ["qs", "-p", str(WARNING_POPUP_DIR)],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
         except OSError as error:
             log.warning("could not show the warning popup: %s", error)
 

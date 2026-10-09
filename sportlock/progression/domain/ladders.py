@@ -117,16 +117,31 @@ def moves_for_session(results: list[ExerciseResult], catalogue: Catalogue) -> li
         if result.status == "swapped":
             proposal = too_hard(name=result.name, target=result.target, easier=easier) if easier else None
         elif result.status == "done":
-            proposal = propose(exercise=result.exercise, name=result.name, kind=result.kind, target=result.target,
-                               sets=list(result.sets), rpe=result.rpe, easier=easier, harder=harder)
+            proposal = propose(
+                exercise=result.exercise,
+                name=result.name,
+                kind=result.kind,
+                target=result.target,
+                sets=list(result.sets),
+                rpe=result.rpe,
+                easier=easier,
+                harder=harder,
+            )
         else:
             proposal = None
         if proposal is not None:
             new_kind = catalogue.get(proposal.exercise).kind
             if new_kind != exercise.kind:  # chains mix reps and holds: express the target for the new exercise
                 proposal = proposal.model_copy(update={"target": proposal.target.for_kind(new_kind)})
-            moves.append(LadderMove(chain=exercise.chain, session_exercise_id=result.session_exercise_id,
-                                    from_exercise=result.exercise, from_target=result.target, proposal=proposal))
+            moves.append(
+                LadderMove(
+                    chain=exercise.chain,
+                    session_exercise_id=result.session_exercise_id,
+                    from_exercise=result.exercise,
+                    from_target=result.target,
+                    proposal=proposal,
+                )
+            )
     return moves
 
 

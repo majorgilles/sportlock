@@ -29,21 +29,34 @@ def _parse(output, catalogue):
 def test_parse_coach_output__good_answer__plan_with_targets(catalogue):
     parsed = _parse(GOOD_PLAN, catalogue)
     push = parsed.plan.hard.items[1]
-    assert (push.exercise, push.target.reps, push.target.progress) == ("knee-push-up", (8, 12), "Up a step: 3×12 felt easy")
+    assert (push.exercise, push.target.reps, push.target.progress) == (
+        "knee-push-up",
+        (8, 12),
+        "Up a step: 3×12 felt easy",
+    )
     assert parsed.plan.hard.items[3].target.seconds == 40
     assert parsed.plan.recovery.day_type == "mobility"
 
 
-@pytest.mark.parametrize("label, mutate", [
-    ("unknown exercise", lambda o: o["hard"]["exercises"].__setitem__(1, item("burpee-deluxe", 3, 8, 12))),
-    ("missing equipment", lambda o: o["hard"]["exercises"].__setitem__(1, item("pull-up", 3, 5, 8))),
-    ("reps on a hold", lambda o: o["hard"]["exercises"].__setitem__(3, item("plank", 3, 8, 12))),
-    ("too many sets", lambda o: o["hard"]["exercises"].__setitem__(2, item("bodyweight-squat", 9, 12, 15))),
-    ("override without reason", lambda o: o["ladder_overrides"].append(
-        {"chain": "squat", **item("box-squat", 3, 10, 12), "reason": " "})),
-    ("override on the wrong chain", lambda o: o["ladder_overrides"].append(
-        {"chain": "core", **item("box-squat", 3, 10, 12), "reason": "knee pain"})),
-])
+@pytest.mark.parametrize(
+    "label, mutate",
+    [
+        ("unknown exercise", lambda o: o["hard"]["exercises"].__setitem__(1, item("burpee-deluxe", 3, 8, 12))),
+        ("missing equipment", lambda o: o["hard"]["exercises"].__setitem__(1, item("pull-up", 3, 5, 8))),
+        ("reps on a hold", lambda o: o["hard"]["exercises"].__setitem__(3, item("plank", 3, 8, 12))),
+        ("too many sets", lambda o: o["hard"]["exercises"].__setitem__(2, item("bodyweight-squat", 9, 12, 15))),
+        (
+            "override without reason",
+            lambda o: o["ladder_overrides"].append({"chain": "squat", **item("box-squat", 3, 10, 12), "reason": " "}),
+        ),
+        (
+            "override on the wrong chain",
+            lambda o: o["ladder_overrides"].append(
+                {"chain": "core", **item("box-squat", 3, 10, 12), "reason": "knee pain"}
+            ),
+        ),
+    ],
+)
 def test_parse_coach_output__bad_answer__rejected(catalogue, label, mutate):
     output = copy.deepcopy(GOOD_PLAN)
     mutate(output)
@@ -55,7 +68,8 @@ def test_parse_coach_output__recommendations__trimmed_and_empty_ones_dropped(cat
     tips = [{"about": " Push-ups too easy ", "advice": " Go down to the bench. "}, {"about": "empty", "advice": " "}]
     parsed = _parse({**GOOD_PLAN, "recommendations": tips}, catalogue)
     assert [r.model_dump() for r in parsed.plan.recommendations] == [
-        {"about": "Push-ups too easy", "advice": "Go down to the bench."}]
+        {"about": "Push-ups too easy", "advice": "Go down to the bench."}
+    ]
 
 
 def test_version_for__by_the_lock_decision_or_the_48_hour_rule(catalogue):
@@ -78,22 +92,36 @@ def _add(topic, text):
 def test_apply__add_update_delete__current_notes_and_events():
     # given
     memory = CoachMemory()
-    memory.apply([_add("body", "Right shoulder pinches overhead."), _add("plans", "Wants 30-minute sessions.")],
-                 by="coach-run:1", today=TODAY)
+    memory.apply(
+        [_add("body", "Right shoulder pinches overhead."), _add("plans", "Wants 30-minute sessions.")],
+        by="coach-run:1",
+        today=TODAY,
+    )
     memory.pull_events()
     # when
-    refused = memory.apply([MemoryOperation(op="update", id=2, text="  Moved to 30-minute\n sessions. "),
-                            MemoryOperation(op="delete", id=1)], by="coach-run:2", today=TODAY + timedelta(days=2))
+    refused = memory.apply(
+        [
+            MemoryOperation(op="update", id=2, text="  Moved to 30-minute\n sessions. "),
+            MemoryOperation(op="delete", id=1),
+        ],
+        by="coach-run:2",
+        today=TODAY + timedelta(days=2),
+    )
     # then
     assert refused == []
-    assert [(n.id, n.text, n.since) for n in memory.current()] == [(2, "Moved to 30-minute sessions.", TODAY + timedelta(days=2))]
+    assert [(n.id, n.text, n.since) for n in memory.current()] == [
+        (2, "Moved to 30-minute sessions.", TODAY + timedelta(days=2))
+    ]
     assert [type(e) for e in memory.pull_events()] == [NoteUpdated, NoteDeleted]
 
 
 def test_apply__unknown_ids_and_empty_adds__refused_without_losing_the_rest():
     memory = CoachMemory()
-    refused = memory.apply([MemoryOperation(op="update", id=9, text="x"), _add("body", " "), _add("body", "Knee ok.")],
-                           by="coach-run:1", today=TODAY)
+    refused = memory.apply(
+        [MemoryOperation(op="update", id=9, text="x"), _add("body", " "), _add("body", "Knee ok.")],
+        by="coach-run:1",
+        today=TODAY,
+    )
     assert len(refused) == 2
     assert [n.text for n in memory.current()] == ["Knee ok."]
     assert [type(e) for e in memory.pull_events()] == [NoteAdded]

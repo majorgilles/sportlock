@@ -49,28 +49,40 @@ class Profile(ValueObject):
                 return None
             try:
                 value = cast(value)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 raise ProfileError(f"{key} must be a number") from None
             if not lo <= value <= hi:
                 raise ProfileError(f"{key} must be between {lo} and {hi}")
             return value
 
         return cls(
-            experience=experience, goals=goals,
+            experience=experience,
+            goals=goals,
             equipment=tuple(sorted({e for e in raw.get("equipment", []) if e in EQUIPMENT})),
             location=raw.get("location") if raw.get("location") in LOCATIONS else LOCATIONS[0],
-            years_training=number("years_training", 0, 60, float), injuries=str(raw.get("injuries", "")).strip()[:2000],
-            age=number("age", 10, 100), sex=str(raw.get("sex", "")).strip()[:20] or None,
-            weight_kg=number("weight_kg", 25, 300, float), updated_at=iso(now),
+            years_training=number("years_training", 0, 60, float),
+            injuries=str(raw.get("injuries", "")).strip()[:2000],
+            age=number("age", 10, 100),
+            sex=str(raw.get("sex", "")).strip()[:20] or None,
+            weight_kg=number("weight_kg", 25, 300, float),
+            updated_at=iso(now),
         )
 
     @classmethod
     def from_dict(cls, data: dict) -> Profile:
         """Read the stored JSON shape."""
-        return cls(experience=data["experience"], goals=data.get("goals", []), equipment=data.get("equipment", []),
-                   location=data.get("location") or LOCATIONS[0], years_training=data.get("years_training"),
-                   injuries=data.get("injuries") or "", age=data.get("age"), sex=data.get("sex"),
-                   weight_kg=data.get("weight_kg"), updated_at=data.get("updated_at", ""))
+        return cls(
+            experience=data["experience"],
+            goals=data.get("goals", []),
+            equipment=data.get("equipment", []),
+            location=data.get("location") or LOCATIONS[0],
+            years_training=data.get("years_training"),
+            injuries=data.get("injuries") or "",
+            age=data.get("age"),
+            sex=data.get("sex"),
+            weight_kg=data.get("weight_kg"),
+            updated_at=data.get("updated_at", ""),
+        )
 
     def to_dict(self) -> dict:
         """The stored JSON shape (lists, not tuples)."""

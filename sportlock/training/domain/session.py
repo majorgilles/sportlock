@@ -92,12 +92,28 @@ class TrainingSession(Aggregate):
     id: int | None = None
 
     @classmethod
-    def begin(cls, plan: SessionPlan, catalogue: Catalogue, *, now: datetime, kind: SessionKind,
-              lock_key: str | None, source: str) -> TrainingSession:
+    def begin(
+        cls,
+        plan: SessionPlan,
+        catalogue: Catalogue,
+        *,
+        now: datetime,
+        kind: SessionKind,
+        lock_key: str | None,
+        source: str,
+    ) -> TrainingSession:
         """A new session from a (fitted) plan."""
-        return cls(day=now.date(), started_at=now, kind=kind, lock_key=lock_key, title=plan.title,
-                   day_type=plan.day_type, plan_source=source, coach_note=plan.note,
-                   exercises=[_new_exercise(item.exercise, item.target, catalogue) for item in plan.items])
+        return cls(
+            day=now.date(),
+            started_at=now,
+            kind=kind,
+            lock_key=lock_key,
+            title=plan.title,
+            day_type=plan.day_type,
+            plan_source=source,
+            coach_note=plan.note,
+            exercises=[_new_exercise(item.exercise, item.target, catalogue) for item in plan.items],
+        )
 
     # -- state -------------------------------------------------------------------------------
 
@@ -151,7 +167,12 @@ class TrainingSession(Aggregate):
         if not self.in_lead_in(now):
             raise TrainingError("the set is already running; stop it instead")
         before = self.before_start or {"phase": "ready", "rest_until": None}
-        self.phase, self.rest_until, self.set_started_at, self.before_start = before["phase"], before["rest_until"], None, None
+        self.phase, self.rest_until, self.set_started_at, self.before_start = (
+            before["phase"],
+            before["rest_until"],
+            None,
+            None,
+        )
 
     def stop_set(self, now: datetime) -> None:
         """The set is over; its result is logged next."""
@@ -171,11 +192,17 @@ class TrainingSession(Aggregate):
         seconds = (ended - started).total_seconds()
         if exercise.kind != "reps" and exercise.target.sides == "each":
             seconds /= 2  # one timer runs both sides; holds are logged per side
-        exercise.sets.append(LoggedSet(
-            set_no=len(exercise.sets) + 1, reps=None if exercise.kind != "reps" else int(reps),  # type: ignore[arg-type]
-            seconds=seconds, load_kg=load_kg,
-            rest_seconds=(started - self.last_set_end).total_seconds() if self.last_set_end else None,
-            started_at=started, ended_at=ended))
+        exercise.sets.append(
+            LoggedSet(
+                set_no=len(exercise.sets) + 1,
+                reps=None if exercise.kind != "reps" else int(reps),  # type: ignore[arg-type]
+                seconds=seconds,
+                load_kg=load_kg,
+                rest_seconds=(started - self.last_set_end).total_seconds() if self.last_set_end else None,
+                started_at=started,
+                ended_at=ended,
+            )
+        )
         self.last_set_end = ended
         if len(exercise.sets) >= exercise.target.sets:
             self.phase = "rating"
@@ -229,8 +256,15 @@ class TrainingSession(Aggregate):
 
     # -- the end -----------------------------------------------------------------------------
 
-    def finish(self, now: datetime, rpe: int, notes: str = "", calories: int | None = None,
-               avg_hr: int | None = None, body_weight: float | None = None) -> None:
+    def finish(
+        self,
+        now: datetime,
+        rpe: int,
+        notes: str = "",
+        calories: int | None = None,
+        avg_hr: int | None = None,
+        body_weight: float | None = None,
+    ) -> None:
         """All exercises are through: rate the whole session; it counts as training."""
         self._require("summary")
         if not 1 <= int(rpe) <= 10:
@@ -250,5 +284,10 @@ class TrainingSession(Aggregate):
 
 def _new_exercise(exercise_id: str, target: Target, catalogue: Catalogue) -> SessionExercise:
     spec = catalogue.get(exercise_id)
-    return SessionExercise(exercise=exercise_id, name=spec.name, pattern=spec.pattern, kind=spec.kind,
-                           target=target.with_(sides=spec.sides))  # reps and seconds count per side
+    return SessionExercise(
+        exercise=exercise_id,
+        name=spec.name,
+        pattern=spec.pattern,
+        kind=spec.kind,
+        target=target.with_(sides=spec.sides),
+    )  # reps and seconds count per side

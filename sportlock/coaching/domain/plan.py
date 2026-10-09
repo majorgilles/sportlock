@@ -60,18 +60,29 @@ class CoachPlan(ValueObject):
     @classmethod
     def from_dict(cls, data: dict) -> CoachPlan:
         """Read the stored JSON shape."""
-        return cls(rationale=data.get("rationale", ""), hard=SessionPlan.from_dict(data["hard"]),
-                   recovery=SessionPlan.from_dict(data["recovery"]),
-                   next_lock=NextLockAdvice(**data.get("next_lock") or {}),
-                   recommendations=tuple(Recommendation(**r) for r in data.get("recommendations", [])),
-                   feedback_session=data.get("feedback_session"), basis=data.get("basis", ""),
-                   generated_at=data.get("generated_at", ""))
+        return cls(
+            rationale=data.get("rationale", ""),
+            hard=SessionPlan.from_dict(data["hard"]),
+            recovery=SessionPlan.from_dict(data["recovery"]),
+            next_lock=NextLockAdvice(**data.get("next_lock") or {}),
+            recommendations=tuple(Recommendation(**r) for r in data.get("recommendations", [])),
+            feedback_session=data.get("feedback_session"),
+            basis=data.get("basis", ""),
+            generated_at=data.get("generated_at", ""),
+        )
 
     def to_dict(self) -> dict:
         """The stored JSON shape."""
-        return {"rationale": self.rationale, "hard": self.hard.to_dict(), "recovery": self.recovery.to_dict(),
-                "next_lock": self.next_lock.model_dump(), "recommendations": [r.model_dump() for r in self.recommendations],
-                "feedback_session": self.feedback_session, "basis": self.basis, "generated_at": self.generated_at}
+        return {
+            "rationale": self.rationale,
+            "hard": self.hard.to_dict(),
+            "recovery": self.recovery.to_dict(),
+            "next_lock": self.next_lock.model_dump(),
+            "recommendations": [r.model_dump() for r in self.recommendations],
+            "feedback_session": self.feedback_session,
+            "basis": self.basis,
+            "generated_at": self.generated_at,
+        }
 
     def version_for(self, mode: str | None, *, last_hard: datetime | None, now: datetime) -> SessionPlan:
         """The hard or recovery version: as decided for the lock, else by the 48-hour rule."""
@@ -90,8 +101,11 @@ class ParsedCoachOutput(ValueObject):
     memory: tuple[MemoryOperation, ...]
 
 
-def parse_coach_output(output: dict, catalogue: Catalogue, equipment: set[str], laddered: set[str]) -> ParsedCoachOutput:
+def parse_coach_output(
+    output: dict, catalogue: Catalogue, equipment: set[str], laddered: set[str]
+) -> ParsedCoachOutput:
     """Validate the coach's JSON answer. Raises CoachOutputError."""
+
     def item(raw: dict, label: str) -> PlannedExercise:
         exercise_id = raw.get("exercise")
         exercise = catalogue.find(exercise_id) if isinstance(exercise_id, str) else None
@@ -110,11 +124,15 @@ def parse_coach_output(output: dict, catalogue: Catalogue, equipment: set[str], 
             lo, hi = raw.get("reps_low"), raw.get("reps_high")
             if not (isinstance(lo, int) and isinstance(hi, int) and 1 <= lo <= hi <= 30):
                 raise CoachOutputError(f"{label}: {exercise.id} has reps {lo!r}–{hi!r}")
-            return PlannedExercise(exercise=exercise.id, target=Target(sets=sets, rest=rest, reps=(lo, hi), progress=note))
+            return PlannedExercise(
+                exercise=exercise.id, target=Target(sets=sets, rest=rest, reps=(lo, hi), progress=note)
+            )
         seconds = raw.get("seconds")
         if not isinstance(seconds, int) or not 5 <= seconds <= 900:
             raise CoachOutputError(f"{label}: {exercise.id} has {seconds!r} seconds")
-        return PlannedExercise(exercise=exercise.id, target=Target(sets=sets, rest=rest, seconds=seconds, progress=note))
+        return PlannedExercise(
+            exercise=exercise.id, target=Target(sets=sets, rest=rest, seconds=seconds, progress=note)
+        )
 
     def version(raw: dict, label: str, day_type: str) -> SessionPlan:
         items = tuple(item(i, label) for i in raw.get("exercises", []))
@@ -136,8 +154,14 @@ def parse_coach_output(output: dict, catalogue: Catalogue, equipment: set[str], 
             raise CoachOutputError(f"override puts {planned.exercise} on the {chain} chain")
         if not str(raw.get("reason", "")).strip():
             raise CoachOutputError("override without a reason")
-        overrides.append(LadderOverride(chain=chain, exercise=planned.exercise, target=planned.target.with_(progress=None),
-                                        reason=raw["reason"].strip()))
+        overrides.append(
+            LadderOverride(
+                chain=chain,
+                exercise=planned.exercise,
+                target=planned.target.with_(progress=None),
+                reason=raw["reason"].strip(),
+            )
+        )
 
     advice = output.get("next_lock") or {}
     if advice.get("mode", "auto") not in ("auto", "recovery", "rest"):
@@ -146,14 +170,25 @@ def parse_coach_output(output: dict, catalogue: Catalogue, equipment: set[str], 
     if minutes is not None and (not isinstance(minutes, int) or not 5 <= minutes <= 60):
         raise CoachOutputError(f"next_lock recovery_minutes {minutes!r}")
 
-    recommendations = [Recommendation(about=str(r.get("about", "")).strip(), advice=str(r.get("advice", "")).strip())
-                       for r in output.get("recommendations") or []]
-    memory = [MemoryOperation(op=m["op"], id=m.get("id"), topic=m.get("topic") if m.get("topic") in TOPICS else None,
-                              text=m.get("note"))
-              for m in output.get("memory") or [] if isinstance(m, dict) and m.get("op") in ("add", "update", "delete")]
+    recommendations = [
+        Recommendation(about=str(r.get("about", "")).strip(), advice=str(r.get("advice", "")).strip())
+        for r in output.get("recommendations") or []
+    ]
+    memory = [
+        MemoryOperation(
+            op=m["op"], id=m.get("id"), topic=m.get("topic") if m.get("topic") in TOPICS else None, text=m.get("note")
+        )
+        for m in output.get("memory") or []
+        if isinstance(m, dict) and m.get("op") in ("add", "update", "delete")
+    ]
 
-    plan = CoachPlan(rationale=str(output.get("rationale", "")).strip(), hard=hard, recovery=recovery,
-                     next_lock=NextLockAdvice(mode=advice.get("mode", "auto"), recovery_minutes=minutes,
-                                              reason=str(advice.get("reason", "")).strip()),
-                     recommendations=tuple(r for r in recommendations if r.advice)[:4])
+    plan = CoachPlan(
+        rationale=str(output.get("rationale", "")).strip(),
+        hard=hard,
+        recovery=recovery,
+        next_lock=NextLockAdvice(
+            mode=advice.get("mode", "auto"), recovery_minutes=minutes, reason=str(advice.get("reason", "")).strip()
+        ),
+        recommendations=tuple(r for r in recommendations if r.advice)[:4],
+    )
     return ParsedCoachOutput(plan=plan, overrides=tuple(overrides), memory=tuple(memory))

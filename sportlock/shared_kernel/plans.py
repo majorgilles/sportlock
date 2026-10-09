@@ -40,8 +40,12 @@ class SessionPlan(ValueObject):
     @classmethod
     def from_dict(cls, data: dict) -> SessionPlan:
         """Read the stored shape {"title", "day_type", "plan": [...], "note"?}."""
-        return cls(title=data["title"], day_type=data["day_type"],
-                   items=tuple(PlannedExercise.from_dict(i) for i in data.get("plan", [])), note=data.get("note", ""))
+        return cls(
+            title=data["title"],
+            day_type=data["day_type"],
+            items=tuple(PlannedExercise.from_dict(i) for i in data.get("plan", [])),
+            note=data.get("note", ""),
+        )
 
     def to_dict(self) -> dict:
         """The stored shape."""

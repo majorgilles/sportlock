@@ -98,10 +98,17 @@ def rest_days_in_a_row(rest_days: set[date], today: date) -> int:
 
 def load_summary(week: list[SessionSummary], rest_days: int, now: datetime) -> dict:
     """The last week's load, as the coach and the calendar see it."""
+
     def entry(s: SessionSummary) -> dict:
-        return {"date": s.day.isoformat(), "finished": s.finished_at.isoformat(timespec="seconds"),
-                "day_type": s.day_type, "title": s.title, "minutes": s.minutes, "rpe": s.rpe,
-                "load": s.minutes * (s.rpe or 5)}
+        return {
+            "date": s.day.isoformat(),
+            "finished": s.finished_at.isoformat(timespec="seconds"),
+            "day_type": s.day_type,
+            "title": s.title,
+            "minutes": s.minutes,
+            "rpe": s.rpe,
+            "load": s.minutes * (s.rpe or 5),
+        }
 
     entries = [entry(s) for s in week]
     return {
@@ -126,8 +133,9 @@ def rest_allowed(state: RecoveryState, policy: Policy, now: datetime) -> tuple[b
     return True, ""
 
 
-def decide_lock(state: RecoveryState, policy: Policy, *, now: datetime, window_minutes: int,
-                advice: CoachAdvice | None) -> LockDecision:
+def decide_lock(
+    state: RecoveryState, policy: Policy, *, now: datetime, window_minutes: int, advice: CoachAdvice | None
+) -> LockDecision:
     """What a scheduled lock starting now should be."""
     advice = advice or CoachAdvice()
     hard_recent = state.last_hard is not None and now - state.last_hard < HARD_GAP

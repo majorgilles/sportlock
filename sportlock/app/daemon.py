@@ -68,14 +68,26 @@ class Daemon:
     def coach_command(self, now: datetime) -> RunCoachCommand:
         """What the coach should plan for: the next scheduled locks and the rest guardrails."""
         settings = self.c.settings.settings
-        upcoming = [{"start": w.start.isoformat(timespec="minutes"), "minutes": w.minutes}
-                    for w in windows_around(settings, now) if w.start > now][:3] if settings.enabled else []
+        upcoming = (
+            [
+                {"start": w.start.isoformat(timespec="minutes"), "minutes": w.minutes}
+                for w in windows_around(settings, now)
+                if w.start > now
+            ][:3]
+            if settings.enabled
+            else []
+        )
         policy = policy_of(settings)
-        return RunCoachCommand(equipment=equipment_of(self.c.profiles, settings), upcoming_locks=tuple(upcoming),
-                               rest_policy={"allow_rest_days": policy.allow_rest_days,
-                                            "max_rest_days_in_a_row": policy.max_rest_days_in_a_row,
-                                            "min_sessions_per_week": policy.min_sessions_per_week,
-                                            "default_recovery_minutes": policy.recovery_minutes})
+        return RunCoachCommand(
+            equipment=equipment_of(self.c.profiles, settings),
+            upcoming_locks=tuple(upcoming),
+            rest_policy={
+                "allow_rest_days": policy.allow_rest_days,
+                "max_rest_days_in_a_row": policy.max_rest_days_in_a_row,
+                "min_sessions_per_week": policy.min_sessions_per_week,
+                "default_recovery_minutes": policy.recovery_minutes,
+            },
+        )
 
     def coach_running(self) -> bool:
         """Whether a coach run is in progress."""
@@ -99,8 +111,9 @@ class Daemon:
         except (CoachUnavailableError, CoachOutputError) as error:
             log.warning("coach failed: %s", error)
             self.coach_retry_at = self.c.clock.now() + COACH_RETRY
-            self.c.desktop.notify("Coach couldn't plan your next session",
-                                  f"{error}. Using the built-in planner; retrying in 30 min.")
+            self.c.desktop.notify(
+                "Coach couldn't plan your next session", f"{error}. Using the built-in planner; retrying in 30 min."
+            )
 
     # -- state for the screens and the bar ---------------------------------------------------
 
@@ -115,8 +128,15 @@ class Daemon:
             "updated_at": epoch_ms(datetime.now()),
             "locked": lock is not None,
             "waiting_for_omarchy_lock": self.c.runtime.waiting_for_omarchy,
-            "lock": lock and {"key": lock.key, "kind": lock.kind, "start": epoch_ms(lock.window.start),
-                              "end": epoch_ms(lock.window.end), "overridable": lock.overridable, "test": lock.test},
+            "lock": lock
+            and {
+                "key": lock.key,
+                "kind": lock.kind,
+                "start": epoch_ms(lock.window.start),
+                "end": epoch_ms(lock.window.end),
+                "overridable": lock.overridable,
+                "test": lock.test,
+            },
             "override": override,
             "override_phrase": settings.override_phrase,
             "override_wait_seconds": settings.override_wait_seconds,
@@ -124,8 +144,11 @@ class Daemon:
             "trained_today": now.date() in self.c.history.trained_days(),
             "training": self.c.training_snapshot.execute() if lock else None,
             "theme": self.c.desktop.theme(),
-            "setup": {"profile": self.c.tick.setup_complete(), "agent_running": self.coach_running(),
-                      "plan_ready": self.c.freshness.fresh_plan() is not None},
+            "setup": {
+                "profile": self.c.tick.setup_complete(),
+                "agent_running": self.coach_running(),
+                "plan_ready": self.c.freshness.fresh_plan() is not None,
+            },
             "config_error": self.c.settings.error,
             "config_pending": self.c.settings.pending,
         }

@@ -22,8 +22,9 @@ def _hard_plan(catalogue):
 
 
 def _session(catalogue, plan=None):
-    return TrainingSession.begin(plan or _hard_plan(catalogue), catalogue, now=T0, kind="scheduled", lock_key="k",
-                                 source="local")
+    return TrainingSession.begin(
+        plan or _hard_plan(catalogue), catalogue, now=T0, kind="scheduled", lock_key="k", source="local"
+    )
 
 
 def _do_timed(session, start, length):
@@ -51,8 +52,12 @@ def test_save_set__reps_sets__rest_measured_between_sets_then_rating(catalogue):
         session.save_set(_t(341))  # reps required
     session.save_set(_t(341), reps=10)
     assert session.phase == "resting"
-    session.start_set(_t(400)); session.stop_set(_t(425)); session.save_set(_t(426), reps=9)
-    session.start_set(_t(490)); session.stop_set(_t(512)); session.save_set(_t(513), reps=8)
+    session.start_set(_t(400))
+    session.stop_set(_t(425))
+    session.save_set(_t(426), reps=9)
+    session.start_set(_t(490))
+    session.stop_set(_t(512))
+    session.save_set(_t(513), reps=8)
     assert session.phase == "rating"
     session.rate(_t(520), 7, "last set hard")
     # then
@@ -91,7 +96,9 @@ def test_go_now_and_cancel_set__during_the_lead_in(catalogue):
     session.start_set(_t(0), lead_in=5)
     session.go_now(_t(2))
     assert session.set_started_at == _t(2)
-    session.stop_set(_t(30)); session.save_set(_t(31)); session.rate(_t(32), 3)
+    session.stop_set(_t(30))
+    session.save_set(_t(31))
+    session.rate(_t(32), 3)
     session.start_set(_t(40), lead_in=5)
     session.cancel_set(_t(42))
     assert session.phase == "ready"
@@ -115,13 +122,19 @@ def test_finish__after_the_last_exercise__finished_with_the_summary(catalogue):
     assert session.phase == "summary"
     session.finish(_t(60), 6, "ok", 200, 120, 78.5)
     assert (session.status, session.rpe, session.calories, session.avg_hr, session.body_weight) == (
-        "finished", 6, 200, 120, 78.5)
+        "finished",
+        6,
+        200,
+        120,
+        78.5,
+    )
 
 
 def test_close__time_ran_out_in_the_cool_down__counts_as_finished(catalogue):
     session = _session(catalogue)
     for _ in session.exercises[:-1]:
-        session.start_set(_t(0)); session.stop_set(_t(30))
+        session.start_set(_t(0))
+        session.stop_set(_t(30))
         session.save_set(_t(31), reps=10)
         session.end_sets(_t(32)) if session.phase != "rating" else None
         session.rate(_t(33), 6)
@@ -138,20 +151,32 @@ def test_close__main_work_skipped__abandoned(catalogue):
 
 
 def test_begin__exercises_done_on_both_sides__targets_carry_sides(catalogue):
-    plan = SessionPlan(title="Sides", day_type="hard", items=(
-        PlannedExercise(exercise="dead-bug", target=Target(sets=1, rest=30, reps=(8, 10))),
-        PlannedExercise(exercise="hip-flexor-stretch", target=Target(sets=1, rest=15, seconds=30)),
-        PlannedExercise(exercise="glute-bridge", target=Target(sets=1, rest=30, reps=(12, 15)))))
+    plan = SessionPlan(
+        title="Sides",
+        day_type="hard",
+        items=(
+            PlannedExercise(exercise="dead-bug", target=Target(sets=1, rest=30, reps=(8, 10))),
+            PlannedExercise(exercise="hip-flexor-stretch", target=Target(sets=1, rest=15, seconds=30)),
+            PlannedExercise(exercise="glute-bridge", target=Target(sets=1, rest=30, reps=(12, 15))),
+        ),
+    )
     session = _session(catalogue, plan)
     assert [e.target.sides for e in session.exercises] == ["alternating", "each", None]
 
 
 def test_save_set__hold_on_each_side__logged_per_side(catalogue):
-    plan = SessionPlan(title="Sides", day_type="hard", items=(
-        PlannedExercise(exercise="hip-flexor-stretch", target=Target(sets=1, rest=15, seconds=30)),
-        PlannedExercise(exercise="glute-bridge", target=Target(sets=1, rest=30, reps=(12, 15)))))
+    plan = SessionPlan(
+        title="Sides",
+        day_type="hard",
+        items=(
+            PlannedExercise(exercise="hip-flexor-stretch", target=Target(sets=1, rest=15, seconds=30)),
+            PlannedExercise(exercise="glute-bridge", target=Target(sets=1, rest=30, reps=(12, 15))),
+        ),
+    )
     session = _session(catalogue, plan)
-    session.start_set(_t(0)); session.stop_set(_t(62)); session.save_set(_t(63))
+    session.start_set(_t(0))
+    session.stop_set(_t(62))
+    session.save_set(_t(63))
     assert session.exercises[0].sets[0].seconds == 31
 
 

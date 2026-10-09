@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 """Regenerate sportlock/locks/ui/lock_screen/sounds/*.wav: clock-like ticks (filtered noise click + short resonance)."""
+
 import math
 import random
 import struct
