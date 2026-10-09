@@ -65,7 +65,7 @@ types), Library, Settings (schedule, cap, override, profile). Bar widget: next l
 
 ## Implementation
 
-Python stdlib-only user service; SQLite at `~/.local/share/sportlock/` with daily backups (keep
+Python user service (pydantic domain, feature-first clean architecture; see the ADRs); SQLite at `~/.local/share/sportlock/` with daily backups (keep
 7); unit-tested state machine and rules engine; QML ↔ service via Unix socket (`sportlock` CLI)
 and a JSON state file. Repo `~/dev/sportlock`, systemd user unit, Omarchy plugin + menu entry.
 `sportlock test` = 1-minute non-overridable lock.

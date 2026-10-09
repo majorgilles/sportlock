@@ -3,6 +3,9 @@
 set -euo pipefail
 repo=$(cd "$(dirname "$0")" && pwd)
 
+command -v uv >/dev/null || { echo "sportlock needs uv: https://docs.astral.sh/uv/"; exit 1; }
+(cd "$repo" && uv sync --quiet)
+
 mkdir -p ~/.local/bin ~/.config/systemd/user
 ln -sf "$repo/bin/sportlock" ~/.local/bin/sportlock
 ln -sf "$repo/systemd/sportlock.service" ~/.config/systemd/user/sportlock.service

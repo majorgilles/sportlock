@@ -2,8 +2,13 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+repo = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+venv_python = os.path.join(repo, ".venv", "bin", "python")
+if os.path.exists(venv_python) and os.path.realpath(sys.prefix) != os.path.realpath(os.path.join(repo, ".venv")):
+    os.execv(venv_python, [venv_python, *sys.argv])  # run inside the project environment (pydantic)
 
-from sportlock.cli import main  # noqa: E402
+sys.path.insert(0, repo)
+
+from sportlock.app.cli import main  # noqa: E402
 
 main()

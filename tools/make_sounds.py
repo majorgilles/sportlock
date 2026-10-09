@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Regenerate locker/sounds/*.wav: clock-like ticks (filtered noise click + short resonance)."""
+"""Regenerate sportlock/locks/ui/lock_screen/sounds/*.wav: clock-like ticks (filtered noise click + short resonance)."""
 import math
 import random
 import struct
@@ -7,7 +7,7 @@ import wave
 from pathlib import Path
 
 RATE = 44100
-OUT = Path(__file__).resolve().parent.parent / "locker" / "sounds"
+OUT = Path(__file__).resolve().parent.parent / "sportlock" / "locks" / "ui" / "lock_screen" / "sounds"
 
 
 def render(name, ms, parts, volume):

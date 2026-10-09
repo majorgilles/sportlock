@@ -42,7 +42,8 @@ The full agreed design is in [DESIGN.md](DESIGN.md).
 
 - **Omarchy 4** (Hyprland + the Quickshell-based `omarchy-shell`). sportlock uses Quickshell for
   the lock screen and Omarchy's notifications, idle and lock commands.
-- **Python 3.11+** at `/usr/bin/python3` (standard library only, no packages).
+- **Python 3.14** and **[uv](https://docs.astral.sh/uv/)**: `install.sh` creates the project's
+  environment (`.venv`, with pydantic) and `bin/sportlock` runs inside it.
 - **Qt 6 Multimedia** (`qt6-multimedia`) for the ticking clock, and the Qt SVG image plugin.
 - **Claude Code** (`claude`) logged in: it plans sessions and builds the exercise library.
 - **notebooklm-py** (`notebooklm` CLI, installed with `uv tool install "notebooklm-py[browser]"`)
@@ -56,7 +57,7 @@ cd ~/dev/sportlock
 ./install.sh
 ```
 
-`install.sh` links the `sportlock` command into `~/.local/bin`, installs the systemd **user**
+`install.sh` creates the Python environment (`uv sync`), links the `sportlock` command into `~/.local/bin`, installs the systemd **user**
 service `sportlock.service` and starts it. The service writes a default config to
 `~/.config/sportlock/config.toml` with locks **disabled**.
 
@@ -64,7 +65,7 @@ service `sportlock.service` and starts it. The service writes a default config t
 
 Do these once, in order:
 
-1. **Build the exercise library** (about 10 minutes; 48 exercises, 4 in parallel):
+1. **Build the exercise library** (about 20 minutes; 107 exercises, 4 in parallel):
 
    ```bash
    sportlock library build
@@ -236,10 +237,12 @@ shown at the top.
 
 **The coach's memory.** The recent-session history only reaches back four weeks, so the coach
 also keeps up to 30 short notes about you: body (injuries, what hurts, how you respond),
-preferences, progress, plans, your setup, and lessons on how to coach you. It rewrites them on
-every run, keeping what still holds, updating what changed and dropping what's outdated, and
-reads them before planning. They're listed under **Profile → What your coach remembers**; ✕
-removes a wrong note, and the coach won't bring it back without new evidence.
+preferences, progress, plans, your setup, and lessons on how to coach you. After every run it
+sends changes (add, update or delete a note), never a rewrite, and every version of every note
+is kept, so you can see how its picture of you evolved: `sportlock memory history`. The notes
+are listed under **Profile → What your coach remembers** and by `sportlock memory`; ✕ (or
+`sportlock memory forget <id>`) removes a wrong one, and the coach won't bring it back without
+new evidence.
 
 The coach also answers your feedback on the last session (its notes, exercise notes, efforts and
 skips) with up to four concrete recommendations: technique, how to make an exercise harder or
@@ -382,17 +385,34 @@ Also remove the `"sportlock…"` lines from `~/.config/omarchy/extensions/omarch
 ## Development
 
 ```bash
-python3 -m unittest            # all tests, from the repo root
-tools/make_sounds.py           # regenerate the tick sounds
+uv sync                         # the environment, with pytest
+uv run pytest                   # all tests: unit (domain), integration (use cases on SQLite), architecture
+tools/make_sounds.py            # regenerate the tick sounds
 
 # Preview the lock screen in a normal window (no lock) against any state file:
-SPORTLOCK_PREVIEW=1 SPORTLOCK_STATE=$XDG_RUNTIME_DIR/sportlock/state.json qs -p locker
+SPORTLOCK_PREVIEW=1 SPORTLOCK_STATE=$XDG_RUNTIME_DIR/sportlock/state.json qs -p sportlock/locks/ui/lock_screen
 ```
 
-Layout: `sportlock/` Python service and CLI (`service.py` schedule and locking, `training.py`
-session state machine, `rules.py` and `ladders.py` progression, `agent.py` the coach,
-`library.py` exercise library, `profile.py` onboarding), `locker/` lock-screen QML, `app/`
-profile window QML, `tools/` helpers, `tests/`.
+The code is organised by feature (screaming architecture), each feature in clean-architecture
+layers: `domain/` (pydantic models and rules, no I/O), `application/` (use cases, one
+`execute` each, depending on ports), `infrastructure/` (SQLite, config.toml, Claude,
+NotebookLM, Quickshell, the Omarchy desktop). `sportlock/app/` is the composition root and the
+entry points (service loop, socket API, CLI, app window).
+
+```
+sportlock/
+  shared_kernel/  base models, Target, SessionPlan, ports to the desktop and clock, the database
+  settings/       config.toml and its rules            athlete/      the profile
+  exercises/      catalogue, library builder           locks/        schedule, locking, overrides, lock screen, popup
+  training/       the session aggregate, fitting       progression/  ladders, rules, built-in planner
+  recovery/       hard / recovery / rest decisions     coaching/     the coach, its plan and memory
+  calendar/       past and planned days                diagnostics/  doctor and problem reports
+  app/            composition root, daemon, socket API, CLI, app window
+```
+
+Decisions are recorded in [docs/architecture-decision-records/](docs/architecture-decision-records/),
+terms in [docs/GLOSSARY.md](docs/GLOSSARY.md), and the rules for contributors (and Claude) in
+[CLAUDE.md](CLAUDE.md).
 
 ## License
 
