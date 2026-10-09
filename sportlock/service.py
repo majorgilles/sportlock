@@ -515,6 +515,20 @@ class Service:
                         "runs": self.store.get("agent_runs", []),
                         "running": bool(self.agent_thread and self.agent_thread.is_alive())}
 
+            if cmd == "memory-get":
+                from . import agent as agent_mod
+
+                memory = self.store.get(agent_mod.MEMORY_KEY) or {}
+                return {"ok": True, "notes": memory.get("notes", []), "updated_at": memory.get("updated_at")}
+
+            if cmd == "memory-forget":
+                from . import agent as agent_mod
+
+                if not agent_mod.forget_memory(self.store, int(request.get("id", 0))):
+                    return {"ok": False, "error": "no such note"}
+                log.info("coach memory: note %s forgotten at the user's request", request.get("id"))
+                return {"ok": True}
+
             if cmd == "doctor":
                 issues = diagnostics.check(self.store, self.training.library, lock_active=self.current is not None)
                 fixed = diagnostics.repair(issues) if request.get("fix") else 0

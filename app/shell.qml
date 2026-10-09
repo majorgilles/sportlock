@@ -172,7 +172,17 @@ ShellRoot {
     })
   }
 
+  // -- the coach's memory ---------------------------------------------------------------------
+
+  property var memory: []
+  readonly property var memoryTopics: ({ body: "Body", preferences: "Preferences", progress: "Progress",
+                                        plans: "Plans", context: "Setup", coaching: "Coaching" })
+
+  function loadMemory() { send({ cmd: "memory-get" }, function(response) { root.memory = response.notes }) }
+  function forgetNote(id) { send({ cmd: "memory-forget", id: id }, function() { root.loadMemory() }) }
+
   Component.onCompleted: {
+    loadMemory()
     loadCalendar()
     loadSettings()
     send({ cmd: "profile-get" }, function(response) {
@@ -312,7 +322,7 @@ ShellRoot {
       x: 40; y: 20
       spacing: 8
       Chip { label: "Calendar"; on: root.tab === "calendar"; onClicked: { root.tab = "calendar"; root.loadCalendar() } }
-      Chip { label: "Profile"; on: root.tab === "profile"; onClicked: root.tab = "profile" }
+      Chip { label: "Profile"; on: root.tab === "profile"; onClicked: { root.tab = "profile"; root.loadMemory() } }
       Chip { label: "Schedule & settings"; on: root.tab === "settings"; onClicked: { root.tab = "settings"; root.loadSettings() } }
     }
 
@@ -740,6 +750,44 @@ ShellRoot {
             text: root.message
             color: root.saved ? root.accent : root.urgent
             font.pixelSize: 14
+          }
+        }
+
+        Section {
+          visible: !root.firstTime
+          title: "What your coach remembers"
+          hint: root.memory.length ? "Notes the coach keeps about you and rewrites after every session, on top of your recent sessions. Remove anything that is wrong; it won't come back unless something new shows it."
+                                   : "Nothing yet. After each session the coach writes down what it learns about you here."
+          Repeater {
+            model: root.memory
+            delegate: Row {
+              required property var modelData
+              width: form.width
+              spacing: 12
+              Text {
+                width: 96
+                text: root.memoryTopics[modelData.topic] || modelData.topic
+                color: root.muted
+                font.pixelSize: 13
+                topPadding: 2
+              }
+              Text {
+                width: parent.width - 96 - 48 - 24
+                wrapMode: Text.WordWrap
+                text: modelData.note
+                color: root.fg
+                font.pixelSize: 14
+              }
+              Text {
+                width: 48
+                horizontalAlignment: Text.AlignRight
+                text: "✕"
+                color: forgetArea.containsMouse ? root.urgent : root.muted
+                font.pixelSize: 15
+                MouseArea { id: forgetArea; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            onClicked: root.forgetNote(modelData.id) }
+              }
+            }
           }
         }
       }

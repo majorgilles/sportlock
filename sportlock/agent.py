@@ -1,6 +1,7 @@
 """The coaching agent: headless Claude Code writes the next session from the user's history.
 
-Runs after every session (and after onboarding) in the background. It sees the profile, the
+Runs after every session (and after onboarding) in the background. It sees the profile, its own
+long-term memory of the user (notes it rewrites on every run; see MEMORY_KEY), the
 ladder positions, recent sessions in detail, the rule proposals the last session triggered and
 the exercise catalogue, and may look things up in the NotebookLM notebook through the
 read-only passage search (tools/nlm_search.py) — no other tool. It returns two plans, `hard`
@@ -22,6 +23,9 @@ from .library import NLM_SEARCH, Library
 from .store import Store, _iso
 
 PLAN_KEY = "next_session"
+MEMORY_KEY = "coach_memory"  # {"notes": [{id, topic, note, since}], "forgotten": [note text], "updated_at"}
+MEMORY_TOPICS = ("body", "preferences", "progress", "plans", "context", "coaching")
+MEMORY_MAX_NOTES = 30
 RUNS_KEY = "agent_runs"
 HISTORY_DAYS = 28
 HISTORY_SESSIONS = 12
@@ -62,6 +66,11 @@ SCHEMA = {
             },
             "required": ["mode", "recovery_minutes", "reason"],
         },
+        "memory": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"topic": {"type": "string", "enum": list(MEMORY_TOPICS)}, "note": {"type": "string"}},
+            "required": ["topic", "note"],
+        }},
         "recommendations": {"type": "array", "items": {
             "type": "object",
             "properties": {"about": {"type": "string"}, "advice": {"type": "string"}},
@@ -75,7 +84,7 @@ SCHEMA = {
             "required": ["chain", "exercise", "sets", "reps_low", "reps_high", "seconds", "rest", "reason"],
         }},
     },
-    "required": ["rationale", "recommendations", "hard", "recovery", "next_lock", "ladder_overrides"],
+    "required": ["rationale", "memory", "recommendations", "hard", "recovery", "next_lock", "ladder_overrides"],
 }
 
 PROMPT = """You are the coach inside "sportlock", a desktop app that locks the user's computer until they
@@ -130,6 +139,18 @@ few words (e.g. "Wall push-ups too easy"); "advice" is 1–2 sentences of concre
 act on: technique, how to make an exercise harder or easier at home, household items to add load,
 recovery, or an app setting (e.g. a longer lock in Schedule & settings). Say what changes in the
 next session when something does. Use the books where they help. [] when there is nothing to answer.
+
+"memory": your long-term notes about this user, kept between runs. "coach_memory" holds the
+current ones; "recent_sessions" only reaches back a few weeks, so anything worth knowing later
+must live here. Return the COMPLETE updated list (it replaces the old one): keep what is still
+true, update what changed, merge duplicates, drop what is outdated, and add what the latest
+session or profile change taught you that will matter beyond the next session. One specific
+sentence per note, dated when the date matters (e.g. "2026-10-05: wall push-ups far too easy,
+desk-height incline is right"). Topics: "body" (injuries, pain, how the body responds),
+"preferences" (likes, dislikes, how they want instructions), "progress" (milestones, what
+works), "plans" (what they intend, e.g. longer sessions), "context" (equipment, home setup,
+schedule), "coaching" (lessons for you on how to plan for this person). At most {max_notes}.
+Never re-add a note listed in "forgotten_by_user" unless there is new evidence for it.
 
 Only use exercises whose equipment the user has. Respect injuries and limitations in the profile.
 
@@ -218,6 +239,8 @@ class Agent:
                      for i, spec in self.library.seed.items()]
         return {
             "now": _iso(now), "profile": {k: v for k, v in profile.items() if k != "updated_at"},
+            "coach_memory": [{k: n[k] for k in ("topic", "note", "since")} for n in memory_notes(self.store)],
+            "forgotten_by_user": (self.store.get(MEMORY_KEY) or {}).get("forgotten", []),
             "equipment": sorted(equipment),
             "last_hard_session": last_hard and _iso(last_hard),
             "ladders": ladders, "rule_proposals_from_last_session": proposals,
@@ -233,7 +256,7 @@ class Agent:
         started = datetime.now()
         try:
             context = self.context(now, equipment)
-            prompt = PROMPT.format(search=NLM_SEARCH, notebook=self.notebook_id,
+            prompt = PROMPT.format(search=NLM_SEARCH, notebook=self.notebook_id, max_notes=MEMORY_MAX_NOTES,
                                    context=json.dumps(context, ensure_ascii=False, indent=1))
             output = self._claude(prompt)
             plan = self.validate(output, equipment)
@@ -245,6 +268,9 @@ class Agent:
         plan["generated_at"] = _iso(now)
         plan["feedback_session"] = self.last_session_id() if plan["recommendations"] else None
         self._apply_overrides(plan.pop("overrides"), now)
+        memory = plan.pop("memory")
+        if memory is not None:
+            save_memory(self.store, memory, now)
         self.store.put(PLAN_KEY, plan)
         self._log(started, ok=True, error=None)
         return plan
@@ -306,12 +332,19 @@ class Agent:
         minutes = next_lock.get("recovery_minutes")
         if minutes is not None and (not isinstance(minutes, int) or not 5 <= minutes <= 60):
             raise AgentError(f"next_lock recovery_minutes {minutes!r}")
+        memory = None
+        if isinstance(output.get("memory"), list):
+            memory = [{"topic": raw["topic"], "note": " ".join(str(raw.get("note", "")).split())[:300]}
+                      for raw in output["memory"]
+                      if isinstance(raw, dict) and raw.get("topic") in MEMORY_TOPICS and str(raw.get("note", "")).strip()]
+            memory = memory[:MEMORY_MAX_NOTES]
         recommendations = []
         for raw in output.get("recommendations") or []:
             about, advice = str(raw.get("about", "")).strip(), str(raw.get("advice", "")).strip()
             if advice:
                 recommendations.append({"about": about, "advice": advice})
         return {
+            "memory": memory,
             "recommendations": recommendations[:4],
             "next_lock": {"mode": next_lock["mode"], "recovery_minutes": minutes,
                           "reason": str(next_lock.get("reason", "")).strip()},
@@ -367,6 +400,40 @@ class Agent:
                  o["reason"], _iso(now)),
             )
             self.ladders._set(o["chain"], o["exercise"], target, f"Coach: {o['reason']}", now)
+
+
+def memory_notes(store: Store) -> list[dict]:
+    return (store.get(MEMORY_KEY) or {}).get("notes", [])
+
+
+def save_memory(store: Store, notes: list[dict], now: datetime) -> None:
+    """Replace the coach's notes, keeping each unchanged note's id and the date it was first written."""
+    memory = store.get(MEMORY_KEY) or {"notes": [], "forgotten": []}
+    old = {(n["topic"], n["note"]): n for n in memory["notes"]}
+    next_id = max([n["id"] for n in memory["notes"]], default=0) + 1
+    kept = []
+    for note in notes:
+        previous = old.get((note["topic"], note["note"]))
+        if previous:
+            kept.append(previous)
+        else:
+            kept.append({"id": next_id, "topic": note["topic"], "note": note["note"], "since": now.date().isoformat()})
+            next_id += 1
+    if memory["notes"]:
+        store.put(MEMORY_KEY + "_previous", memory)  # one step of undo, should a run go wrong
+    store.put(MEMORY_KEY, {"notes": kept, "forgotten": memory.get("forgotten", []), "updated_at": _iso(now)})
+
+
+def forget_memory(store: Store, note_id: int) -> bool:
+    """The user removes a note; the coach is told not to bring it back without new evidence."""
+    memory = store.get(MEMORY_KEY) or {"notes": [], "forgotten": []}
+    note = next((n for n in memory["notes"] if n["id"] == note_id), None)
+    if note is None:
+        return False
+    memory["notes"] = [n for n in memory["notes"] if n["id"] != note_id]
+    memory["forgotten"] = (memory.get("forgotten", []) + [note["note"]])[-30:]
+    store.put(MEMORY_KEY, memory)
+    return True
 
 
 def choose(plan: dict, *, last_hard: datetime | None, now: datetime) -> dict:

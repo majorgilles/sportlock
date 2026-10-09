@@ -234,6 +234,13 @@ NotebookLM books (read-only; it has no other tool). It writes two versions of th
 Each exercise gets a one-line reason shown on its card, and the session gets a short rationale
 shown at the top.
 
+**The coach's memory.** The recent-session history only reaches back four weeks, so the coach
+also keeps up to 30 short notes about you: body (injuries, what hurts, how you respond),
+preferences, progress, plans, your setup, and lessons on how to coach you. It rewrites them on
+every run, keeping what still holds, updating what changed and dropping what's outdated, and
+reads them before planning. They're listed under **Profile → What your coach remembers**; ✕
+removes a wrong note, and the coach won't bring it back without new evidence.
+
 The coach also answers your feedback on the last session (its notes, exercise notes, efforts and
 skips) with up to four concrete recommendations: technique, how to make an exercise harder or
 easier at home, recovery, or a setting to change. You get them in a notification once the coach

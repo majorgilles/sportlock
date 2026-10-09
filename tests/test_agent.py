@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from sportlock import profile as profile_mod
-from sportlock.agent import PLAN_KEY, Agent, AgentError, choose
+from sportlock.agent import MEMORY_KEY, PLAN_KEY, Agent, AgentError, choose, forget_memory, memory_notes
 from sportlock.ladders import START, Ladders
 from sportlock.library import Library, load_seed
 from sportlock.store import Store
@@ -71,6 +71,39 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(plan["recommendations"], [{"about": "Push-ups too easy", "advice": "Go down to the bench."}])
         self.assertEqual(plan["feedback_session"], session)
         self.assertIsNone(self.run_with(GOOD)["feedback_session"])  # nothing to answer
+
+    def test_memory_is_rewritten_each_run_and_fed_back(self):
+        first = [{"topic": "body", "note": "Right shoulder pinches on overhead work."},
+                 {"topic": "plans", "note": "Wants 30-minute sessions."}]
+        self.run_with({**GOOD, "memory": first})
+        notes = memory_notes(self.store)
+        self.assertEqual([n["note"] for n in notes], [m["note"] for m in first])
+        self.assertEqual(notes[0]["since"], NOW.date().isoformat())
+        self.assertEqual(self.agent.context(NOW, HOUSE)["coach_memory"][0]["note"], first[0]["note"])
+
+        later = NOW + timedelta(days=3)
+        second = [first[0], {"topic": "progress", "note": "  Desk-height incline push-ups:\n 3x12 clean. "},
+                  {"topic": "nonsense", "note": "dropped"}]
+        with mock.patch.object(Agent, "_claude", return_value=copy.deepcopy({**GOOD, "memory": second})):
+            self.agent.run(later, HOUSE)
+        notes = memory_notes(self.store)
+        self.assertEqual([n["note"] for n in notes], [first[0]["note"], "Desk-height incline push-ups: 3x12 clean."])
+        self.assertEqual(notes[0]["since"], NOW.date().isoformat())  # unchanged note keeps its date and id
+        self.assertEqual(notes[1]["since"], later.date().isoformat())
+        self.assertEqual(len({n["id"] for n in notes}), 2)
+
+    def test_output_without_memory_keeps_it(self):
+        self.run_with({**GOOD, "memory": [{"topic": "context", "note": "No table at home."}]})
+        self.run_with(GOOD)
+        self.assertEqual([n["note"] for n in memory_notes(self.store)], ["No table at home."])
+
+    def test_forgotten_notes_are_removed_and_reported_to_the_coach(self):
+        self.run_with({**GOOD, "memory": [{"topic": "body", "note": "Left knee twinges."}]})
+        note = memory_notes(self.store)[0]
+        self.assertTrue(forget_memory(self.store, note["id"]))
+        self.assertFalse(forget_memory(self.store, note["id"]))
+        self.assertEqual(memory_notes(self.store), [])
+        self.assertEqual(self.agent.context(NOW, HOUSE)["forgotten_by_user"], ["Left knee twinges."])
 
     def test_plan_goes_stale_after_a_new_session(self):
         self.run_with(GOOD)
