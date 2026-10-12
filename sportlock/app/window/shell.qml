@@ -105,7 +105,43 @@ ShellRoot {
   readonly property var dayNames: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
   readonly property var dayLabels: ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
 
+  // -- the Spotify account (lists every playlist on the lock screen) ------------------------
+
+  property var musicAccount: null
+  property bool musicConnecting: false
+  property string musicError: ""
+
+  function loadMusicAccount() {
+    send({ cmd: "music-account" }, function(response) {
+      var wasConnecting = root.musicConnecting
+      root.musicAccount = response.account
+      root.musicConnecting = response.connecting
+      root.musicError = response.error
+      if (clientIdField.text === "") clientIdField.text = response.account.client_id
+      if (wasConnecting && !response.connecting && response.account.connected) root.musicError = ""
+    })
+  }
+
+  function connectSpotify() {
+    root.musicError = ""
+    send({ cmd: "music-login", client_id: clientIdField.text }, function() {
+      root.musicConnecting = true
+    }, function(error) { root.musicError = error })
+  }
+
+  function disconnectSpotify() {
+    send({ cmd: "music-logout" }, function() { root.loadMusicAccount() })
+  }
+
+  Timer {
+    interval: 1500
+    repeat: true
+    running: root.musicConnecting
+    onTriggered: root.loadMusicAccount()
+  }
+
   function loadSettings() {
+    loadMusicAccount()
     send({ cmd: "settings-get" }, function(response) {
       root.settings = response.settings
       root.settingsFrozen = response.frozen
@@ -1014,8 +1050,73 @@ ShellRoot {
         }
 
         Section {
-          title: "Music"
-          hint: "Spotify playlists, albums or songs you can start from the lock screen's music panel. In Spotify: Share → Copy link, then paste it here."
+          title: "Spotify account"
+          hint: root.musicAccount && root.musicAccount.connected
+                ? "Connected as " + root.musicAccount.name + ". Every playlist in your account (and Liked Songs) is listed in the lock screen's music panel. sportlock only reads your playlists."
+                : "Connect your Spotify account to pick any of your playlists on the lock screen. Spotify asks for an app of your own (free, once, no secret):"
+
+          Column {
+            width: parent.width
+            spacing: 10
+            visible: root.musicAccount !== null && !root.musicAccount.connected
+            Row {
+              spacing: 10
+              Text { anchors.verticalCenter: parent.verticalCenter; text: "1."; color: root.fg; font.pixelSize: 15 }
+              Chip { label: "Open the Spotify dashboard"; onClicked: Qt.openUrlExternally("https://developer.spotify.com/dashboard") }
+              Text { anchors.verticalCenter: parent.verticalCenter; text: "log in, then Create app (any name and description)."; color: root.fg; font.pixelSize: 15 }
+            }
+            Row {
+              spacing: 10
+              Text { anchors.verticalCenter: parent.verticalCenter; text: "2. Redirect URI:"; color: root.fg; font.pixelSize: 15 }
+              Field {
+                id: redirectField
+                implicitWidth: 330
+                text: root.musicAccount ? root.musicAccount.redirect_uri : ""
+                input.readOnly: true
+                input.selectByMouse: true
+              }
+              Chip {
+                label: "Copy"
+                onClicked: { redirectField.input.selectAll(); redirectField.input.copy(); redirectField.input.deselect() }
+              }
+            }
+            Text { text: "3. Tick “Web API”, save, and paste the app's Client ID here:"; color: root.fg; font.pixelSize: 15 }
+          }
+
+          Row {
+            spacing: 10
+            Field {
+              id: clientIdField
+              implicitWidth: 360
+              visible: root.musicAccount !== null && !root.musicAccount.connected
+              placeholder: "Client ID (32 letters and digits)"
+            }
+            Chip {
+              visible: root.musicAccount !== null && !root.musicAccount.connected
+              label: root.musicConnecting ? "Waiting for the browser…" : "Connect"
+              on: !root.musicConnecting && clientIdField.text.trim().length === 32
+              onClicked: if (!root.musicConnecting) root.connectSpotify()
+            }
+            Chip {
+              visible: root.musicAccount !== null && root.musicAccount.connected
+              label: "Disconnect"
+              onClicked: root.disconnectSpotify()
+            }
+          }
+          Text {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            visible: text.length > 0
+            text: root.musicError ? root.musicError
+                  : root.musicConnecting ? "Allow sportlock in the browser window that just opened." : ""
+            color: root.musicError ? root.urgent : root.muted
+            font.pixelSize: 14
+          }
+        }
+
+        Section {
+          title: "Favourite music"
+          hint: "Playlists, albums or songs shown first (★) in the lock screen's music panel; they work without connecting an account. In Spotify: Share → Copy link, then paste it here."
           Repeater {
             model: root.settings ? root.settings.music_playlists : []
             delegate: Row {

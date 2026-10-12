@@ -4,21 +4,24 @@ from __future__ import annotations
 
 from typing import Literal
 
-from sportlock.music.domain.music import MusicError, spotify_uri
+from pydantic import Field
+
+from sportlock.music.domain.music import FULL_VOLUME, MusicError, spotify_uri
 from sportlock.music.domain.ports import MusicLibraryProtocol, MusicPlayerProtocol
 from sportlock.settings.application.settings_services import SettingsState
 from sportlock.shared_kernel.base import ValueObject
 
 
 class ControlMusicCommand(ValueObject):
-    """One button on the music panel; `link` is the Spotify link or URI to play."""
+    """One button on the music panel; `link` is the Spotify link or URI to play, `volume` the slider (0 to 1)."""
 
-    action: Literal["toggle", "next", "previous", "play"]
+    action: Literal["toggle", "next", "previous", "play", "volume"]
     link: str = ""
+    volume: float = Field(default=FULL_VOLUME, ge=0, le=1)
 
 
 class ControlMusicService:
-    """Play, pause, skip, or start a playlist; starts Spotify when it isn't running."""
+    """Play, pause, skip, set the volume, or start a playlist; starts Spotify (at full volume) when it isn't running."""
 
     def __init__(self, player: MusicPlayerProtocol) -> None:
         self.player = player
@@ -39,6 +42,8 @@ class ControlMusicService:
                 self.player.launch()
         elif not running:
             raise MusicError("Spotify isn't running")
+        elif command.action == "volume":
+            self.player.set_volume(command.volume)
         elif command.action == "next":
             self.player.next()
         else:

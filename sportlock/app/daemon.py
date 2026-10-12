@@ -22,6 +22,8 @@ from sportlock.coaching.domain.plan import CoachOutputError
 from sportlock.coaching.domain.ports import CoachUnavailableError
 from sportlock.locks.application.lock_services import policy_of, restore_desktop
 from sportlock.locks.domain.schedule import Decision, settings_frozen, windows_around
+from sportlock.music.application.music_account_services import ConnectMusicAccountCommand
+from sportlock.music.domain.music import MusicError, client_id_of
 from sportlock.shared_kernel.infrastructure.logging_setup import setup_logging
 from sportlock.shared_kernel.time import epoch_ms
 
@@ -45,6 +47,8 @@ class Daemon:
         self.coach_thread: threading.Thread | None = None
         self.coach_retry_at: datetime | None = None
         self.state: dict | None = None
+        self.music_login_thread: threading.Thread | None = None
+        self.music_login_error = ""
 
     # -- the tick ----------------------------------------------------------------------------
 
@@ -115,6 +119,29 @@ class Daemon:
                 "Coach couldn't plan your next session", f"{error}. Using the built-in planner; retrying in 30 min."
             )
 
+    # -- the Spotify login -------------------------------------------------------------------
+
+    def music_login_running(self) -> bool:
+        """Whether a browser login to Spotify is waiting for the user."""
+        return bool(self.music_login_thread and self.music_login_thread.is_alive())
+
+    def start_music_login(self, client_id: str) -> None:
+        """Log in to Spotify in the background (the user allows access in the browser)."""
+        client_id_of(client_id)  # a bad Client ID is refused right away
+        if self.music_login_running():
+            raise MusicError("already waiting for Spotify in the browser")
+        self.music_login_error = ""
+        self.music_login_thread = threading.Thread(target=self._music_login, args=(client_id,), daemon=True)
+        self.music_login_thread.start()
+
+    def _music_login(self, client_id: str) -> None:
+        try:
+            name = self.c.connect_music_account.execute(ConnectMusicAccountCommand(client_id=client_id))
+            log.info("spotify: connected as %s", name)
+        except (MusicError, OSError) as error:
+            log.warning("spotify login failed: %s", error)
+            self.music_login_error = str(error) if isinstance(error, MusicError) else "Spotify can't be reached"
+
     # -- state for the screens and the bar ---------------------------------------------------
 
     def write_state(self, now: datetime, decision: Decision) -> None:
@@ -171,7 +198,7 @@ class Daemon:
 
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         if self.c.runtime.current is None:
-            restore_desktop(self.c.lock_state, self.c.desktop)  # left over from a crash mid-lock
+            restore_desktop(self.c.lock_state, self.c.desktop, self.c.music_player)  # left over from a crash mid-lock
         server = SocketServer(self, SOCKET_PATH)
         threading.Thread(target=server.serve_forever, daemon=True).start()
 

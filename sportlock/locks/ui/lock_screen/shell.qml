@@ -116,6 +116,20 @@ ShellRoot {
     send({ cmd: "music", action: action, link: link || "" })
   }
 
+  // Volume changes while dragging: keep only the latest one waiting in the queue.
+  function musicVolume(volume) {
+    var payload = { cmd: "music", action: "volume", volume: Math.round(volume * 100) / 100 }
+    var last = queue.length > 0 ? queue[queue.length - 1] : null
+    if (last && last.cmd === "music" && last.action === "volume") {
+      var next = queue.slice(0, queue.length - 1)
+      next.push(payload)
+      queue = next
+      pump()
+    } else {
+      send(payload)
+    }
+  }
+
   function train(action, args) {
     var payload = Object.assign({ cmd: "train", action: action }, args || {})
     send(payload)
@@ -455,10 +469,17 @@ ShellRoot {
     readonly property bool showCues: detailsToggled !== null ? detailsToggled
                                      : (root.preview && Quickshell.env("SPORTLOCK_SHOW_DETAILS") === "1") || (root.ex !== null && root.ex.times_done < 3)
     function toggleDetails() { detailsToggled = !showCues }
+
+    // The video plays (muted, looping) for exercises done fewer than 3 times; V toggles it.
+    property var videoToggled: null
+    property bool videoSound: false
+    readonly property bool showVideo: root.ex !== null && !!root.ex.video
+                                      && (videoToggled !== null ? videoToggled : (root.ex.times_done < 3 || root.ex.image === ""))
+    function toggleVideo() { if (root.ex && root.ex.video) videoToggled = !showVideo }
     property bool skipOpen: false
 
     // The music panel's playlist browser.
-    readonly property var library: root.music ? root.music.library : null
+    readonly property var library: root.music && root.music.library ? root.music.library : null
     readonly property var shownPlaylists: {
       if (!library || !library.connected) return []
       var query = playlistFilter.text.trim().toLowerCase()
@@ -485,6 +506,9 @@ ShellRoot {
         var n = event.key === Qt.Key_0 ? 10 : event.key - Qt.Key_0
         if (root.phase === "rating") ratePicker.value = n; else sessionPicker.value = n
         event.accepted = true
+      } else if (event.key === Qt.Key_V) {
+        surface.toggleVideo()
+        event.accepted = true
       } else if (event.key === Qt.Key_D) {
         surface.toggleDetails()
         event.accepted = true
@@ -497,7 +521,7 @@ ShellRoot {
       function onPlaylistsOpenChanged() {
         if (root.playlistsOpen) Qt.callLater(function() { page.contentY = Math.max(0, page.contentHeight - page.height) })
       }
-      function onExKeyChanged() { surface.detailsToggled = null }
+      function onExKeyChanged() { surface.detailsToggled = null; surface.videoToggled = null }
       function onPhaseChanged() {
         surface.skipOpen = false
         ratePicker.value = 0
@@ -857,11 +881,70 @@ ShellRoot {
             width: Math.min(420, Math.max(300, parent.width * 0.36))
             spacing: 10
 
+            // The demonstration video (V switches between it and the picture)
+            Rectangle {
+              width: parent.width
+              height: width * 9 / 16
+              radius: 10
+              visible: surface.showVideo
+              color: "black"
+              border.width: 1
+              border.color: root.line
+              clip: true
+              Video {
+                id: video
+                anchors.fill: parent
+                anchors.margins: 1
+                source: surface.showVideo ? "file://" + root.ex.video : ""
+                autoPlay: true
+                loops: MediaPlayer.Infinite
+                muted: !surface.videoSound
+                volume: 0.8
+                fillMode: VideoOutput.PreserveAspectFit
+              }
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: if (video.playbackState === MediaPlayer.PlayingState) video.pause(); else video.play()
+              }
+              Text {
+                anchors.centerIn: parent
+                visible: video.playbackState === MediaPlayer.PausedState
+                text: "▶"
+                color: "white"
+                font.pixelSize: 44
+              }
+            }
+            Row {
+              width: parent.width
+              spacing: 8
+              visible: root.ex !== null && !!root.ex.video
+              Btn {
+                label: surface.showVideo ? "Picture" : "▶ Video"
+                hint: "V"
+                visible: root.ex !== null && root.ex.image !== ""
+                onClicked: surface.toggleVideo()
+              }
+              Btn {
+                visible: surface.showVideo
+                label: surface.videoSound ? "Sound off" : "Sound on"
+                onClicked: surface.videoSound = !surface.videoSound
+              }
+            }
+            Text {
+              width: parent.width
+              visible: surface.showVideo
+              text: root.ex ? "YouTube: " + root.ex.video_source : ""
+              elide: Text.ElideRight
+              color: root.muted
+              font.pixelSize: 12
+            }
+
             Rectangle {
               width: parent.width
               height: width * 0.72
               radius: 10
-              visible: root.ex !== null && root.ex.image !== ""
+              visible: root.ex !== null && root.ex.image !== "" && !surface.showVideo
               color: root.ex && root.ex.image_source === "stick figure" ? root.panel : "#f5f5f2"
               border.width: 1
               border.color: root.line
@@ -879,7 +962,7 @@ ShellRoot {
             }
             Text {
               width: parent.width
-              visible: root.ex !== null && root.ex.image !== ""
+              visible: root.ex !== null && root.ex.image !== "" && !surface.showVideo
               text: root.ex ? root.ex.image_source.replace(/^book: /, "").replace(/\.(epub|pdf)$/, "").replace(/_/g, ":") : ""
               elide: Text.ElideRight
               color: root.muted
@@ -1053,6 +1136,59 @@ ShellRoot {
               }
             }
 
+            // Spotify's volume (full when a lock begins, put back afterwards)
+            Row {
+              spacing: 12
+              visible: root.player !== null && root.player.running && root.player.volume !== null
+              Text { anchors.verticalCenter: parent.verticalCenter; text: "Volume"; color: root.muted; font.pixelSize: 14 }
+              Item {
+                id: volumeSlider
+                width: 280; height: 30
+                property bool dragging: false
+                property real dragValue: 1
+                readonly property real value: dragging ? dragValue : (root.player && root.player.volume !== null ? root.player.volume : 1)
+                function setFrom(x) {
+                  dragValue = Math.max(0, Math.min(1, x / width))
+                  root.musicVolume(dragValue)
+                }
+                Rectangle {
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: parent.width; height: 6; radius: 3
+                  color: root.line
+                  Rectangle { width: parent.width * volumeSlider.value; height: parent.height; radius: 3; color: root.accent }
+                }
+                Rectangle {
+                  anchors.verticalCenter: parent.verticalCenter
+                  x: volumeSlider.value * (volumeSlider.width - width)
+                  width: 18; height: 18; radius: 9
+                  color: root.fg
+                }
+                // The state file catches up a moment after a change: show the dragged value until then.
+                Timer { id: volumeSettle; interval: 1500; onTriggered: volumeSlider.dragging = false }
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  onPressed: function(mouse) { volumeSettle.stop(); volumeSlider.dragging = true; volumeSlider.setFrom(mouse.x) }
+                  onPositionChanged: function(mouse) { if (pressed) volumeSlider.setFrom(mouse.x) }
+                  onReleased: volumeSettle.restart()
+                  onWheel: function(wheel) {
+                    volumeSettle.stop()
+                    var start = volumeSlider.value
+                    volumeSlider.dragging = true
+                    volumeSlider.dragValue = Math.max(0, Math.min(1, start + (wheel.angleDelta.y > 0 ? 0.05 : -0.05)))
+                    root.musicVolume(volumeSlider.dragValue)
+                    volumeSettle.restart()
+                  }
+                }
+              }
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: Math.round(volumeSlider.value * 100) + " %"
+                color: root.fg
+                font.pixelSize: 14
+              }
+            }
+
             // Favourites (from the settings), then every playlist in the Spotify account
             Column {
               width: parent.width
@@ -1150,7 +1286,7 @@ ShellRoot {
                 wrapMode: Text.WordWrap
                 visible: text.length > 0
                 text: !surface.library || !surface.library.connected
-                      ? "To pick from all your Spotify playlists here, run “sportlock music login” once (outside a lock)."
+                      ? "To pick from all your Spotify playlists here, connect your account once in “sportlock app” → Schedule & settings (outside a lock)."
                       : surface.library.loading ? "Loading your playlists…"
                       : surface.library.error ? surface.library.error
                       : surface.shownPlaylists.length === 0 ? "No playlist matches “" + playlistFilter.text + "”." : ""

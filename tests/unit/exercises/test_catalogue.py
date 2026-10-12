@@ -41,3 +41,23 @@ def test_details_repository__unbuilt_exercise__empty_details(tmp_path):
 def test_stick_figure__every_pattern__is_svg():
     for pattern in ("push", "pull", "squat", "hinge", "core", "mobility", "warmup", "unknown"):
         assert stick_figure(pattern).startswith("<svg")
+
+
+def test_details_repository__downloaded_video__read_with_its_source(tmp_path):
+    (tmp_path / "plank").mkdir()
+    (tmp_path / "plank" / "video.mp4").write_bytes(b"mp4")
+    (tmp_path / "plank" / "video.json").write_text(
+        json.dumps({"file": "video.mp4", "title": "Plank", "channel": "Gym"})
+    )
+    details = FileExerciseDetailsRepository(tmp_path).get("plank")
+    assert (details.video, details.video_title, details.video_channel) == (
+        str(tmp_path / "plank" / "video.mp4"),
+        "Plank",
+        "Gym",
+    )
+
+
+def test_details_repository__video_file_missing__no_video(tmp_path):
+    (tmp_path / "plank").mkdir()
+    (tmp_path / "plank" / "video.json").write_text(json.dumps({"file": "video.mp4"}))
+    assert FileExerciseDetailsRepository(tmp_path).get("plank").video == ""

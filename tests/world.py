@@ -13,7 +13,7 @@ from sportlock.app.daemon import Daemon
 from sportlock.app.socket_api import handle
 from sportlock.coaching.domain.ports import CoachUnavailableError
 from sportlock.exercises.domain.catalogue import Catalogue
-from sportlock.music.domain.music import Library, NowPlaying
+from sportlock.music.domain.music import Library, MusicAccount, MusicError, NowPlaying
 from sportlock.shared_kernel.time import iso
 
 CONFIG = """
@@ -115,7 +115,7 @@ class FakeMusicPlayer:
 
     def launch(self, uri: str | None = None) -> None:
         self.launches += 1
-        self.state = NowPlaying(running=True, playing=uri is not None)
+        self.state = NowPlaying(running=True, playing=uri is not None, volume=1.0)
         if uri:
             self.opened.append(uri)
 
@@ -132,6 +132,9 @@ class FakeMusicPlayer:
     def previous(self) -> None:
         self.skips.append("previous")
 
+    def set_volume(self, volume: float) -> None:
+        self.state = self.state.model_copy(update={"volume": volume})
+
 
 class FakeMusicLibrary:
     """The user's Spotify playlists, set by the test."""
@@ -141,6 +144,26 @@ class FakeMusicLibrary:
 
     def library(self) -> Library:
         return self.state
+
+
+class FakeMusicAccount:
+    """A Spotify account the user allows (or refuses, when `refuse` is set) at once."""
+
+    def __init__(self) -> None:
+        self.state = MusicAccount(redirect_uri="http://127.0.0.1:8974/callback")
+        self.refuse = ""
+
+    def account(self) -> MusicAccount:
+        return self.state
+
+    def login(self, client_id: str) -> str:
+        if self.refuse:
+            raise MusicError(self.refuse)
+        self.state = self.state.model_copy(update={"connected": True, "name": "Gilles", "client_id": client_id})
+        return "Gilles"
+
+    def logout(self) -> None:
+        self.state = self.state.model_copy(update={"connected": False, "name": ""})
 
 
 class FakeClock:
@@ -216,6 +239,7 @@ class World:
         self.clock = FakeClock(datetime(2026, 10, 5, 17, 0))
         self.music = FakeMusicPlayer()
         self.music_library = FakeMusicLibrary()
+        self.music_account = FakeMusicAccount()
         self.c = Container(
             db_path=tmp / "db.sqlite",
             config_path=self.config_path,
@@ -228,6 +252,7 @@ class World:
             catalogue=catalogue,
             music_player=self.music,
             music_library=self.music_library,
+            music_account=self.music_account,
         )
         self.daemon = Daemon(self.c, state_path=tmp / "state.json")
         self.daemon.running = False  # no background ticks

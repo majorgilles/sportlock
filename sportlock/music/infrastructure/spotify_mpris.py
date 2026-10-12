@@ -1,8 +1,8 @@
 """The Spotify desktop app, driven over MPRIS (D-Bus, through `busctl`): no account key needed.
 
-Spotify's `OpenUri` plays a track, album, artist or playlist URI. Right after launching, the app
-takes a few seconds to appear on the bus, so a launch with a URI retries `OpenUri` in the
-background until Spotify answers.
+Spotify's `OpenUri` plays a track, album, artist or playlist URI, and its `Volume` property is
+writable. Right after launching, the app takes a few seconds to appear on the bus, so a launch
+turns the volume up and plays the URI in the background once Spotify answers.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import threading
 import time
 from typing import override
 
-from sportlock.music.domain.music import NowPlaying
+from sportlock.music.domain.music import FULL_VOLUME, NowPlaying
 from sportlock.music.domain.ports import MusicPlayerProtocol
 
 BUS_NAME = "org.mpris.MediaPlayer2.spotify"
@@ -31,11 +31,13 @@ def _busctl(*args: str, timeout: float = 2) -> subprocess.CompletedProcess | Non
 
 
 def parse_now_playing(output: str) -> NowPlaying:
-    """`busctl --json=short get-property … PlaybackStatus Metadata` output, one JSON value per line."""
+    """`busctl --json=short get-property … PlaybackStatus Metadata Volume` output, one JSON value per line."""
     try:
-        status, metadata = (json.loads(line)["data"] for line in output.strip().splitlines()[:2])
-    except ValueError, KeyError, TypeError:
+        values = [json.loads(line)["data"] for line in output.strip().splitlines()]
+        status, metadata = values[0], values[1]
+    except ValueError, KeyError, TypeError, IndexError:
         return NowPlaying(running=True)
+    volume = values[2] if len(values) > 2 and isinstance(values[2], (int, float)) else None
 
     def text(key: str) -> str:
         value = metadata.get(key, {}).get("data", "")
@@ -48,6 +50,7 @@ def parse_now_playing(output: str) -> NowPlaying:
         artist=text("xesam:artist"),
         album=text("xesam:album"),
         art_url=text("mpris:artUrl"),
+        volume=min(1.0, max(0.0, float(volume))) if volume is not None else None,
     )
 
 
@@ -67,7 +70,7 @@ class SpotifyMprisPlayer(MusicPlayerProtocol):
     @override
     def now_playing(self) -> NowPlaying:
         result = _busctl(
-            "--json=short", "get-property", BUS_NAME, MPRIS_PATH, MPRIS_PLAYER, "PlaybackStatus", "Metadata"
+            "--json=short", "get-property", BUS_NAME, MPRIS_PATH, MPRIS_PLAYER, "PlaybackStatus", "Metadata", "Volume"
         )
         if not result or result.returncode != 0:
             return NowPlaying(starting=self._starting())
@@ -90,15 +93,21 @@ class SpotifyMprisPlayer(MusicPlayerProtocol):
             except OSError:
                 return
             self.launched_at = time.monotonic()
-        if uri:
-            threading.Thread(target=self._open_when_up, args=(uri,), daemon=True).start()
+        threading.Thread(target=self._when_up, args=(uri,), daemon=True).start()
 
-    def _open_when_up(self, uri: str) -> None:
+    def _when_up(self, uri: str | None) -> None:
+        # Spotify starts at the volume it was left at: turn it up for training, then play.
         deadline = time.monotonic() + STARTUP_SECONDS
         while time.monotonic() < deadline:
-            if self._call("OpenUri", "s", uri):
+            if self._set_volume(FULL_VOLUME):
+                if uri:
+                    self._call("OpenUri", "s", uri)
                 return
             time.sleep(0.5)
+
+    def _set_volume(self, volume: float) -> bool:
+        result = _busctl("set-property", BUS_NAME, MPRIS_PATH, MPRIS_PLAYER, "Volume", "d", f"{volume:.3f}")
+        return bool(result and result.returncode == 0)
 
     @override
     def open(self, uri: str) -> None:
@@ -119,3 +128,8 @@ class SpotifyMprisPlayer(MusicPlayerProtocol):
     def previous(self) -> None:
         """Previous track."""
         self._call("Previous")
+
+    @override
+    def set_volume(self, volume: float) -> None:
+        """Spotify's own volume."""
+        self._set_volume(volume)

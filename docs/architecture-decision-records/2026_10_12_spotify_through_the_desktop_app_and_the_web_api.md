@@ -24,7 +24,8 @@ their playlists, from the lock screen.
 - **Playback goes through the desktop app over MPRIS** (`busctl`, no new dependency):
   `SpotifyMprisPlayer`. Starting a playlist while Spotify is closed launches it (`uwsm-app`) and
   retries `OpenUri` in the background until the app answers.
-- **The playlists come from the Web API, read-only**, after a one-time `sportlock music login`
+- **The playlists come from the Web API, read-only**, after a one-time login from the settings
+  screen or `sportlock music login`; the service runs the login in a background thread
   (PKCE, loopback redirect `http://127.0.0.1:8974/callback`, scopes for reading playlists and Liked
   Songs): `SpotifyWebLibrary`. Tokens live in the key-value table; the access token is refreshed
   when it expires. The list is cached in memory and refreshed in a background thread every
@@ -51,5 +52,7 @@ their playlists, from the lock screen.
 - `sportlock/music/domain/music.py`: `Playlist`, `NowPlaying`, `Library`, `spotify_uri`
 - `sportlock/music/domain/ports.py`: `MusicPlayerProtocol`, `MusicLibraryProtocol`
 - `sportlock/music/application/music_services.py`: `ControlMusicService`, `MusicSnapshotService`
+- `sportlock/music/application/music_account_services.py`: connect, disconnect, get the account
+- `sportlock/app/window/shell.qml`: the Spotify account section
 - `sportlock/music/infrastructure/spotify_mpris.py`, `spotify_web.py`
 - `sportlock/locks/ui/lock_screen/shell.qml`: the music panel

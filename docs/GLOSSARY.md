@@ -98,6 +98,9 @@ and kept as versions. *Feature:* coaching · `coaching/domain/memory.py:CoachMem
 **Library / details**: instructions and pictures built from the athlete's books with NotebookLM.
 *Feature:* exercises · `exercises/infrastructure/notebooklm_library.py`
 
+**Demonstration video**: a short YouTube video showing the exercise, downloaded into the library and
+played on the lock screen. *Feature:* exercises · `exercises/domain/videos.py:choose_video`
+
 ## Music
 
 **Music panel**: the lock screen's Spotify controls: the current song, play/pause and skip, and the

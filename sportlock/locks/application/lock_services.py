@@ -18,6 +18,8 @@ from sportlock.locks.domain.repositories import (
     OverrideRepositoryProtocol,
 )
 from sportlock.locks.domain.schedule import Decision, Window, decide
+from sportlock.music.domain.music import FULL_VOLUME
+from sportlock.music.domain.ports import MusicPlayerProtocol
 from sportlock.progression.domain.ladders import LadderMove
 from sportlock.recovery.domain.policy import CoachAdvice, Policy, RecoveryState, decide_lock, rest_days_in_a_row
 from sportlock.settings.application.settings_services import SettingsState
@@ -119,6 +121,7 @@ class RunLockTickService:
         desktop: DesktopProtocol,
         lock_screen: LockScreenProtocol,
         popup: WarningPopupProtocol,
+        music: MusicPlayerProtocol,
     ) -> None:
         self.settings = settings
         self.runtime = runtime
@@ -134,6 +137,7 @@ class RunLockTickService:
         self.desktop = desktop
         self.lock_screen = lock_screen
         self.popup = popup
+        self.music = music
 
     def decision(self, now: datetime) -> Decision:
         """What the schedule says now."""
@@ -251,9 +255,17 @@ class RunLockTickService:
         self.runtime.waiting_for_omarchy = False
         self.popup.close()
         if self.lock_state.desktop_to_restore() is None:
+            # Spotify plays at full volume during training; its volume is put back afterwards.
+            volume = self.music.now_playing().volume
             self.lock_state.set_desktop_to_restore(
-                {"paused": self.desktop.pause_media(), "stay_awake": self.desktop.idle_stay_awake()}
+                {
+                    "paused": self.desktop.pause_media(),
+                    "stay_awake": self.desktop.idle_stay_awake(),
+                    "music_volume": volume,
+                }
             )
+            if volume is not None:
+                self.music.set_volume(FULL_VOLUME)
         self.desktop.set_idle_stay_awake(True)
         log.info("lock begins: %s (%s) until %s", lock.key, lock.kind, lock.window.end.isoformat())
         if not lock.test:
@@ -280,7 +292,7 @@ class RunLockTickService:
         self.close_session.execute("overridden" if outcome == "override" else "abandoned", now)
         if not lock.test:
             self.lock_events.ended(lock.key, "expired", now)  # no-op if already ended early
-        restore_desktop(self.lock_state, self.desktop)
+        restore_desktop(self.lock_state, self.desktop, self.music)
 
     def release(self, now: datetime) -> None:
         """The service is stopping: leave the lock (stopping always unlocks)."""
@@ -288,11 +300,15 @@ class RunLockTickService:
             self._leave(now)
 
 
-def restore_desktop(lock_state: LockStateRepositoryProtocol, desktop: DesktopProtocol) -> None:
-    """Resume the media and the idle setting saved when the lock began (also after a crash)."""
+def restore_desktop(
+    lock_state: LockStateRepositoryProtocol, desktop: DesktopProtocol, music: MusicPlayerProtocol
+) -> None:
+    """Resume the media, Spotify's volume and the idle setting saved when the lock began (also after a crash)."""
     saved = lock_state.desktop_to_restore()
     if saved is None:
         return
+    if saved.get("music_volume") is not None and music.now_playing().running:
+        music.set_volume(float(saved["music_volume"]))
     desktop.resume_media(saved.get("paused") or [])
     if saved.get("stay_awake") is not None:
         desktop.set_idle_stay_awake(bool(saved["stay_awake"]))

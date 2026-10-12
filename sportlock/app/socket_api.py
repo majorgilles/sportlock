@@ -71,11 +71,26 @@ def _dispatch(daemon: Daemon, request: dict) -> dict:
         return _train(daemon, request, now)
     if cmd == "music":
         try:
-            command = ControlMusicCommand(action=request.get("action"), link=str(request.get("link", "")))
+            command = ControlMusicCommand(
+                action=request.get("action"), link=str(request.get("link", "")), volume=request.get("volume", 1.0)
+            )
         except ValidationError:
-            return {"ok": False, "error": f"unknown music action {request.get('action')!r}"}
+            return {"ok": False, "error": f"invalid music request: {request.get('action')!r}"}
         c.control_music.execute(command)
         daemon.schedule_tick()
+        return {"ok": True}
+    if cmd == "music-account":
+        return {
+            "ok": True,
+            "account": c.get_music_account.execute().model_dump(),
+            "connecting": daemon.music_login_running(),
+            "error": daemon.music_login_error,
+        }
+    if cmd == "music-login":
+        daemon.start_music_login(str(request.get("client_id", "")))
+        return {"ok": True}
+    if cmd == "music-logout":
+        c.disconnect_music_account.execute()
         return {"ok": True}
     if cmd == "music-status":
         return {"ok": True, "music": c.music_snapshot.execute()}

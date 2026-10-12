@@ -14,16 +14,16 @@ import http.server
 import json
 import logging
 import secrets
+import subprocess
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import webbrowser
 from typing import override
 
-from sportlock.music.domain.music import Library, MusicError, Playlist
-from sportlock.music.domain.ports import MusicLibraryProtocol
+from sportlock.music.domain.music import Library, MusicAccount, MusicError, Playlist
+from sportlock.music.domain.ports import MusicAccountProtocol, MusicLibraryProtocol
 from sportlock.shared_kernel.infrastructure.database import Database
 
 log = logging.getLogger("sportlock")
@@ -47,6 +47,16 @@ def _post_form(url: str, fields: dict) -> dict:
         return json.load(response)
 
 
+def open_in_browser(url: str) -> None:
+    """Open a URL in the user's browser (also from the service)."""
+    try:
+        subprocess.Popen(
+            ["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True
+        )
+    except OSError:
+        pass
+
+
 def _cover(images: list[dict]) -> str:
     """The smallest cover still at least 120 px wide (Spotify lists them largest first; sizes may be null)."""
     sized = sorted((i for i in images if i.get("width")), key=lambda i: i["width"])
@@ -66,8 +76,9 @@ def playlists_from_pages(pages: list[dict], user_id: str) -> tuple[Playlist, ...
     return tuple(playlists)
 
 
-class SpotifyWebLibrary(MusicLibraryProtocol):
-    """MusicLibraryProtocol over the Spotify Web API, cached in memory and refreshed in the background."""
+class SpotifyWebLibrary(MusicLibraryProtocol, MusicAccountProtocol):
+    """The user's Spotify account and its playlists over the Web API, cached in memory and refreshed
+    in the background."""
 
     def __init__(self, database: Database) -> None:
         self.database = database
@@ -81,7 +92,7 @@ class SpotifyWebLibrary(MusicLibraryProtocol):
     @override
     def library(self) -> Library:
         tokens = self.database.get(TOKENS_KEY)
-        if not tokens:
+        if not tokens or not tokens.get("refresh_token"):
             self.cache = None
             return Library()
         with self.lock:
@@ -94,9 +105,20 @@ class SpotifyWebLibrary(MusicLibraryProtocol):
                 return Library(connected=True, loading=True)
             return self.cache
 
-    # -- login (from the CLI) ----------------------------------------------------------------
+    # -- the account -------------------------------------------------------------------------
 
-    def login(self, client_id: str, *, open_browser=webbrowser.open, timeout: float = 300) -> str:
+    @override
+    def account(self) -> MusicAccount:
+        tokens = self.database.get(TOKENS_KEY) or {}
+        return MusicAccount(
+            connected=bool(tokens.get("refresh_token")),
+            name=tokens.get("name", ""),
+            client_id=tokens.get("client_id", ""),
+            redirect_uri=REDIRECT_URI,
+        )
+
+    @override
+    def login(self, client_id: str, *, open_browser=open_in_browser, timeout: float = 300) -> str:
         """Ask the user to allow sportlock in the browser; store the tokens. Returns the account's name."""
         verifier = secrets.token_urlsafe(64)
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
@@ -128,16 +150,20 @@ class SpotifyWebLibrary(MusicLibraryProtocol):
             raise MusicError(f"Spotify refused the login: {error.read().decode(errors='replace')}") from None
         self._store(client_id, answer)
         me = self._get("/me")
-        self.database.put(TOKENS_KEY, {**self.database.get(TOKENS_KEY), "user_id": me.get("id", "")})
-        return str(me.get("display_name") or me.get("id") or "")
+        name = str(me.get("display_name") or me.get("id") or "")
+        self.database.put(TOKENS_KEY, {**self.database.get(TOKENS_KEY), "user_id": me.get("id", ""), "name": name})
+        with self.lock:
+            self.cache, self.fetched_at = None, 0.0
+        return name
 
-    def remembered_client_id(self) -> str:
-        """The Client ID of the last login ("" before the first)."""
-        return (self.database.get(TOKENS_KEY) or {}).get("client_id", "")
-
+    @override
     def logout(self) -> None:
-        """Forget the tokens."""
-        self.database.delete(TOKENS_KEY)
+        """Forget the tokens; keep the Client ID for the next login."""
+        client_id = self.account().client_id
+        if client_id:
+            self.database.put(TOKENS_KEY, {"client_id": client_id})
+        else:
+            self.database.delete(TOKENS_KEY)
         self.cache = None
 
     def _wait_for_code(self, url: str, state: str, open_browser, timeout: float) -> str:
@@ -164,7 +190,6 @@ class SpotifyWebLibrary(MusicLibraryProtocol):
         except OSError:
             raise MusicError(f"port {REDIRECT_PORT} is busy; close what uses it and try again") from None
         server.timeout = 1
-        print(f"Opening Spotify in your browser. If nothing opens, visit:\n{url}\n")
         open_browser(url)
         deadline = time.monotonic() + timeout
         with server:
@@ -191,7 +216,7 @@ class SpotifyWebLibrary(MusicLibraryProtocol):
 
     def _access_token(self) -> str:
         tokens = self.database.get(TOKENS_KEY)
-        if not tokens:
+        if not tokens or not tokens.get("refresh_token"):
             raise MusicError("not logged in to Spotify (sportlock music login)")
         if time.time() < tokens["expires_at"]:
             return tokens["access_token"]

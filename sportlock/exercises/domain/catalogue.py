@@ -44,6 +44,9 @@ class ExerciseDetails(ValueObject):
     image: str = ""  # absolute path, or "" without a picture
     image_source: str = ""
     built: bool = False
+    video: str = ""  # absolute path of the demonstration video, or ""
+    video_title: str = ""
+    video_channel: str = ""
 
 
 class Catalogue(ValueObject):

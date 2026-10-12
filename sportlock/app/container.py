@@ -41,8 +41,13 @@ from sportlock.locks.infrastructure.sqlite_repositories import (
     SqliteLockEventRepository,
     SqliteOverrideRepository,
 )
+from sportlock.music.application.music_account_services import (
+    ConnectMusicAccountService,
+    DisconnectMusicAccountService,
+    GetMusicAccountService,
+)
 from sportlock.music.application.music_services import ControlMusicService, MusicSnapshotService
-from sportlock.music.domain.ports import MusicLibraryProtocol, MusicPlayerProtocol
+from sportlock.music.domain.ports import MusicAccountProtocol, MusicLibraryProtocol, MusicPlayerProtocol
 from sportlock.music.infrastructure.spotify_mpris import SpotifyMprisPlayer
 from sportlock.music.infrastructure.spotify_web import SpotifyWebLibrary
 from sportlock.progression.application.apply_session_progression_service import ApplySessionProgressionService
@@ -96,6 +101,7 @@ class Container:
         catalogue: Catalogue | None = None,
         music_player: MusicPlayerProtocol | None = None,
         music_library: MusicLibraryProtocol | None = None,
+        music_account: MusicAccountProtocol | None = None,
     ) -> None:
         self.clock = clock or SystemClock()
         self.desktop = desktop or OmarchyDesktop()
@@ -125,7 +131,9 @@ class Container:
         self.lock_screen = lock_screen or QuickshellLockScreen(state_path or Path("/dev/null"), CLI)
         self.popup = popup or QuickshellWarningPopup()
         self.music_player = music_player or SpotifyMprisPlayer()
-        self.music_library = music_library or SpotifyWebLibrary(self.database)
+        spotify_web = SpotifyWebLibrary(self.database)
+        self.music_library = music_library or spotify_web
+        self.music_account = music_account or spotify_web
         self.coach = coach or ClaudeCoach(self.settings.settings.notebook_id, SEARCH_TOOL)
 
         self.freshness = CoachPlanFreshness(self.coach_plans, self.history, self.profiles)
@@ -155,6 +163,7 @@ class Container:
             self.desktop,
             self.lock_screen,
             self.popup,
+            self.music_player,
         )
         self.start_test_lock = StartTestLockService(self.runtime)
         self.start_manual_lock = StartManualLockService(self.runtime, self.lock_state)
@@ -183,3 +192,6 @@ class Container:
         )
         self.control_music = ControlMusicService(self.music_player)
         self.music_snapshot = MusicSnapshotService(self.music_player, self.music_library, self.settings)
+        self.connect_music_account = ConnectMusicAccountService(self.music_account)
+        self.disconnect_music_account = DisconnectMusicAccountService(self.music_account)
+        self.get_music_account = GetMusicAccountService(self.music_account)

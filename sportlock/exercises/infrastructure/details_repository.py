@@ -1,4 +1,5 @@
-"""Built exercise details, one folder per exercise: <library>/<id>/exercise.json plus its picture."""
+"""Built exercise details, one folder per exercise: <library>/<id>/exercise.json plus its picture,
+and video.json plus video.mp4 when a demonstration video was downloaded."""
 
 from __future__ import annotations
 
@@ -29,10 +30,11 @@ class FileExerciseDetailsRepository(ExerciseDetailsRepositoryProtocol):
     @override
     def get(self, exercise_id: str) -> ExerciseDetails:
         path = self.root / exercise_id / "exercise.json"
+        video = _video(self.root / exercise_id)
         try:
             data = json.loads(path.read_text())
         except OSError, ValueError:
-            return ExerciseDetails()
+            data = {}
         image = data.get("image")
         return ExerciseDetails(
             steps=data.get("steps") or (),
@@ -43,4 +45,16 @@ class FileExerciseDetailsRepository(ExerciseDetailsRepositoryProtocol):
             image=str(self.root / exercise_id / image) if image else "",
             image_source=data.get("image_source") or "",
             built=bool(data.get("built_at")),
+            video=video.get("path", ""),
+            video_title=video.get("title", ""),
+            video_channel=video.get("channel", ""),
         )
+
+
+def _video(folder: Path) -> dict:
+    try:
+        data = json.loads((folder / "video.json").read_text())
+    except OSError, ValueError:
+        return {}
+    path = folder / str(data.get("file", ""))
+    return {**data, "path": str(path)} if data.get("file") and path.exists() else {}

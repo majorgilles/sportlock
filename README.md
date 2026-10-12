@@ -171,7 +171,9 @@ resumed afterwards) and Omarchy's idle lock is kept off.
 **The flow, per exercise:**
 
 1. Read the card: name, target (e.g. *3 sets × 8–12 reps · rest 60 s*), why it is at this level,
-   and the picture with cues beside it. The full instructions (steps, cues, common mistakes,
+   and the picture with cues beside it. Exercises you have done fewer than 3 times show a short
+   YouTube demonstration video instead of the picture (muted, looping; click to pause, **Sound on**
+   for the instructor's voice); **V** switches between video and picture. The full instructions (steps, cues, common mistakes,
    breathing, easier/harder variations and which book they come from) are open for exercises
    you have done fewer than 3 times; **D** shows or hides them.
 
@@ -205,26 +207,29 @@ cancel it). Every override is logged. Test locks can't be overridden.
 ### Music
 
 The lock hides every window, so Spotify is controlled from the **music panel** under the
-exercise: the current song with its cover, previous / play-pause / next, and **Playlists**.
+exercise: the current song with its cover, previous / play-pause / next, a **volume** slider
+(drag, click or scroll; it is Spotify's own volume), and **Playlists**. Spotify is turned up to
+full volume when a lock begins (or when the panel starts it) and put back to your volume afterwards.
 **Open Spotify** starts the app if it isn't running. Other players are still paused when a lock
 begins; you pick the music.
 
 **Playlists** opens your favourites (★, from the settings) and, once your Spotify account is
 connected, every playlist in it plus Liked Songs, with covers and a filter. Click one to play it.
-Connecting the account is a one-time setup (Spotify's Web API needs an app of your own; it is free
-and needs no secret):
+Connecting the account is a one-time setup in `sportlock app settings` → **Spotify account**
+(Spotify's Web API needs an app of your own; it is free and needs no secret):
 
-1. Open <https://developer.spotify.com/dashboard>, log in, **Create app**: any name, redirect URI
-   `http://127.0.0.1:8974/callback`, tick **Web API**, save.
-2. Copy the app's **Client ID** and run `sportlock music login --client-id <Client ID>`; allow
-   access in the browser.
+1. **Open the Spotify dashboard**, log in, **Create app**: any name, the redirect URI shown there
+   (`http://127.0.0.1:8974/callback`, **Copy** puts it on the clipboard), tick **Web API**, save.
+2. Paste the app's **Client ID** and press **Connect**; allow access in the browser.
+
+From a terminal, `sportlock music login --client-id <Client ID>` does the same.
 
 sportlock only reads your playlists (`playlist-read-private`, `playlist-read-collaborative`,
 `user-library-read`); playback goes through the desktop app. The list refreshes every 10 minutes
-during a lock. `sportlock music logout` disconnects the account.
+during a lock. **Disconnect** (or `sportlock music logout`) forgets the account.
 
 **Keys:** Space / Enter start and stop a set (and skip the get-ready countdown) · Esc cancel
-during the countdown · 1–9, 0 effort · D full instructions · Enter
+during the countdown · 1–9, 0 effort · D full instructions · V video or picture · Enter
 submits fields · Shift+Enter new line in notes.
 
 ## How sessions are planned
@@ -335,6 +340,7 @@ Rebuild one exercise with `sportlock library build <id> --force` (ids: `sportloc
 | `sportlock music [toggle\|next\|previous\|play <link>]` | Spotify: what plays, play/pause, skip, play a link |
 | `sportlock music login [--client-id <id>]` / `logout` | connect (or disconnect) your Spotify account |
 | `sportlock library build [ids] [--force]` | build missing (or given) exercises |
+| `sportlock library videos [ids] [--force]` | download a YouTube demonstration video per exercise (missing only) |
 | `sportlock library pictures` | search again for pictures of stick-figure exercises |
 | `sportlock library infographics` | NotebookLM infographics for exercises still without a picture |
 | `sportlock library status` / `list` / `show <id>` | inspect the library |

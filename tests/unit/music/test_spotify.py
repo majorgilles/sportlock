@@ -1,6 +1,6 @@
 import pytest
 
-from sportlock.music.domain.music import MusicError, Playlist, spotify_uri
+from sportlock.music.domain.music import MusicError, Playlist, client_id_of, spotify_uri
 from sportlock.music.infrastructure.spotify_mpris import parse_now_playing
 from sportlock.music.infrastructure.spotify_web import playlists_from_pages
 
@@ -102,3 +102,17 @@ def test_playlists_from_pages__api_pages__liked_songs_first_then_playlists_with_
         ("Beast mode", f"spotify:playlist:{PLAYLIST_ID}", "medium"),
         ("Run", "spotify:playlist:0du7mdWntlT18xxF2fqHg8", "only"),
     ]
+
+
+def test_client_id_of__pasted_with_spaces_and_capitals__normalised():
+    assert client_id_of("  0123456789ABCDEF0123456789abcdef ") == "0123456789abcdef0123456789abcdef"
+
+
+def test_client_id_of__not_32_hex_characters__refused():
+    with pytest.raises(MusicError):
+        client_id_of("0123456789abcdef")
+
+
+def test_parse_now_playing__with_the_volume__read():
+    now = parse_now_playing('{"type":"s","data":"Paused"}\n{"type":"a{sv}","data":{}}\n{"type":"d","data":0.345434}\n')
+    assert now.volume == 0.345434

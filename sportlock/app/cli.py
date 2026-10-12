@@ -115,6 +115,15 @@ def cmd_library(args) -> None:
             f"new pictures {len(results['found'])}, still stick figures {len(results['none'])}, "
             f"failed {len(results['failed'])}"
         )
+    elif args.library_command == "videos":
+        from sportlock.exercises.infrastructure.details_repository import LIBRARY_DIR
+        from sportlock.exercises.infrastructure.youtube_videos import YouTubeVideoLibrary
+
+        results = YouTubeVideoLibrary(load_catalogue(), LIBRARY_DIR).build(args.ids or None, force=args.force)
+        print(
+            f"videos: {len(results['found'])} downloaded, {len(results['none'])} without a matching video, "
+            f"{len(results['failed'])} failed"
+        )
     elif args.library_command == "infographics":
         results = library.infographics(args.ids or None)
         print(f"installed {len(results['installed'])}, failed {len(results['failed'])}")
@@ -288,7 +297,7 @@ def cmd_music(args) -> None:
             print(f"  ★ {playlist['name']}: {playlist['uri']}")
         library = music["library"]
         if not library["connected"]:
-            print("Spotify account not connected: `sportlock music login` lists all your playlists on the lock screen")
+            print("Spotify account not connected: connect it in `sportlock app settings` (or `sportlock music login`)")
         elif library["loading"]:
             print("loading your Spotify playlists…")
         else:
@@ -299,7 +308,7 @@ def cmd_music(args) -> None:
 
 
 SPOTIFY_SETUP = """\
-Connect sportlock to your Spotify account (once):
+Connect sportlock to your Spotify account (once; also in `sportlock app settings` → Music):
 
   1. Open https://developer.spotify.com/dashboard and log in.
   2. Create app: any name and description, Redirect URI  {redirect}
@@ -309,24 +318,23 @@ Connect sportlock to your Spotify account (once):
 
 
 def _music_account(args) -> None:
-    from sportlock.app.container import Container
-    from sportlock.music.domain.music import MusicError
-    from sportlock.music.infrastructure.spotify_web import REDIRECT_URI
+    import time
 
-    container = Container()
-    library = container.music_library
     if args.music_command == "logout":
-        library.logout()
+        _check(request({"cmd": "music-logout"}))
         print("Spotify account disconnected")
         return
-    client_id = args.client_id or library.remembered_client_id()
+    account = _check(request({"cmd": "music-account"}))["account"]
+    client_id = args.client_id or account["client_id"]
     if not client_id:
-        sys.exit(SPOTIFY_SETUP.format(redirect=REDIRECT_URI))
-    try:
-        name = library.login(client_id.strip())
-    except MusicError as error:
-        sys.exit(f"sportlock: {error}")
-    print(f"Connected to Spotify as {name}. Your playlists now show on the lock screen.")
+        sys.exit(SPOTIFY_SETUP.format(redirect=account["redirect_uri"]))
+    _check(request({"cmd": "music-login", "client_id": client_id}))
+    print("Allow sportlock in the browser window that just opened…")
+    while (status := _check(request({"cmd": "music-account"})))["connecting"]:
+        time.sleep(1)
+    if status["error"] or not status["account"]["connected"]:
+        sys.exit(f"sportlock: {status['error'] or 'not connected'}")
+    print(f"Connected to Spotify as {status['account']['name']}. Your playlists now show on the lock screen.")
 
 
 def cmd_log(args) -> None:
@@ -386,6 +394,9 @@ def main(argv: list[str] | None = None) -> None:
     pictures.add_argument("--workers", type=int, default=4)
     info = lib_sub.add_parser("infographics", help="NotebookLM infographics for exercises still drawn as stick figures")
     info.add_argument("ids", nargs="*")
+    videos = lib_sub.add_parser("videos", help="download a YouTube demonstration video per exercise (missing only)")
+    videos.add_argument("ids", nargs="*")
+    videos.add_argument("--force", action="store_true", help="search and download again")
     lib_sub.add_parser("status", help="how much of the library is built")
     show = lib_sub.add_parser("show", help="print one exercise")
     show.add_argument("id")

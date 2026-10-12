@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from sportlock.music.domain.music import Library, NowPlaying
+from sportlock.music.domain.music import Library, MusicAccount, NowPlaying
 
 
 class MusicPlayerProtocol(Protocol):
@@ -34,10 +34,30 @@ class MusicPlayerProtocol(Protocol):
         """Back to the previous track."""
         ...
 
+    def set_volume(self, volume: float) -> None:
+        """Set the player's own volume, from 0 to 1."""
+        ...
+
 
 class MusicLibraryProtocol(Protocol):
     """The user's playlists in their music account."""
 
     def library(self) -> Library:
         """The playlists as last fetched, without waiting; stale ones are refreshed in the background."""
+        ...
+
+
+class MusicAccountProtocol(Protocol):
+    """Connecting the user's music account."""
+
+    def account(self) -> MusicAccount:
+        """Whether an account is connected, as whom, and the app settings it was connected with."""
+        ...
+
+    def login(self, client_id: str) -> str:
+        """Ask the user to allow access in the browser (blocks until they do); returns the account's name."""
+        ...
+
+    def logout(self) -> None:
+        """Forget the account."""
         ...

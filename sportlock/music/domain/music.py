@@ -18,6 +18,10 @@ _LINK = re.compile(
     rf"^https?://open\.spotify\.com/(?:intl-[a-z-]+/)?({'|'.join(KINDS)})/([A-Za-z0-9]{{22}})(?:[/?#].*)?$"
 )
 MAX_PLAYLISTS = 20
+_CLIENT_ID = re.compile(r"^[0-9a-f]{32}$")
+
+
+FULL_VOLUME = 1.0
 
 
 class MusicError(DomainError):
@@ -60,6 +64,7 @@ class NowPlaying(ValueObject):
     artist: str = ""
     album: str = ""
     art_url: str = ""
+    volume: float | None = None  # 0 to 1; None when unknown
 
 
 class Library(ValueObject):
@@ -69,3 +74,20 @@ class Library(ValueObject):
     loading: bool = False
     error: str = ""
     playlists: tuple[Playlist, ...] = ()
+
+
+def client_id_of(text: str) -> str:
+    """A Spotify app's Client ID: 32 hexadecimal characters, from the app's page in the dashboard."""
+    client_id = text.strip().lower()
+    if not _CLIENT_ID.match(client_id):
+        raise MusicError("a Spotify Client ID is 32 letters and digits; copy it from your app in the Spotify dashboard")
+    return client_id
+
+
+class MusicAccount(ValueObject):
+    """The connection to the user's Spotify account, which lists their playlists."""
+
+    connected: bool = False
+    name: str = ""
+    client_id: str = ""
+    redirect_uri: str = ""

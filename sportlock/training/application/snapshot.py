@@ -53,6 +53,8 @@ class TrainingSnapshotService:
                     "sources": list(details.sources),
                     "image": details.image,
                     "image_source": details.image_source,
+                    "video": details.video,
+                    "video_source": " · ".join(t for t in (details.video_title, details.video_channel) if t),
                     "easier_name": self.catalogue.name(spec.easier) if spec and spec.easier else "",
                     "harder_name": self.catalogue.name(spec.harder) if spec and spec.harder else "",
                     "has_easier": bool(spec and spec.easier and laddered(spec.chain)),
