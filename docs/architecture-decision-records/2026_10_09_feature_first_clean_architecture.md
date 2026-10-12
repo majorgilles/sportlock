@@ -32,7 +32,7 @@ sportlock/shared_kernel/             base models, Target, SessionPlan, desktop/c
 sportlock/app/                       composition root (container.py), daemon, socket API, CLI, app window
 ```
 
-Features: athlete, calendar, coaching, diagnostics, exercises, locks, progression, recovery,
+Features: athlete, calendar, coaching, diagnostics, exercises, locks, music, progression, recovery,
 settings, training.
 
 ### Dependency rules
@@ -43,6 +43,7 @@ settings, training.
   - locks → settings (the schedule is part of the settings)
   - progression → exercises (ladders walk the chains)
   - recovery → training (it decides from training history)
+  - settings → music (the settings hold the lock screen's playlists)
   - training → exercises (a session is built from catalogue entries)
 - Application services may use other features' domains and application services. They never import
   infrastructure or `app`.

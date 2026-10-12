@@ -13,6 +13,7 @@ from sportlock.app.daemon import Daemon
 from sportlock.app.socket_api import handle
 from sportlock.coaching.domain.ports import CoachUnavailableError
 from sportlock.exercises.domain.catalogue import Catalogue
+from sportlock.music.domain.music import Library, NowPlaying
 from sportlock.shared_kernel.time import iso
 
 CONFIG = """
@@ -100,6 +101,48 @@ class FakeCoach:
         return copy.deepcopy(self.output)
 
 
+class FakeMusicPlayer:
+    """Spotify as a state machine: launching starts it at once; records what it was asked to play."""
+
+    def __init__(self) -> None:
+        self.state = NowPlaying()
+        self.launches = 0
+        self.opened: list[str] = []
+        self.skips: list[str] = []
+
+    def now_playing(self) -> NowPlaying:
+        return self.state
+
+    def launch(self, uri: str | None = None) -> None:
+        self.launches += 1
+        self.state = NowPlaying(running=True, playing=uri is not None)
+        if uri:
+            self.opened.append(uri)
+
+    def open(self, uri: str) -> None:
+        self.opened.append(uri)
+        self.state = self.state.model_copy(update={"playing": True})
+
+    def toggle(self) -> None:
+        self.state = self.state.model_copy(update={"playing": not self.state.playing})
+
+    def next(self) -> None:
+        self.skips.append("next")
+
+    def previous(self) -> None:
+        self.skips.append("previous")
+
+
+class FakeMusicLibrary:
+    """The user's Spotify playlists, set by the test."""
+
+    def __init__(self) -> None:
+        self.state = Library()
+
+    def library(self) -> Library:
+        return self.state
+
+
 class FakeClock:
     """A settable clock."""
 
@@ -171,6 +214,8 @@ class World:
         self.popup = FakePopup()
         self.coach = FakeCoach()
         self.clock = FakeClock(datetime(2026, 10, 5, 17, 0))
+        self.music = FakeMusicPlayer()
+        self.music_library = FakeMusicLibrary()
         self.c = Container(
             db_path=tmp / "db.sqlite",
             config_path=self.config_path,
@@ -181,6 +226,8 @@ class World:
             coach=self.coach,
             clock=self.clock,
             catalogue=catalogue,
+            music_player=self.music,
+            music_library=self.music_library,
         )
         self.daemon = Daemon(self.c, state_path=tmp / "state.json")
         self.daemon.running = False  # no background ticks

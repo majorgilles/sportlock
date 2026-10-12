@@ -143,6 +143,7 @@ class Daemon:
             "next_lock": decision.next and {"start": epoch_ms(decision.next.start), "end": epoch_ms(decision.next.end)},
             "trained_today": now.date() in self.c.history.trained_days(),
             "training": self.c.training_snapshot.execute() if lock else None,
+            "music": self.c.music_snapshot.execute() if lock else None,
             "theme": self.c.desktop.theme(),
             "setup": {
                 "profile": self.c.tick.setup_complete(),

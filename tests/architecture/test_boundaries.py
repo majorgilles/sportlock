@@ -15,6 +15,7 @@ FEATURES = {
     "diagnostics",
     "exercises",
     "locks",
+    "music",
     "progression",
     "recovery",
     "settings",
@@ -27,6 +28,7 @@ DOMAIN_CONTEXT_MAP = {
     "locks": {"settings"},
     "progression": {"exercises"},
     "recovery": {"training"},
+    "settings": {"music"},
     "training": {"exercises"},
 }
 THIRD_PARTY_IN_DOMAIN = {"pydantic"}

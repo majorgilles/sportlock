@@ -67,3 +67,57 @@ def test_with_form__bad_values__rejected(change):
     current = Settings.parse({})
     with pytest.raises(SettingsError):
         current.with_form({**current.to_form(), **change})
+
+
+def test_parse__music_playlists__share_links_stored_as_uris():
+    settings = Settings.parse(
+        {
+            "music": {
+                "playlist": [
+                    {"name": "Beast mode", "link": "https://open.spotify.com/playlist/37i9dQZF1DX76Wlfdnj7AP?si=x"}
+                ]
+            }
+        }
+    )
+    assert [(p.name, p.uri) for p in settings.music_playlists] == [
+        ("Beast mode", "spotify:playlist:37i9dQZF1DX76Wlfdnj7AP")
+    ]
+
+
+def test_parse__music_playlist_with_a_bad_link__rejected_with_its_number():
+    with pytest.raises(SettingsError, match="music playlist #2"):
+        Settings.parse(
+            {
+                "music": {
+                    "playlist": [
+                        {"name": "Ok", "link": "spotify:album:4aawyAB9vmqN3uQ7FjRGTy"},
+                        {"name": "Bad", "link": "https://youtube.com/x"},
+                    ]
+                }
+            }
+        )
+
+
+def test_with_form__music_playlists__round_trip_through_the_file():
+    # given
+    form = Settings.parse({}).to_form()
+    form["music_playlists"] = [
+        {"name": 'My "gym" mix', "link": "https://open.spotify.com/album/4aawyAB9vmqN3uQ7FjRGTy"}
+    ]
+    # when
+    updated = Settings.parse({}).with_form(form)
+    again = Settings.parse(tomllib.loads(dump(updated)))
+    # then
+    assert again == updated
+    assert again.to_form()["music_playlists"] == [
+        {"name": 'My "gym" mix', "link": "spotify:album:4aawyAB9vmqN3uQ7FjRGTy"}
+    ]
+
+
+def test_with_form__without_music_playlists__keeps_the_current_ones():
+    current = Settings.parse(
+        {"music": {"playlist": [{"name": "Run", "link": "spotify:playlist:37i9dQZF1DX76Wlfdnj7AP"}]}}
+    )
+    form = current.to_form()
+    del form["music_playlists"]
+    assert current.with_form(form).music_playlists == current.music_playlists

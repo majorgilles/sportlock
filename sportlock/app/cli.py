@@ -268,6 +268,67 @@ def cmd_memory(args) -> None:
         print(f"#{note['id']:<3} {note['since']}  [{note['topic']}] {note['note']}")
 
 
+def cmd_music(args) -> None:
+    """`sportlock music [toggle|next|previous|play <link>|login|logout]`: Spotify, as on the lock screen."""
+    if args.music_command in ("login", "logout"):
+        _music_account(args)
+        return
+    if args.music_command:
+        _check(request({"cmd": "music", "action": args.music_command, "link": getattr(args, "link", "")}))
+    music = _check(request({"cmd": "music-status"}))["music"]
+    player = music["player"]
+    if player["starting"] and not player["running"]:
+        print("Spotify is starting")
+    elif not player["running"]:
+        print("Spotify isn't running")
+    elif player["title"]:
+        print(f"{'▶' if player['playing'] else '❚❚'} {player['title']} · {player['artist']}")
+    if not args.music_command:
+        for playlist in music["playlists"]:
+            print(f"  ★ {playlist['name']}: {playlist['uri']}")
+        library = music["library"]
+        if not library["connected"]:
+            print("Spotify account not connected: `sportlock music login` lists all your playlists on the lock screen")
+        elif library["loading"]:
+            print("loading your Spotify playlists…")
+        else:
+            print(
+                f"{len(library['playlists'])} playlists from your Spotify account"
+                + (f" ({library['error']})" if library["error"] else "")
+            )
+
+
+SPOTIFY_SETUP = """\
+Connect sportlock to your Spotify account (once):
+
+  1. Open https://developer.spotify.com/dashboard and log in.
+  2. Create app: any name and description, Redirect URI  {redirect}
+     and tick "Web API". Save.
+  3. Copy the app's Client ID and run:  sportlock music login --client-id <Client ID>
+"""
+
+
+def _music_account(args) -> None:
+    from sportlock.app.container import Container
+    from sportlock.music.domain.music import MusicError
+    from sportlock.music.infrastructure.spotify_web import REDIRECT_URI
+
+    container = Container()
+    library = container.music_library
+    if args.music_command == "logout":
+        library.logout()
+        print("Spotify account disconnected")
+        return
+    client_id = args.client_id or library.remembered_client_id()
+    if not client_id:
+        sys.exit(SPOTIFY_SETUP.format(redirect=REDIRECT_URI))
+    try:
+        name = library.login(client_id.strip())
+    except MusicError as error:
+        sys.exit(f"sportlock: {error}")
+    print(f"Connected to Spotify as {name}. Your playlists now show on the lock screen.")
+
+
 def cmd_log(args) -> None:
     """`sportlock log`: recent locks."""
     for lock in _check(request({"cmd": "log", "limit": args.limit}))["locks"]:
@@ -339,6 +400,17 @@ def main(argv: list[str] | None = None) -> None:
     forget = memory_sub.add_parser("forget", help="remove a note (the coach won't re-add it without new evidence)")
     forget.add_argument("id", type=int)
     memory.set_defaults(run=cmd_memory)
+    music = sub.add_parser("music", help="Spotify: what plays, play/pause, skip, start a playlist")
+    music_sub = music.add_subparsers(dest="music_command")
+    music_sub.add_parser("toggle", help="play or pause (starts Spotify if needed)")
+    music_sub.add_parser("next", help="next track")
+    music_sub.add_parser("previous", help="previous track")
+    play = music_sub.add_parser("play", help="play a Spotify link or URI")
+    play.add_argument("link")
+    login = music_sub.add_parser("login", help="connect your Spotify account (lists all your playlists)")
+    login.add_argument("--client-id", help="the Client ID of your Spotify app (remembered)")
+    music_sub.add_parser("logout", help="disconnect your Spotify account")
+    music.set_defaults(run=cmd_music)
     app = sub.add_parser("app", help="open the sportlock window (profile, schedule & settings)")
     app.add_argument("tab", nargs="?", choices=("calendar", "profile", "settings"), default="calendar")
     app.set_defaults(run=cmd_app)

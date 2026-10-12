@@ -136,6 +136,18 @@ ShellRoot {
     settings = next
   }
 
+  function addPlaylist() {
+    var next = JSON.parse(JSON.stringify(settings))
+    next.music_playlists.push({ name: "", link: "" })
+    settings = next
+  }
+
+  function removePlaylist(i) {
+    var next = JSON.parse(JSON.stringify(settings))
+    next.music_playlists.splice(i, 1)
+    settings = next
+  }
+
   function saveSettings() {
     send({ cmd: "settings-save", settings: settings }, function(response) {
       root.settingsOk = true
@@ -999,6 +1011,34 @@ ShellRoot {
             }
             Text { anchors.verticalCenter: parent.verticalCenter; text: "seconds to wait"; color: root.muted; font.pixelSize: 14 }
           }
+        }
+
+        Section {
+          title: "Music"
+          hint: "Spotify playlists, albums or songs you can start from the lock screen's music panel. In Spotify: Share → Copy link, then paste it here."
+          Repeater {
+            model: root.settings ? root.settings.music_playlists : []
+            delegate: Row {
+              id: playlistRow
+              required property var modelData
+              required property int index
+              spacing: 8
+              Field {
+                implicitWidth: 220
+                placeholder: "name"
+                text: playlistRow.modelData.name
+                onEdited: function(value) { root.settings.music_playlists[playlistRow.index].name = value }
+              }
+              Field {
+                implicitWidth: Math.max(260, settingsForm.width - 220 - 120 - 16)
+                placeholder: "https://open.spotify.com/playlist/…"
+                text: playlistRow.modelData.link
+                onEdited: function(value) { root.settings.music_playlists[playlistRow.index].link = value }
+              }
+              Chip { label: "Remove"; onClicked: root.removePlaylist(playlistRow.index) }
+            }
+          }
+          Chip { label: "+ Add playlist"; onClicked: root.addPlaylist() }
         }
 
         Row {

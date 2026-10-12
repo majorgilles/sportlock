@@ -19,6 +19,7 @@ and a patched path that no longer existed passed silently.
   - `FakeDesktop` records notifications and keeps media and idle state as attributes;
   - `FakeLockScreen` and `FakePopup` record what they were asked to show;
   - `FakeCoach` returns a prepared answer and records each context it was given;
+  - `FakeMusicPlayer` and `FakeMusicLibrary` stand in for Spotify;
   - `FakeClock` is set by the test.
 - **Repositories are the real SQLite adapters on a temporary file.** Each test's `World` builds
   the full app through `Container`. In-memory fake repositories would duplicate the SQL's

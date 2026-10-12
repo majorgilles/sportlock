@@ -33,8 +33,6 @@ The full agreed design is in [DESIGN.md](DESIGN.md).
 12. [Uninstall](#uninstall)
 13. [Development](#development)
 14. [License](#license)
-14. [License](#license)
-14. [License](#license)
 
 ---
 
@@ -46,6 +44,8 @@ The full agreed design is in [DESIGN.md](DESIGN.md).
   environment (`.venv`, with pydantic) and `bin/sportlock` runs inside it.
 - **Qt 6 Multimedia** (`qt6-multimedia`) for the ticking clock, and the Qt SVG image plugin.
 - **Claude Code** (`claude`) logged in: it plans sessions and builds the exercise library.
+- **Spotify** desktop app (optional) for the lock screen's music panel; a free Spotify developer
+  app (Client ID) to list all your playlists there (see [Music](#music)).
 - **notebooklm-py** (`notebooklm` CLI, installed with `uv tool install "notebooklm-py[browser]"`)
   logged in with `notebooklm login`, and a NotebookLM notebook with your training books.
 
@@ -129,6 +129,12 @@ equipment = ["chair", "table", "bench", "doorway"]
 [notebook]
 id = "876228fa-5c2b-4ced-8d81-ee0de4d7e93a"   # NotebookLM notebook with your training books
 
+# Favourite Spotify playlists, albums or songs, at the top of the lock screen's music panel.
+# In Spotify: Share → Copy link.
+[[music.playlist]]
+name = "Beast mode"
+link = "https://open.spotify.com/playlist/37i9dQZF1DX76Wlfdnj7AP"
+
 # One block per scheduled lock. Add as many as you like.
 [[lock]]
 days = ["mon", "tue", "wed", "thu", "fri"]   # mon … sun
@@ -195,6 +201,27 @@ then **Finish session**. The screen unlocks and a notification says what changes
 
 **Override:** **Override…** → type the phrase exactly → a 5-minute countdown starts (you can
 cancel it). Every override is logged. Test locks can't be overridden.
+
+### Music
+
+The lock hides every window, so Spotify is controlled from the **music panel** under the
+exercise: the current song with its cover, previous / play-pause / next, and **Playlists**.
+**Open Spotify** starts the app if it isn't running. Other players are still paused when a lock
+begins; you pick the music.
+
+**Playlists** opens your favourites (★, from the settings) and, once your Spotify account is
+connected, every playlist in it plus Liked Songs, with covers and a filter. Click one to play it.
+Connecting the account is a one-time setup (Spotify's Web API needs an app of your own; it is free
+and needs no secret):
+
+1. Open <https://developer.spotify.com/dashboard>, log in, **Create app**: any name, redirect URI
+   `http://127.0.0.1:8974/callback`, tick **Web API**, save.
+2. Copy the app's **Client ID** and run `sportlock music login --client-id <Client ID>`; allow
+   access in the browser.
+
+sportlock only reads your playlists (`playlist-read-private`, `playlist-read-collaborative`,
+`user-library-read`); playback goes through the desktop app. The list refreshes every 10 minutes
+during a lock. `sportlock music logout` disconnects the account.
 
 **Keys:** Space / Enter start and stop a set (and skip the get-ready countdown) · Esc cancel
 during the countdown · 1–9, 0 effort · D full instructions · Enter
@@ -305,6 +332,8 @@ Rebuild one exercise with `sportlock library build <id> --force` (ids: `sportloc
 | `sportlock agent status` | the coach's current plan and its recent runs |
 | `sportlock agent run` | plan the next session now, in the foreground |
 | `sportlock reload` | re-read `config.toml` |
+| `sportlock music [toggle\|next\|previous\|play <link>]` | Spotify: what plays, play/pause, skip, play a link |
+| `sportlock music login [--client-id <id>]` / `logout` | connect (or disconnect) your Spotify account |
 | `sportlock library build [ids] [--force]` | build missing (or given) exercises |
 | `sportlock library pictures` | search again for pictures of stick-figure exercises |
 | `sportlock library infographics` | NotebookLM infographics for exercises still without a picture |
@@ -398,7 +427,7 @@ SPORTLOCK_PREVIEW=1 SPORTLOCK_STATE=$XDG_RUNTIME_DIR/sportlock/state.json qs -p 
 The code is organised by feature (screaming architecture), each feature in clean-architecture
 layers: `domain/` (pydantic models and rules, no I/O), `application/` (use cases, one
 `execute` each, depending on ports), `infrastructure/` (SQLite, config.toml, Claude,
-NotebookLM, Quickshell, the Omarchy desktop). `sportlock/app/` is the composition root and the
+NotebookLM, Quickshell, the Omarchy desktop, Spotify). `sportlock/app/` is the composition root and the
 entry points (service loop, socket API, CLI, app window).
 
 ```
@@ -409,6 +438,7 @@ sportlock/
   training/       the session aggregate, fitting       progression/  ladders, rules, built-in planner
   recovery/       hard / recovery / rest decisions     coaching/     the coach, its plan and memory
   calendar/       past and planned days                diagnostics/  doctor and problem reports
+  music/          Spotify on the lock screen
   app/            composition root, daemon, socket API, CLI, app window
 ```
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import time
 
+from sportlock.music.domain.music import MAX_PLAYLISTS, MusicError, Playlist
 from sportlock.shared_kernel.base import ValueObject
 from sportlock.shared_kernel.errors import DomainError
 
@@ -46,6 +47,7 @@ class Settings(ValueObject):
     max_rest_days_in_a_row: int = 2
     min_sessions_per_week: int = 3
     recovery_minutes: int = 15
+    music_playlists: tuple[Playlist, ...] = ()
 
     @classmethod
     def parse(cls, data: dict) -> Settings:
@@ -96,6 +98,7 @@ class Settings(ValueObject):
             max_rest_days_in_a_row=ranged("max_rest_days_in_a_row", 2, 0, 6),
             min_sessions_per_week=ranged("min_sessions_per_week", 3, 0, 7),
             recovery_minutes=ranged("recovery_minutes", 15, 5, 60),
+            music_playlists=_parse_playlists(data.get("music", {}).get("playlist", [])),
         )
 
     def to_form(self) -> dict:
@@ -116,6 +119,7 @@ class Settings(ValueObject):
                 {"days": [DAYS[d] for d in sorted(lock.days)], "at": lock.at.strftime("%H:%M"), "minutes": lock.minutes}
                 for lock in self.locks
             ],
+            "music_playlists": [{"name": p.name, "link": p.uri} for p in self.music_playlists],
         }
 
     def with_form(self, form: dict) -> Settings:
@@ -152,6 +156,12 @@ class Settings(ValueObject):
                 "profile": {"equipment": sorted(self.equipment)},
                 "notebook": {"id": self.notebook_id},
                 "lock": locks,
+                "music": {
+                    "playlist": [
+                        {"name": str(p.get("name", "")), "link": str(p.get("link", ""))}
+                        for p in form.get("music_playlists", self.to_form()["music_playlists"])
+                    ]
+                },
             }
         )
 
@@ -192,3 +202,17 @@ def _parse_days(value: object, where: str) -> frozenset[int]:
             raise SettingsError(f"{where}: unknown day {day!r}")
         days.add(DAYS.index(day.lower()[:3]))
     return frozenset(days)
+
+
+def _parse_playlists(value: object) -> tuple[Playlist, ...]:
+    if not isinstance(value, list) or not all(isinstance(p, dict) for p in value):
+        raise SettingsError("music.playlist must be [[music.playlist]] blocks with a name and a link")
+    if len(value) > MAX_PLAYLISTS:
+        raise SettingsError(f"at most {MAX_PLAYLISTS} music playlists")
+    playlists = []
+    for index, entry in enumerate(value):
+        try:
+            playlists.append(Playlist.of(str(entry.get("name", "")), str(entry.get("link", ""))))
+        except MusicError as error:
+            raise SettingsError(f"music playlist #{index + 1}: {error}") from None
+    return tuple(playlists)

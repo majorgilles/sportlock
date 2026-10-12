@@ -43,6 +43,12 @@ equipment = ["chair", "table", "bench", "doorway"]
 [notebook]
 id = "876228fa-5c2b-4ced-8d81-ee0de4d7e93a"   # NotebookLM notebook the exercise library is built from
 
+# Spotify playlists, albums or songs to start from the lock screen's music panel.
+# In Spotify: Share → Copy link, then paste it as the link.
+# [[music.playlist]]
+# name = "Workout"
+# link = "https://open.spotify.com/playlist/37i9dQZF1DX76Wlfdnj7AP"
+
 # One block per scheduled lock.
 [[lock]]
 days = ["mon", "tue", "wed", "thu", "fri"]
@@ -88,6 +94,10 @@ def _toml_list(values) -> str:
     return "[" + ", ".join(f'"{v}"' if isinstance(v, str) else str(v) for v in values) + "]"
 
 
+def _toml_str(text: str) -> str:
+    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def dump(config: Settings) -> str:
     """Write the config back as commented TOML (used by the settings form)."""
     phrase = config.override_phrase.replace("\\", "\\\\").replace('"', '\\"')
@@ -120,6 +130,12 @@ def dump(config: Settings) -> str:
         "",
         "[notebook]",
         f'id = "{config.notebook_id}"',
+        "",
+        "# Spotify playlists, albums or songs to start from the lock screen's music panel.",
+    ]
+    for playlist in config.music_playlists:
+        lines += ["[[music.playlist]]", f"name = {_toml_str(playlist.name)}", f"link = {_toml_str(playlist.uri)}", ""]
+    lines += [
         "",
         "# One block per scheduled lock.",
     ]

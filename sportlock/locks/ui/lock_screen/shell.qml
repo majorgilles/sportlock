@@ -22,6 +22,7 @@ ShellRoot {
   property double nowMs: Date.now()
   property bool releasing: false
   property bool overrideOpen: false
+  property bool playlistsOpen: false
   property string message: ""
   property var queue: []
 
@@ -38,6 +39,8 @@ ShellRoot {
   readonly property bool wantLocked: fresh && st.locked === true
 
   readonly property var tr: st && st.training ? st.training : null
+  readonly property var music: st && st.music ? st.music : null
+  readonly property var player: music ? music.player : null
   readonly property string phase: tr ? tr.phase : ""
   readonly property var ex: tr && tr.current < tr.exercises.length ? tr.exercises[tr.current] : null
   readonly property string exKey: tr ? tr.id + ":" + tr.current : ""  // changes only when the exercise does
@@ -107,6 +110,10 @@ ShellRoot {
     next.push(payload)
     queue = next
     pump()
+  }
+
+  function musicDo(action, link) {
+    send({ cmd: "music", action: action, link: link || "" })
   }
 
   function train(action, args) {
@@ -450,6 +457,20 @@ ShellRoot {
     function toggleDetails() { detailsToggled = !showCues }
     property bool skipOpen: false
 
+    // The music panel's playlist browser.
+    readonly property var library: root.music ? root.music.library : null
+    readonly property var shownPlaylists: {
+      if (!library || !library.connected) return []
+      var query = playlistFilter.text.trim().toLowerCase()
+      return library.playlists.filter(function(p) { return query === "" || p.name.toLowerCase().indexOf(query) >= 0 })
+    }
+    function playMusic(uri) {
+      root.musicDo("play", uri)
+      root.playlistsOpen = false
+      playlistFilter.text = ""
+      surface.forceActiveFocus()
+    }
+
     // Space / Enter drive the session when no text field has focus.
     focus: true
     Keys.onPressed: function(event) {
@@ -472,6 +493,10 @@ ShellRoot {
 
     Connections {
       target: root
+      // Opening the playlists scrolls them into view (the panel is near the bottom).
+      function onPlaylistsOpenChanged() {
+        if (root.playlistsOpen) Qt.callLater(function() { page.contentY = Math.max(0, page.contentHeight - page.height) })
+      }
       function onExKeyChanged() { surface.detailsToggled = null }
       function onPhaseChanged() {
         surface.skipOpen = false
@@ -947,6 +972,190 @@ ShellRoot {
                 if (avgHr.text) args.avg_hr = parseInt(avgHr.text)
                 if (bodyWeight.text) args.body_weight = parseFloat(bodyWeight.text.replace(",", "."))
                 root.train("finish", args)
+              }
+            }
+          }
+        }
+
+        // Music: Spotify, controlled from here (the lock hides every window)
+        Rectangle {
+          width: parent.width
+          height: musicCol.implicitHeight + 32
+          radius: 10
+          color: root.panel
+          border.width: 1
+          border.color: root.line
+          visible: root.music !== null
+
+          Column {
+            id: musicCol
+            x: 16; y: 16
+            width: parent.width - 32
+            spacing: 12
+
+            Row {
+              width: parent.width
+              spacing: 14
+              Rectangle {
+                width: 52; height: 52; radius: 6
+                color: root.panel
+                border.width: 1
+                border.color: root.line
+                clip: true
+                Text { anchors.centerIn: parent; text: "♪"; color: root.muted; font.pixelSize: 24; visible: art.status !== Image.Ready }
+                Image {
+                  id: art
+                  anchors.fill: parent
+                  source: root.player && root.player.art_url ? root.player.art_url : ""
+                  fillMode: Image.PreserveAspectCrop
+                  asynchronous: true
+                  sourceSize.width: 104
+                }
+              }
+              Column {
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width - 52 - musicButtons.width - 28
+                spacing: 2
+                Text {
+                  width: parent.width
+                  elide: Text.ElideRight
+                  text: !root.player ? "" : root.player.title ? root.player.title
+                        : root.player.running ? "Spotify is open — pick a playlist or press play"
+                        : root.player.starting ? "Starting Spotify…" : "Spotify isn't open"
+                  color: root.fg
+                  font.pixelSize: 17
+                }
+                Text {
+                  width: parent.width
+                  elide: Text.ElideRight
+                  visible: text.length > 0
+                  text: root.player && root.player.title ? root.player.artist + (root.player.album ? "  ·  " + root.player.album : "") : ""
+                  color: root.muted
+                  font.pixelSize: 14
+                }
+              }
+              Row {
+                id: musicButtons
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 8
+                Btn { label: "◀◀"; enabled: root.player !== null && root.player.running; onClicked: root.musicDo("previous") }
+                Btn {
+                  label: root.player && root.player.running ? (root.player.playing ? "❚❚" : "▶") : "Open Spotify"
+                  primary: root.player !== null && root.player.running && !root.player.playing
+                  enabled: root.player !== null && !(root.player.starting && !root.player.running)
+                  onClicked: root.musicDo("toggle")
+                }
+                Btn { label: "▶▶"; enabled: root.player !== null && root.player.running; onClicked: root.musicDo("next") }
+                Btn {
+                  label: root.playlistsOpen ? "Playlists ▴" : "Playlists ▾"
+                  onClicked: root.playlistsOpen = !root.playlistsOpen
+                }
+              }
+            }
+
+            // Favourites (from the settings), then every playlist in the Spotify account
+            Column {
+              width: parent.width
+              spacing: 12
+              visible: root.playlistsOpen
+
+              Flow {
+                width: parent.width
+                spacing: 8
+                visible: root.music !== null && root.music.playlists.length > 0
+                Repeater {
+                  model: root.music ? root.music.playlists : []
+                  delegate: Btn {
+                    required property var modelData
+                    label: "★ " + modelData.name
+                    onClicked: surface.playMusic(modelData.uri)
+                  }
+                }
+              }
+
+              Field {
+                id: playlistFilter
+                width: Math.min(parent.width, 420)
+                visible: surface.library !== null && surface.library.connected && surface.library.playlists.length > 8
+                placeholder: "filter your playlists…"
+                onAccepted: if (surface.shownPlaylists.length > 0) surface.playMusic(surface.shownPlaylists[0].uri)
+              }
+
+              Flickable {
+                width: parent.width
+                height: Math.min(contentHeight, 360)
+                visible: surface.shownPlaylists.length > 0
+                contentHeight: playlistGrid.implicitHeight
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+                Flow {
+                  id: playlistGrid
+                  width: parent.width
+                  spacing: 10
+                  Repeater {
+                    model: surface.shownPlaylists
+                    delegate: Rectangle {
+                      id: tile
+                      required property var modelData
+                      width: 132; height: 172
+                      radius: 8
+                      color: tileArea.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+                      border.width: 1
+                      border.color: root.line
+                      Rectangle {
+                        x: 10; y: 10
+                        width: 112; height: 112; radius: 4
+                        color: root.panel
+                        clip: true
+                        Text {
+                          anchors.centerIn: parent
+                          text: tile.modelData.uri.endsWith(":collection") ? "♥" : "♪"
+                          color: tile.modelData.uri.endsWith(":collection") ? root.accent : root.muted
+                          font.pixelSize: 40
+                          visible: cover.status !== Image.Ready
+                        }
+                        Image {
+                          id: cover
+                          anchors.fill: parent
+                          source: tile.modelData.image || ""
+                          fillMode: Image.PreserveAspectCrop
+                          asynchronous: true
+                          sourceSize.width: 224
+                        }
+                      }
+                      Text {
+                        x: 10; y: 128
+                        width: 112
+                        text: tile.modelData.name
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 2
+                        elide: Text.ElideRight
+                        color: root.fg
+                        font.pixelSize: 13
+                      }
+                      MouseArea {
+                        id: tileArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: surface.playMusic(tile.modelData.uri)
+                      }
+                    }
+                  }
+                }
+              }
+
+              Text {
+                width: parent.width
+                wrapMode: Text.WordWrap
+                visible: text.length > 0
+                text: !surface.library || !surface.library.connected
+                      ? "To pick from all your Spotify playlists here, run “sportlock music login” once (outside a lock)."
+                      : surface.library.loading ? "Loading your playlists…"
+                      : surface.library.error ? surface.library.error
+                      : surface.shownPlaylists.length === 0 ? "No playlist matches “" + playlistFilter.text + "”." : ""
+                color: root.muted
+                font.pixelSize: 14
               }
             }
           }

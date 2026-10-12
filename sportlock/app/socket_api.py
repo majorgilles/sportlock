@@ -20,6 +20,7 @@ from sportlock.coaching.application.memory_services import ForgetMemoryNoteComma
 from sportlock.diagnostics.infrastructure import doctor, report
 from sportlock.exercises.infrastructure.notebooklm_library import NotebookLMLibraryBuilder
 from sportlock.locks.application.lock_services import RequestOverrideCommand, StartManualLockCommand
+from sportlock.music.application.music_services import ControlMusicCommand
 from sportlock.shared_kernel.errors import DomainError
 from sportlock.training.application.session_services import RecordTrainingActionCommand
 
@@ -68,6 +69,16 @@ def _dispatch(daemon: Daemon, request: dict) -> dict:
         return {"ok": True}
     if cmd == "train":
         return _train(daemon, request, now)
+    if cmd == "music":
+        try:
+            command = ControlMusicCommand(action=request.get("action"), link=str(request.get("link", "")))
+        except ValidationError:
+            return {"ok": False, "error": f"unknown music action {request.get('action')!r}"}
+        c.control_music.execute(command)
+        daemon.schedule_tick()
+        return {"ok": True}
+    if cmd == "music-status":
+        return {"ok": True, "music": c.music_snapshot.execute()}
     if cmd == "profile-get":
         profile = c.profiles.get()
         return {

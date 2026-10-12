@@ -41,6 +41,10 @@ from sportlock.locks.infrastructure.sqlite_repositories import (
     SqliteLockEventRepository,
     SqliteOverrideRepository,
 )
+from sportlock.music.application.music_services import ControlMusicService, MusicSnapshotService
+from sportlock.music.domain.ports import MusicLibraryProtocol, MusicPlayerProtocol
+from sportlock.music.infrastructure.spotify_mpris import SpotifyMprisPlayer
+from sportlock.music.infrastructure.spotify_web import SpotifyWebLibrary
 from sportlock.progression.application.apply_session_progression_service import ApplySessionProgressionService
 from sportlock.progression.infrastructure.sqlite_ladder_repository import SqliteLadderRepository
 from sportlock.settings.application.settings_services import (
@@ -90,6 +94,8 @@ class Container:
         coach: CoachProtocol | None = None,
         clock: ClockProtocol | None = None,
         catalogue: Catalogue | None = None,
+        music_player: MusicPlayerProtocol | None = None,
+        music_library: MusicLibraryProtocol | None = None,
     ) -> None:
         self.clock = clock or SystemClock()
         self.desktop = desktop or OmarchyDesktop()
@@ -118,6 +124,8 @@ class Container:
 
         self.lock_screen = lock_screen or QuickshellLockScreen(state_path or Path("/dev/null"), CLI)
         self.popup = popup or QuickshellWarningPopup()
+        self.music_player = music_player or SpotifyMprisPlayer()
+        self.music_library = music_library or SpotifyWebLibrary(self.database)
         self.coach = coach or ClaudeCoach(self.settings.settings.notebook_id, SEARCH_TOOL)
 
         self.freshness = CoachPlanFreshness(self.coach_plans, self.history, self.profiles)
@@ -173,3 +181,5 @@ class Container:
         self.calendar = BuildCalendarService(
             self.history, self.lock_events, self.lock_state, self.freshness, self.catalogue
         )
+        self.control_music = ControlMusicService(self.music_player)
+        self.music_snapshot = MusicSnapshotService(self.music_player, self.music_library, self.settings)

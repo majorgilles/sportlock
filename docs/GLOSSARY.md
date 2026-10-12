@@ -97,3 +97,15 @@ and kept as versions. *Feature:* coaching · `coaching/domain/memory.py:CoachMem
 
 **Library / details**: instructions and pictures built from the athlete's books with NotebookLM.
 *Feature:* exercises · `exercises/infrastructure/notebooklm_library.py`
+
+## Music
+
+**Music panel**: the lock screen's Spotify controls: the current song, play/pause and skip, and the
+playlist browser. *Feature:* music · `locks/ui/lock_screen/shell.qml`
+
+**Favourite**: a playlist, album or song saved in the settings (`[[music.playlist]]`), shown first.
+*Feature:* music · `music/domain/music.py:Playlist`
+
+**Library**: the playlists in the user's Spotify account, read with the Web API after
+`sportlock music login`. *Feature:* music · `music/infrastructure/spotify_web.py:SpotifyWebLibrary`
+
