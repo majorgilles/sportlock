@@ -16,6 +16,9 @@ DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 DEFAULT_NOTEBOOK = "876228fa-5c2b-4ced-8d81-ee0de4d7e93a"
 DEFAULT_EQUIPMENT = frozenset({"chair", "table", "bench", "doorway"})
 DEFAULT_OVERRIDE_PHRASE = "I am choosing to skip my training today"
+MAX_LEAD_IN_SECONDS = 30
+MIN_PHRASE_LENGTH = 10
+MAX_LOCK_MINUTES = 240
 
 
 class SettingsError(DomainError):
@@ -62,7 +65,7 @@ class Settings(ValueObject):
             return value
 
         lead_in = data.get("training", {}).get("lead_in_seconds", 5)
-        if not _is_int(lead_in) or not 0 <= lead_in <= 30:
+        if not _is_int(lead_in) or not 0 <= lead_in <= MAX_LEAD_IN_SECONDS:
             raise SettingsError("training.lead_in_seconds must be a whole number from 0 to 30")
         equipment = profile.get("equipment", sorted(DEFAULT_EQUIPMENT))
         if not isinstance(equipment, list) or not all(isinstance(e, str) for e in equipment):
@@ -81,7 +84,7 @@ class Settings(ValueObject):
         if not isinstance(warn, list) or not all(isinstance(m, int) and m > 0 for m in warn):
             raise SettingsError("general.warn_minutes must be a list of positive integers")
         phrase = override.get("phrase", DEFAULT_OVERRIDE_PHRASE)
-        if not isinstance(phrase, str) or len(phrase.strip()) < 10:
+        if not isinstance(phrase, str) or len(phrase.strip()) < MIN_PHRASE_LENGTH:
             raise SettingsError("override.phrase must be at least 10 characters")
         return cls(
             enabled=bool(general.get("enabled", True)),
@@ -131,7 +134,7 @@ class Settings(ValueObject):
         locks = []
         for index, lock in enumerate(form.get("locks", [])):
             minutes = _whole(lock.get("minutes"), f"lock #{index + 1} minutes")
-            if minutes > 240:
+            if minutes > MAX_LOCK_MINUTES:
                 raise SettingsError(f"lock #{index + 1}: at most 240 minutes")
             locks.append({"days": lock.get("days") or [], "at": str(lock.get("at", "")).strip(), "minutes": minutes})
         return Settings.parse(

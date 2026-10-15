@@ -1,5 +1,7 @@
-"""Recovery-aware scheduling: how fast the athlete really trains, how much load they carry, and
-what each scheduled lock should be — a hard session, a (shorter) recovery session, or a rest day.
+"""Recovery-aware scheduling.
+
+How fast the athlete really trains, how much load they carry, and what each scheduled lock should be — a hard session, a
+(shorter) recovery session, or a rest day.
 
 The coach proposes what the next lock should be (`next_lock` in its plan); these rules make the
 final call and enforce the guardrails, so a rest day can never become a loophole:
@@ -24,6 +26,8 @@ DEFAULT_TRANSITION = 45  # seconds between exercises, until measured
 TRANSITION_MIN, TRANSITION_MAX = 15, 150
 REST_WINDOW = timedelta(hours=36)
 HARD_GAP = timedelta(hours=48)
+MIN_MEASUREMENTS = 3  # fewer, and the defaults are better than an average
+MAX_TRANSITION_SECONDS = 600  # a longer gap is a break, not a transition
 
 
 class Policy(ValueObject):
@@ -61,8 +65,10 @@ class LockDecision(ValueObject):
 
 
 def pace_factor(timings: list[ExerciseTiming]) -> float:
-    """Ratio of real exercise time (first set start → rated) to the naive estimate. Captures
-    slower reps, longer rests and logging time."""
+    """Ratio of real exercise time (first set start → rated) to the naive estimate.
+
+    Captures slower reps, longer rests and logging time.
+    """
     estimated = actual = 0.0
     used = 0
     for timing in timings:
@@ -73,16 +79,18 @@ def pace_factor(timings: list[ExerciseTiming]) -> float:
         estimated += guess
         actual += seconds
         used += 1
-    if used < 3:
+    if used < MIN_MEASUREMENTS:
         return DEFAULT_PACE
     return round(min(PACE_MAX, max(PACE_MIN, actual / estimated)), 2)
 
 
 def transition_seconds(gaps: list[float]) -> int:
-    """Average gap between exercises (reading the card, getting set up). The average, not the
-    median: the occasional long gap is exactly what makes sessions overrun."""
-    usable = [g for g in gaps if 0 <= g <= 600]
-    if len(usable) < 3:
+    """Average gap between exercises (reading the card, getting set up).
+
+    The average, not the median: the occasional long gap is exactly what makes sessions overrun.
+    """
+    usable = [g for g in gaps if 0 <= g <= MAX_TRANSITION_SECONDS]
+    if len(usable) < MIN_MEASUREMENTS:
         return DEFAULT_TRANSITION
     return int(min(TRANSITION_MAX, max(TRANSITION_MIN, sum(usable) / len(usable))))
 
@@ -115,7 +123,7 @@ def load_summary(week: list[SessionSummary], rest_days: int, now: datetime) -> d
         "sessions_last_7_days": len(entries),
         "minutes_last_7_days": sum(e["minutes"] for e in entries),
         "load_last_7_days": sum(e["load"] for e in entries),
-        "last_48h": [e for s, e in zip(week, entries) if s.finished_at >= now - HARD_GAP],
+        "last_48h": [e for s, e in zip(week, entries, strict=True) if s.finished_at >= now - HARD_GAP],
         "rest_days_in_a_row": rest_days,
     }
 

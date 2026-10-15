@@ -76,8 +76,10 @@ class CoachMemoryRepositoryProtocol(Protocol):
         ...
 
     def history(self, limit: int) -> list[dict]:
-        """Every version of every note, newest first, as {note_id, topic, text, valid_from, valid_to,
-        written_by, ended_by, end_reason}."""
+        """Every version of every note, newest first.
+
+        Each is {note_id, topic, text, valid_from, valid_to, written_by, ended_by, end_reason}.
+        """
         ...
 
 

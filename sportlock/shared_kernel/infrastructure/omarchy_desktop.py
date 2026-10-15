@@ -15,7 +15,7 @@ THEME_COLORS = Path.home() / ".local/state/omarchy/current/theme/colors.toml"
 
 def _run(*command: str, timeout: float = 5) -> subprocess.CompletedProcess | None:
     try:
-        return subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False)
     except OSError, subprocess.TimeoutExpired:
         return None
 

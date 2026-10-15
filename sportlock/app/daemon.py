@@ -1,5 +1,7 @@
-"""The sportlock user service: ticks the schedule, keeps the lock screen's state file fresh, runs
-the coach in the background, and answers the CLI and the screens over a Unix socket.
+"""The sportlock user service.
+
+Ticks the schedule, keeps the lock screen's state file fresh, runs the coach in the background, and answers the CLI and
+the screens over a Unix socket.
 
 The lock screen reads $XDG_RUNTIME_DIR/sportlock/state.json once a second and releases the lock
 when `locked` turns false or the file stops being refreshed: stopping this service always unlocks.
@@ -16,6 +18,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from sportlock.app.container import Container
+from sportlock.app.socket_api import SocketServer
 from sportlock.athlete.application.profile_services import equipment_of
 from sportlock.coaching.application.run_coach_service import RunCoachCommand
 from sportlock.coaching.domain.plan import CoachOutputError
@@ -222,8 +225,6 @@ class Daemon:
 
     def run(self) -> None:
         """Serve until SIGTERM/SIGINT; leaving always unlocks."""
-        from sportlock.app.socket_api import SocketServer
-
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         if self.c.runtime.current is None:
             restore_desktop(self.c.lock_state, self.c.desktop, self.c.music_player)  # left over from a crash mid-lock

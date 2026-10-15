@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import tomllib
+from collections.abc import Iterable
 from pathlib import Path
 from typing import override
 
@@ -90,7 +91,7 @@ class TomlSettingsRepository(SettingsRepositoryProtocol):
         return self._mtime()
 
 
-def _toml_list(values) -> str:
+def _toml_list(values: Iterable[object]) -> str:
     return "[" + ", ".join(f'"{v}"' if isinstance(v, str) else str(v) for v in values) + "]"
 
 
@@ -109,7 +110,8 @@ def dump(config: Settings) -> str:
         f"enabled = {'true' if config.enabled else 'false'}",
         f"max_minutes_per_day = {config.max_minutes_per_day}   # total lock time per day, all locks combined",
         f"warn_minutes = {_toml_list(config.warn_minutes)}     # notifications before a lock starts",
-        f"warn_popup = {'true' if config.warn_popup else 'false'}          # the first warning is also a popup in front of everything",
+        f"warn_popup = {'true' if config.warn_popup else 'false'}          "
+        "# the first warning is also a popup in front of everything",
         "",
         "[training]",
         f"lead_in_seconds = {config.lead_in_seconds}        # get-ready countdown after pressing Start set (0 = none)",

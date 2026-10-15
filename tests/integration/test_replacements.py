@@ -32,7 +32,7 @@ def _squats_became_step_ups(world):
 
 def _plan_with_step_ups(world):
     output = copy.deepcopy(GOOD_PLAN)
-    output["hard"]["exercises"][2] = item("step-up", 3, 8, 12, note="Your first step-ups")
+    output["hard"]["exercises"][2] = item("step-up", 3, (8, 12), note="Your first step-ups")
     world.coach.output = output
     world.c.run_coach.execute(world.daemon.coach_command(world.clock.time))
 

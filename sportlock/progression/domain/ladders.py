@@ -119,7 +119,6 @@ def moves_for_session(results: list[ExerciseResult], catalogue: Catalogue) -> li
         elif result.status == "done":
             proposal = propose(
                 exercise=result.exercise,
-                name=result.name,
                 kind=result.kind,
                 target=result.target,
                 sets=list(result.sets),
@@ -169,7 +168,10 @@ class LadderRepositoryProtocol(Protocol):
         ...
 
     def moves_for(self, session_id: int) -> list[dict]:
-        """Moves recorded for a session, in order, as {chain, rule, from, from_target, to, target, reason, decided_by}."""
+        """Moves recorded for a session, in order.
+
+        Each is {chain, rule, from, from_target, to, target, reason, decided_by}.
+        """
         ...
 
 

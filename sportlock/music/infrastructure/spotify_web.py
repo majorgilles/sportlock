@@ -9,6 +9,7 @@ Playback still goes through the desktop app (`spotify_mpris.py`); the Web API on
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import http.server
 import json
@@ -20,11 +21,14 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from typing import override
 
 from sportlock.music.domain.music import Library, MusicAccount, MusicError, Playlist
 from sportlock.music.domain.ports import MusicAccountProtocol, MusicLibraryProtocol
 from sportlock.shared_kernel.infrastructure.database import Database
+
+MIN_COVER_WIDTH = 120
 
 log = logging.getLogger("sportlock")
 
@@ -49,18 +53,16 @@ def _post_form(url: str, fields: dict) -> dict:
 
 def open_in_browser(url: str) -> None:
     """Open a URL in the user's browser (also from the service)."""
-    try:
+    with contextlib.suppress(OSError):
         subprocess.Popen(
             ["xdg-open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True
         )
-    except OSError:
-        pass
 
 
 def _cover(images: list[dict]) -> str:
     """The smallest cover still at least 120 px wide (Spotify lists them largest first; sizes may be null)."""
     sized = sorted((i for i in images if i.get("width")), key=lambda i: i["width"])
-    fitting = [i for i in sized if i["width"] >= 120]
+    fitting = [i for i in sized if i["width"] >= MIN_COVER_WIDTH]
     chosen = fitting[0] if fitting else (images[0] if images else None)
     return chosen["url"] if chosen else ""
 
@@ -77,8 +79,10 @@ def playlists_from_pages(pages: list[dict], user_id: str) -> tuple[Playlist, ...
 
 
 class SpotifyWebLibrary(MusicLibraryProtocol, MusicAccountProtocol):
-    """The user's Spotify account and its playlists over the Web API, cached in memory and refreshed
-    in the background."""
+    """The user's Spotify account and its playlists over the Web API.
+
+    They are cached in memory and refreshed in the background.
+    """
 
     def __init__(self, database: Database) -> None:
         self.database = database
@@ -118,7 +122,9 @@ class SpotifyWebLibrary(MusicLibraryProtocol, MusicAccountProtocol):
         )
 
     @override
-    def login(self, client_id: str, *, open_browser=open_in_browser, timeout: float = 300) -> str:
+    def login(
+        self, client_id: str, *, open_browser: Callable[[str], None] = open_in_browser, timeout: float = 300
+    ) -> str:
         """Ask the user to allow sportlock in the browser; store the tokens. Returns the account's name."""
         verifier = secrets.token_urlsafe(64)
         challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
@@ -166,7 +172,7 @@ class SpotifyWebLibrary(MusicLibraryProtocol, MusicAccountProtocol):
             self.database.delete(TOKENS_KEY)
         self.cache = None
 
-    def _wait_for_code(self, url: str, state: str, open_browser, timeout: float) -> str:
+    def _wait_for_code(self, url: str, state: str, open_browser: Callable[[str], None], timeout: float) -> str:
         result: dict[str, str] = {}
 
         class Callback(http.server.BaseHTTPRequestHandler):

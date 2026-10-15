@@ -43,7 +43,7 @@ class Profile(ValueObject):
         if not goals:
             raise ProfileError("pick at least one goal")
 
-        def number(key: str, lo: float, hi: float, cast=int):
+        def number(key: str, lo: float, hi: float, cast: type[float] = int) -> float | None:
             value = raw.get(key)
             if value in (None, ""):
                 return None

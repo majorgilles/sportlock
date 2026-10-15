@@ -1,14 +1,15 @@
 # sportlock
 
 Scheduled training locks for Omarchy. Read README.md for what the app does, docs/GLOSSARY.md for the
-words, and docs/architecture-decision-records/ for why it is built this way.
+words, and docs/architecture-decision-records/ for why it is built this way. The shared standards for
+all projects are in `~/.agents/CODE_STYLE_AND_ARCHITECTURE.md`; this file adds what is specific to sportlock.
 
 ## Commands
 
 ```bash
 uv sync                  # environment (pydantic, pytest, ruff)
 uv run ruff format       # format; run before every commit
-uv run ruff check --fix  # lint (pyflakes, import order)
+uv run ruff check --fix  # lint: the shared rule set (pyproject.toml), docstrings in Google style
 uv run pytest            # all tests; must pass before every commit
 systemctl --user restart sportlock   # load code changes into the running service (only while unlocked)
 ```
@@ -35,9 +36,15 @@ systemctl --user restart sportlock   # load code changes into the running servic
   live data. Keep them stable (`2026_10_09_stable_contracts_with_the_screens.md`). Schema changes are
   new numbered migrations.
 
+## Lint
+
+- `pyproject.toml` carries the shared ruff configuration: McCabe complexity 10, at most 6 arguments,
+  Google-style docstrings, type annotations, no magic numbers outside tests. Fix a finding rather than
+  silencing it; a `# noqa` names the rule and the reason (e.g. one injected port per dependency).
+
 ## Tests
 
-- No `mock.patch` and no `Mock(spec=...)`. Fake the outside world through ports (`tests/world.py`).
+- No `mock.patch`, no `Mock(spec=...)`, no `unittest.mock` (the architecture test fails on it). Fake the outside world through ports (`tests/world.py`).
   Repositories are the real SQLite adapters on a temp file (`2026_10_09_fakes_over_mocks.md`).
 - `tests/unit/<feature>/` for domain rules, `tests/integration/` for use cases through `World`.
 - Flat functions named `test_<function>__<case>__<expected>`, with `# given / # when / # then` when

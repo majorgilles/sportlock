@@ -18,6 +18,20 @@ pythonpath = ["."]
 
 [tool.ruff]
 line-length = 120
+target-version = "py314"
 
 [tool.ruff.lint]
-select = ["F", "E9", "I"]
+select = ["A", "ANN", "B", "C4", "C90", "D", "E", "F", "FA", "I", "PIE", "PL", "PTH", "RET", "SIM", "TID", "UP", "W"]
+ignore = ["PLR0917", "D104", "D105", "D107", "ANN002", "ANN003"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR2004", "ANN", "D"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 6
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"

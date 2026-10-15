@@ -8,6 +8,7 @@ import sqlite3
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 DATA_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "sportlock"
 DB_PATH = DATA_DIR / "sportlock.db"
@@ -118,7 +119,7 @@ MIGRATIONS: list[str | Callable[[sqlite3.Connection], None]] = [
         started_at TEXT NOT NULL,
         ended_at TEXT NOT NULL
     );
-    """,
+    """,  # noqa: E501 (a past migration is never edited, its SQL comments included)
     """
     CREATE TABLE ladders (
         chain TEXT PRIMARY KEY,            -- progression chain, e.g. push-horizontal
@@ -208,12 +209,12 @@ class Database:
         """Run one statement."""
         return self.db.execute(sql, params)
 
-    def get(self, key: str, default=None):
+    def get(self, key: str, default: object = None) -> Any:  # noqa: ANN401 (any stored JSON value)
         """A JSON value from the key-value table."""
         row = self.db.execute("SELECT value FROM kv WHERE key = ?", (key,)).fetchone()
         return json.loads(row["value"]) if row else default
 
-    def put(self, key: str, value) -> None:
+    def put(self, key: str, value: object) -> None:
         """Store a JSON value in the key-value table."""
         self.db.execute("INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)", (key, json.dumps(value)))
 

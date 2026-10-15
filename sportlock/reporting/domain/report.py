@@ -1,6 +1,8 @@
-"""The trainee's report: numbers computed from every session (volume, effort, consistency, personal
-bests, ladder levels) and plain observations drawn from them. The coach's own words come from its
-review (coaching); this module only counts."""
+"""The trainee's report.
+
+Numbers computed from every session (volume, effort, consistency, personal bests, ladder levels) and plain observations
+drawn from them. The coach's own words come from its review (coaching); this module only counts.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +13,8 @@ from sportlock.shared_kernel.base import ValueObject
 WEEKS_SHOWN = 8
 RECENT_SESSIONS = 5
 LOW_EFFORT = 3.5
+MIN_SESSIONS_FOR_EFFORT = 3
+SKIPS_WORTH_NOTING = 2
 SKIP_REASONS_SHOWN = 5
 LAGGING_AFTER_SESSIONS = 6
 
@@ -183,8 +187,10 @@ def training_stats(sessions: list[SessionRecord], lock_outcomes: list[str | None
 
 
 def personal_bests(sessions: list[SessionRecord], exercises: set[str]) -> list[PersonalBest]:
-    """The best set on each of `exercises` (the laddered ones), most recently set first. Reps
-    exercises count reps, holds count seconds; a tie keeps the first time it was reached."""
+    """The best set on each of `exercises` (the laddered ones), most recently set first.
+
+    Reps exercises count reps, holds count seconds; a tie keeps the first time it was reached.
+    """
     best: dict[str, PersonalBest] = {}
     for session in sorted(sessions, key=lambda s: (s.day, s.id)):
         for e in session.exercises:
@@ -209,7 +215,11 @@ def personal_bests(sessions: list[SessionRecord], exercises: set[str]) -> list[P
 def observations(stats: TrainingStats, levels: list[LadderLevel]) -> list[Observation]:
     """Plain things the numbers show, most important first."""
     found = []
-    if stats.recent_effort is not None and stats.sessions >= 3 and stats.recent_effort <= LOW_EFFORT:
+    if (
+        stats.recent_effort is not None
+        and stats.sessions >= MIN_SESSIONS_FOR_EFFORT
+        and stats.recent_effort <= LOW_EFFORT
+    ):
         found.append(
             Observation(
                 area="Effort",
@@ -228,7 +238,7 @@ def observations(stats: TrainingStats, levels: list[LadderLevel]) -> list[Observ
                 f"You've kept the last {stats.locks_kept_in_a_row} in a row; keep the streak going.",
             )
         )
-    if stats.exercises_skipped >= 2:
+    if stats.exercises_skipped >= SKIPS_WORTH_NOTING:
         reasons = "; ".join(stats.skip_reasons[-3:])
         found.append(
             Observation(

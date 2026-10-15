@@ -1,5 +1,7 @@
-"""Use cases of locks: the tick that locks and unlocks the desktop, and the athlete's requests
-(test lock, session now, override)."""
+"""Use cases of locks.
+
+The tick that locks and unlocks the desktop, and the athlete's requests (test lock, session now, override).
+"""
 
 from __future__ import annotations
 
@@ -36,6 +38,8 @@ from sportlock.training.application.session_services import (
 )
 from sportlock.training.domain.repositories import TrainingHistoryProtocol
 
+URGENT_WARNING_MINUTES = 2
+
 log = logging.getLogger("sportlock")
 PLAN_AHEAD = timedelta(minutes=10)  # scheduled locks are decided this long before they start
 TEST_SECONDS = 60
@@ -57,8 +61,10 @@ def policy_of(settings: Settings) -> Policy:
 
 
 class PlanScheduledLockService:
-    """Decides once per scheduled lock whether it is hard, recovery (maybe shorter) or a rest day;
-    the decision is stored so it survives restarts."""
+    """Decides once per scheduled lock whether it is hard, recovery (maybe shorter) or a rest day.
+
+    The decision is stored so it survives restarts.
+    """
 
     def __init__(
         self,
@@ -103,10 +109,12 @@ class PlanScheduledLockService:
 
 
 class RunLockTickService:
-    """Once a second: settle overrides, decide which lock should hold the screen, warn ahead of
-    the next one, and lock or unlock."""
+    """Once a second.
 
-    def __init__(
+    Settle overrides, decide which lock should hold the screen, warn ahead of the next one, and lock or unlock.
+    """
+
+    def __init__(  # noqa: PLR0913 (one injected port per dependency)
         self,
         settings: SettingsState,
         runtime: LockRuntimeProtocol,
@@ -180,33 +188,47 @@ class RunLockTickService:
             self.overrides.finish(pending.id, now, cancelled=False)
             self.lock_events.ended(lock.key, "override", now)
 
+    def _manual_candidate(self, now: datetime) -> ActiveLock | None:
+        """The lock started by hand, or None; a finished one is forgotten."""
+        manual = self.lock_state.manual_lock()
+        if not manual:
+            return None
+        if now < manual.window.end and manual.key not in self.lock_events.ended_early():
+            return manual
+        self.lock_state.set_manual_lock(None)
+        return None
+
+    def _scheduled_candidate(self, now: datetime, decision: Decision) -> ActiveLock | None:
+        """The scheduled lock due now, or None; a rest day is recorded as a lock that ended at once."""
+        if not decision.active or not self.setup_complete():
+            return None
+        plan = self.planner.execute(decision.active, self.settings.settings)
+        if plan.mode == "rest":
+            if decision.active.key not in self.lock_events.ended_early():
+                self.lock_events.began(decision.active.key, decision.active.start, decision.active.end, now)
+                self.lock_events.ended(decision.active.key, "rest", now)
+            return None
+        if now >= plan.end:  # recovery locks can be shorter
+            return None
+        return ActiveLock(
+            key=decision.active.key,
+            kind="scheduled",
+            mode=plan.mode,
+            window=Window(start=decision.active.start, end=plan.end),
+        )
+
     def _wanted(self, now: datetime, decision: Decision) -> ActiveLock | None:
-        candidates = []
         if self.runtime.test_lock and now >= self.runtime.test_lock.window.end:
             self.runtime.test_lock = None
-        if self.runtime.test_lock:
-            candidates.append(self.runtime.test_lock)
-        manual = self.lock_state.manual_lock()
-        if manual:
-            if now < manual.window.end and manual.key not in self.lock_events.ended_early():
-                candidates.append(manual)
-            else:
-                self.lock_state.set_manual_lock(None)
-        if decision.active and self.setup_complete():
-            plan = self.planner.execute(decision.active, self.settings.settings)
-            if plan.mode == "rest":
-                if decision.active.key not in self.lock_events.ended_early():
-                    self.lock_events.began(decision.active.key, decision.active.start, decision.active.end, now)
-                    self.lock_events.ended(decision.active.key, "rest", now)
-            elif now < plan.end:  # recovery locks can be shorter
-                candidates.append(
-                    ActiveLock(
-                        key=decision.active.key,
-                        kind="scheduled",
-                        mode=plan.mode,
-                        window=Window(start=decision.active.start, end=plan.end),
-                    )
-                )
+        candidates = [
+            lock
+            for lock in (
+                self.runtime.test_lock,
+                self._manual_candidate(now),
+                self._scheduled_candidate(now, decision),
+            )
+            if lock
+        ]
         # Stay under the lock already on screen while it is still due; overlaps don't swap sessions.
         for lock in candidates:
             if self.runtime.current and lock.key == self.runtime.current.key:
@@ -231,7 +253,7 @@ class RunLockTickService:
             headline,
             f"Your desktop locks in {decision.warning} min for {minutes} min."
             + (f" {plan.reason}" if plan and plan.reason else ""),
-            urgent=decision.warning <= 2,
+            urgent=decision.warning <= URGENT_WARNING_MINUTES,
         )
         # The first warning also gets a popup in front of everything: notifications are easy to miss.
         if self.settings.settings.warn_popup and not any(t.startswith(f"{upcoming.key}:") for t in warned):

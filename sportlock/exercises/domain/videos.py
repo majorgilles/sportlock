@@ -11,6 +11,9 @@ import re
 from sportlock.exercises.domain.catalogue import Exercise
 from sportlock.shared_kernel.base import ValueObject
 
+MIN_TITLE_MATCH = 0.75
+SHORT_VIDEO_MIN_SECONDS, SHORT_VIDEO_MAX_SECONDS = 20, 180  # a short video earns a bonus
+
 MIN_SECONDS = 10
 MAX_SECONDS = 6 * 60
 _STOPWORDS = {"a", "an", "the", "on", "with", "to", "of", "and", "or", "in", "for"}
@@ -51,10 +54,10 @@ def choose_video(exercise: Exercise, candidates: list[VideoCandidate]) -> VideoC
         if candidate.seconds is None or not MIN_SECONDS <= candidate.seconds <= MAX_SECONDS:
             continue
         match = title_match(names, candidate.title)
-        if match < 0.75:
+        if match < MIN_TITLE_MATCH:
             continue
         score = 10 * match + (2 if any(t in candidate.title.lower() for t in _TEACHING) else 0) - 0.5 * rank
-        if 20 <= candidate.seconds <= 180:
+        if SHORT_VIDEO_MIN_SECONDS <= candidate.seconds <= SHORT_VIDEO_MAX_SECONDS:
             score += 1
         if score > best_score:
             best, best_score = candidate, score

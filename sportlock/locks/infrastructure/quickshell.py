@@ -47,8 +47,10 @@ class QuickshellLockScreen(LockScreenProtocol):
 
 
 class QuickshellWarningPopup(WarningPopupProtocol):
-    """`qs -p locks/ui/warning_popup`, with what to show passed as JSON in $SPORTLOCK_POPUP (the
-    popup answers the coach through the CLI in $SPORTLOCK_BIN)."""
+    """`qs -p locks/ui/warning_popup`, with what to show passed as JSON in $SPORTLOCK_POPUP.
+
+    The popup answers the coach through the CLI in $SPORTLOCK_BIN.
+    """
 
     def __init__(self, cli: Path) -> None:
         self.cli = cli

@@ -28,7 +28,10 @@ def _state(last_credited=None, last_hard=None, sessions=0, rest_in_a_row=0):
     )
 
 
-def _decide(state, advice=None, policy=Policy(), minutes=30):
+DEFAULT_POLICY = Policy()
+
+
+def _decide(state, advice=None, policy=DEFAULT_POLICY, minutes=30):
     return decide_lock(state, policy, now=NOW, window_minutes=minutes, advice=advice)
 
 

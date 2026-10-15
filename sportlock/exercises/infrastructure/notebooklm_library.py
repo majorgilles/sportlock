@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import time
 import urllib.request
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -95,7 +96,7 @@ Passages:
 class NotebookLMLibraryBuilder:
     """Builds and repairs the per-exercise folders under LIBRARY_DIR."""
 
-    def __init__(self, catalogue: Catalogue, root: Path = LIBRARY_DIR, notebook_id: str | None = None):
+    def __init__(self, catalogue: Catalogue, root: Path = LIBRARY_DIR, notebook_id: str | None = None) -> None:
         self.root = root
         self.notebook_id = notebook_id
         self.seed = {e.id: _spec(e) for e in catalogue.all()}
@@ -125,7 +126,9 @@ class NotebookLMLibraryBuilder:
 
     # -- building ------------------------------------------------------------------------------
 
-    def build(self, ids: list[str] | None = None, *, force: bool = False, workers: int = 4, log=print) -> dict:
+    def build(
+        self, ids: list[str] | None = None, *, force: bool = False, workers: int = 4, log: Callable[[str], None] = print
+    ) -> dict:
         """Build the missing (or, with force, the given) exercises; returns what was built and what failed."""
         if not self.notebook_id:
             raise RuntimeError("no NotebookLM notebook configured")
@@ -193,9 +196,13 @@ class NotebookLMLibraryBuilder:
         shutil.rmtree(candidates_dir, ignore_errors=True)
         return entry
 
-    def retry_pictures(self, ids: list[str] | None = None, *, workers: int = 4, log=print) -> dict:
-        """Second, picture-only pass for exercises that ended up with a stick figure: search again
-        under the exercise's other names and let Claude pick from the new candidates."""
+    def retry_pictures(
+        self, ids: list[str] | None = None, *, workers: int = 4, log: Callable[[str], None] = print
+    ) -> dict:
+        """Second, picture-only pass for exercises that ended up with a stick figure.
+
+        Search again under the exercise's other names and let Claude pick from the new candidates.
+        """
         targets = ids or [i for i in self.seed if self.get(i).get("image_source") == "stick figure"]
         results = {"found": [], "none": [], "failed": {}}
         with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -257,16 +264,19 @@ class NotebookLMLibraryBuilder:
 
     # -- infographics (last resort before a stick figure) ----------------------------------------
 
-    def infographics(self, ids: list[str] | None = None, *, per_day: int = INFOGRAPHICS_PER_DAY, log=print) -> dict:
+    def infographics(
+        self, ids: list[str] | None = None, *, per_day: int = INFOGRAPHICS_PER_DAY, log: Callable[[str], None] = print
+    ) -> dict:
         """Generate a NotebookLM infographic for exercises still drawn as stick figures.
 
         At most `per_day` a day. Every artifact this creates is recorded in infographics.json and
-        deleted from the notebook's Studio panel once downloaded; nothing else is ever deleted."""
+        deleted from the notebook's Studio panel once downloaded; nothing else is ever deleted.
+        """
         ledger_path = self.root / "infographics.json"
         ledger = json.loads(ledger_path.read_text()) if ledger_path.exists() else {"days": {}, "artifacts": {}}
         today = datetime.now().date().isoformat()
 
-        def save():
+        def save() -> None:
             ledger_path.write_text(json.dumps(ledger, indent=2))
 
         # Finish anything a previous run left behind (generated but not yet downloaded/deleted).
@@ -344,7 +354,7 @@ class NotebookLMLibraryBuilder:
     def _nlm(self, *args: str) -> str:
         notebooklm = shutil.which("notebooklm") or str(Path.home() / ".local/bin/notebooklm")
         result = subprocess.run(
-            [notebooklm, *args, "-n", self.notebook_id], capture_output=True, text=True, timeout=1200
+            [notebooklm, *args, "-n", self.notebook_id], capture_output=True, text=True, timeout=1200, check=False
         )
         if result.returncode != 0:
             raise RuntimeError(
@@ -364,6 +374,7 @@ class NotebookLMLibraryBuilder:
             capture_output=True,
             text=True,
             timeout=180,
+            check=False,
         )
         if result.returncode != 0:
             raise RuntimeError(f"NotebookLM search failed: {result.stderr.strip()[-300:]}")
@@ -425,6 +436,7 @@ class NotebookLMLibraryBuilder:
             text=True,
             timeout=600,
             cwd=workdir,
+            check=False,
         )
         try:
             response = json.loads(result.stdout)

@@ -1,15 +1,34 @@
-"""`sportlock` command line: talks to the running service over its Unix socket (see socket_api.py);
-library, ladders and `agent run` work on the data directly."""
+"""`sportlock` command line: talks to the running service over its Unix socket (see socket_api.py).
+
+Library, ladders and `agent run` work on the data directly.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import socket
+import subprocess
 import sys
+import time
+from collections.abc import Callable
 from datetime import datetime
+from pathlib import Path
 
-from sportlock.app.daemon import SOCKET_PATH
+from sportlock.app.container import Container
+from sportlock.app.daemon import SOCKET_PATH, STATE_PATH, Daemon
+from sportlock.app.daemon import main as service_main
+from sportlock.exercises.infrastructure.details_repository import LIBRARY_DIR, load_catalogue
+from sportlock.exercises.infrastructure.notebooklm_library import NotebookLMLibraryBuilder
+from sportlock.exercises.infrastructure.youtube_videos import YouTubeVideoLibrary
+from sportlock.progression.domain.ladders import positions
+from sportlock.progression.infrastructure.sqlite_ladder_repository import SqliteLadderRepository
+from sportlock.settings.domain.settings import DEFAULT_NOTEBOOK, SettingsError
+from sportlock.settings.infrastructure.config_toml import TomlSettingsRepository
+from sportlock.shared_kernel.infrastructure.database import Database
+
+Command = Callable[[argparse.Namespace], None]
 
 
 def request(payload: dict) -> dict:
@@ -40,7 +59,7 @@ def _check(response: dict) -> dict:
     return response
 
 
-def cmd_status(args) -> None:
+def cmd_status(args: argparse.Namespace) -> None:
     """`sportlock status`: lock state, next lock, trained today."""
     state = _check(request({"cmd": "status"}))["state"] or {}
     if args.json:
@@ -67,10 +86,10 @@ def cmd_status(args) -> None:
         print("config change pending until the current lock is over")
 
 
-def cmd_simple(name):
+def cmd_simple(name: str) -> Command:
     """A command that sends one request and prints ok."""
 
-    def run(args) -> None:
+    def run(args: argparse.Namespace) -> None:
         payload = {"cmd": name}
         if name == "override":
             payload["phrase"] = " ".join(args.phrase)
@@ -80,71 +99,87 @@ def cmd_simple(name):
     return run
 
 
-def cmd_start(args) -> None:
+def cmd_start(args: argparse.Namespace) -> None:
     """`sportlock start`: train now."""
     _check(request({"cmd": "start", "minutes": args.minutes}))
     print(f"locked for up to {args.minutes} min, finish the session to unlock earlier")
 
 
-def cmd_raw(args) -> None:
+def cmd_raw(args: argparse.Namespace) -> None:
     """`sportlock raw`: one JSON request, used by the QML screens."""
     print(json.dumps(_check(request(json.loads(args.payload)))))
 
 
-def cmd_library(args) -> None:
-    """`sportlock library …`: build and inspect the exercise library."""
-    from sportlock.exercises.infrastructure.details_repository import load_catalogue
-    from sportlock.exercises.infrastructure.notebooklm_library import NotebookLMLibraryBuilder
-    from sportlock.settings.domain.settings import DEFAULT_NOTEBOOK, SettingsError
-    from sportlock.settings.infrastructure.config_toml import TomlSettingsRepository
+def _library_build(library: NotebookLMLibraryBuilder, args: argparse.Namespace) -> None:
+    results = library.build(args.ids or None, force=args.force, workers=args.workers)
+    print(f"built {len(results['built'])}, failed {len(results['failed'])}")
+    if results["failed"]:
+        sys.exit(1)
 
+
+def _library_pictures(library: NotebookLMLibraryBuilder, args: argparse.Namespace) -> None:
+    results = library.retry_pictures(args.ids or None, workers=args.workers)
+    print(
+        f"new pictures {len(results['found'])}, still stick figures {len(results['none'])}, "
+        f"failed {len(results['failed'])}"
+    )
+
+
+def _library_videos(library: NotebookLMLibraryBuilder, args: argparse.Namespace) -> None:
+    results = YouTubeVideoLibrary(load_catalogue(), LIBRARY_DIR).build(args.ids or None, force=args.force)
+    print(
+        f"videos: {len(results['found'])} downloaded, {len(results['none'])} without a matching video, "
+        f"{len(results['failed'])} failed"
+    )
+
+
+def _library_infographics(library: NotebookLMLibraryBuilder, args: argparse.Namespace) -> None:
+    results = library.infographics(args.ids or None)
+    print(f"installed {len(results['installed'])}, failed {len(results['failed'])}")
+
+
+def _library_status(library: NotebookLMLibraryBuilder, args: argparse.Namespace) -> None:
+    status = library.status()
+    print(f"{status['built']}/{status['total']} exercises built")
+    for source, count in sorted(status["pictures"].items()):
+        print(f"  pictures from {source}: {count}")
+    if status["missing"]:
+        print("missing: " + ", ".join(status["missing"]))
+
+
+def _library_show(library: NotebookLMLibraryBuilder, args: argparse.Namespace) -> None:
+    print(json.dumps(library.get(args.id), indent=2, ensure_ascii=False))
+
+
+def _library_list(library: NotebookLMLibraryBuilder, args: argparse.Namespace) -> None:
+    chain = None
+    for exercise_id, spec in library.seed.items():
+        if spec["chain"] != chain:
+            chain = spec["chain"]
+            print(f"\n{chain} ({spec['pattern']})")
+        built = "✓" if library.get(exercise_id).get("built_at") else " "
+        print(f"  {built} {spec['step']}. {spec['name']}  [{exercise_id}]")
+
+
+LIBRARY_COMMANDS: dict[str, Callable[[NotebookLMLibraryBuilder, argparse.Namespace], None]] = {
+    "build": _library_build,
+    "pictures": _library_pictures,
+    "videos": _library_videos,
+    "infographics": _library_infographics,
+    "status": _library_status,
+    "show": _library_show,
+    "list": _library_list,
+}
+
+
+def cmd_library(args: argparse.Namespace) -> None:
+    """`sportlock library …`: build and inspect the exercise library."""
     try:
         notebook = TomlSettingsRepository().load().notebook_id
     except SettingsError:
         notebook = DEFAULT_NOTEBOOK
     library = NotebookLMLibraryBuilder(load_catalogue(), notebook_id=notebook)
-
-    if args.library_command == "build":
-        results = library.build(args.ids or None, force=args.force, workers=args.workers)
-        print(f"built {len(results['built'])}, failed {len(results['failed'])}")
-        if results["failed"]:
-            sys.exit(1)
-    elif args.library_command == "pictures":
-        results = library.retry_pictures(args.ids or None, workers=args.workers)
-        print(
-            f"new pictures {len(results['found'])}, still stick figures {len(results['none'])}, "
-            f"failed {len(results['failed'])}"
-        )
-    elif args.library_command == "videos":
-        from sportlock.exercises.infrastructure.details_repository import LIBRARY_DIR
-        from sportlock.exercises.infrastructure.youtube_videos import YouTubeVideoLibrary
-
-        results = YouTubeVideoLibrary(load_catalogue(), LIBRARY_DIR).build(args.ids or None, force=args.force)
-        print(
-            f"videos: {len(results['found'])} downloaded, {len(results['none'])} without a matching video, "
-            f"{len(results['failed'])} failed"
-        )
-    elif args.library_command == "infographics":
-        results = library.infographics(args.ids or None)
-        print(f"installed {len(results['installed'])}, failed {len(results['failed'])}")
-    elif args.library_command == "status":
-        status = library.status()
-        print(f"{status['built']}/{status['total']} exercises built")
-        for source, count in sorted(status["pictures"].items()):
-            print(f"  pictures from {source}: {count}")
-        if status["missing"]:
-            print("missing: " + ", ".join(status["missing"]))
-    elif args.library_command == "show":
-        entry = library.get(args.id)
-        print(json.dumps(entry, indent=2, ensure_ascii=False))
-    elif args.library_command == "list":
-        chain = None
-        for exercise_id, spec in library.seed.items():
-            if spec["chain"] != chain:
-                chain = spec["chain"]
-                print(f"\n{chain} ({spec['pattern']})")
-            built = "✓" if library.get(exercise_id).get("built_at") else " "
-            print(f"  {built} {spec['step']}. {spec['name']}  [{exercise_id}]")
+    LIBRARY_COMMANDS[args.library_command](library, args)
 
 
 def _target_text(target: dict) -> str:
@@ -152,13 +187,8 @@ def _target_text(target: dict) -> str:
     return f"{target['sets']} × {work}"
 
 
-def cmd_ladders(args) -> None:
+def cmd_ladders(args: argparse.Namespace) -> None:
     """`sportlock ladders`: the position on every chain."""
-    from sportlock.exercises.infrastructure.details_repository import load_catalogue
-    from sportlock.progression.domain.ladders import positions
-    from sportlock.progression.infrastructure.sqlite_ladder_repository import SqliteLadderRepository
-    from sportlock.shared_kernel.infrastructure.database import Database
-
     catalogue = load_catalogue()
     for position in positions(SqliteLadderRepository(Database()).saved()):
         exercise = catalogue.find(position.exercise)
@@ -169,7 +199,7 @@ def cmd_ladders(args) -> None:
         )
 
 
-def cmd_doctor(args) -> None:
+def cmd_doctor(args: argparse.Namespace) -> None:
     """`sportlock doctor [--fix]`: consistency checks."""
     response = _check(request({"cmd": "doctor", "fix": args.fix}))
     if not response["issues"]:
@@ -184,34 +214,30 @@ def cmd_doctor(args) -> None:
         print("\nrun `sportlock doctor --fix` to repair")
 
 
-def cmd_report(args) -> None:
+def cmd_report(args: argparse.Namespace) -> None:
     """`sportlock report`: write a problem report."""
     response = _check(request({"cmd": "report", "note": " ".join(args.note)}))
     print(f"report written to {response['path']}")
 
 
-def cmd_app(args) -> None:
+def cmd_app(args: argparse.Namespace) -> None:
     """`sportlock app`: open the app window (one at a time)."""
-    import os
-    import subprocess
-    from pathlib import Path
-
-    from sportlock.app.daemon import STATE_PATH
-
     repo = Path(__file__).resolve().parents[2]
     app_dir = str(repo / "sportlock" / "app" / "window")
 
     # One window at a time: focus the running app instead of opening a second one. Instances
     # without a window (left over from older versions) are closed.
-    running = subprocess.run(["pgrep", "-f", f"qs -p {app_dir}$"], capture_output=True, text=True).stdout.split()
+    running = subprocess.run(
+        ["pgrep", "-f", f"qs -p {app_dir}$"], capture_output=True, text=True, check=False
+    ).stdout.split()
     if running:
-        clients = subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True).stdout
+        clients = subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True, check=False).stdout
         with_window = {str(c["pid"]) for c in json.loads(clients or "[]")}
         for pid in running:
             if pid in with_window:
-                subprocess.run(["hyprctl", "dispatch", "focuswindow", f"pid:{pid}"], capture_output=True)
+                subprocess.run(["hyprctl", "dispatch", "focuswindow", f"pid:{pid}"], capture_output=True, check=False)
                 return
-            subprocess.run(["kill", pid], capture_output=True)
+            subprocess.run(["kill", pid], capture_output=True, check=False)
 
     env = dict(
         os.environ,
@@ -233,7 +259,7 @@ def _print_plan(plan: dict) -> None:
             print(f"  {item['exercise']:<26} {_target_text(item):<16} {item.get('progress', '')}")
 
 
-def cmd_agent(args) -> None:
+def cmd_agent(args: argparse.Namespace) -> None:
     """`sportlock agent status|run`: the coach's plan and runs."""
     if args.agent_command == "status":
         response = _check(request({"cmd": "agent-status"}))
@@ -249,15 +275,12 @@ def cmd_agent(args) -> None:
             print(f"{run['at']}  {run['seconds']:>4}s  {'ok' if run['ok'] else 'failed: ' + str(run['error'])}")
         return
 
-    from sportlock.app.container import Container
-    from sportlock.app.daemon import Daemon
-
     daemon = Daemon(Container())
     plan = daemon.c.run_coach.execute(daemon.coach_command(daemon.c.clock.now()))
     _print_plan(plan.to_dict())
 
 
-def cmd_memory(args) -> None:
+def cmd_memory(args: argparse.Namespace) -> None:
     """`sportlock memory [history|forget]`: what the coach remembers."""
     if args.memory_command == "history":
         for row in _check(request({"cmd": "memory-history", "limit": args.limit}))["history"]:
@@ -277,7 +300,7 @@ def cmd_memory(args) -> None:
         print(f"#{note['id']:<3} {note['since']}  [{note['topic']}] {note['note']}")
 
 
-def cmd_music(args) -> None:
+def cmd_music(args: argparse.Namespace) -> None:
     """`sportlock music [toggle|next|previous|play <link>|login|logout]`: Spotify, as on the lock screen."""
     if args.music_command in ("login", "logout"):
         _music_account(args)
@@ -317,9 +340,7 @@ Connect sportlock to your Spotify account (once; also in `sportlock app settings
 """
 
 
-def _music_account(args) -> None:
-    import time
-
+def _music_account(args: argparse.Namespace) -> None:
     if args.music_command == "logout":
         _check(request({"cmd": "music-logout"}))
         print("Spotify account disconnected")
@@ -337,13 +358,13 @@ def _music_account(args) -> None:
     print(f"Connected to Spotify as {status['account']['name']}. Your playlists now show on the lock screen.")
 
 
-def cmd_log(args) -> None:
+def cmd_log(args: argparse.Namespace) -> None:
     """`sportlock log`: recent locks."""
     for lock in _check(request({"cmd": "log", "limit": args.limit}))["locks"]:
         print(f"{lock['start']}  →  {lock['end'][11:]}   {lock['outcome'] or 'active'}")
 
 
-def cmd_reload(args) -> None:
+def cmd_reload(args: argparse.Namespace) -> None:
     """`sportlock reload`: re-read config.toml."""
     response = _check(request({"cmd": "reload"}))
     if response.get("error"):
@@ -351,11 +372,8 @@ def cmd_reload(args) -> None:
     print("pending until the current lock is over" if response.get("pending") else "reloaded")
 
 
-def main(argv: list[str] | None = None) -> None:
-    """Entry point of the `sportlock` command."""
-    parser = argparse.ArgumentParser(prog="sportlock")
-    sub = parser.add_subparsers(dest="command", required=True)
-
+def _add_lock_commands(sub: argparse._SubParsersAction) -> None:
+    """Status, test locks, overrides, starting a session and the lock log."""
     status = sub.add_parser("status", help="show lock state and the next lock")
     status.add_argument("--json", action="store_true")
     status.set_defaults(run=cmd_status)
@@ -383,6 +401,9 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("reload", help="re-read config.toml").set_defaults(run=cmd_reload)
 
+
+def _add_library_commands(sub: argparse._SubParsersAction) -> None:
+    """Building and inspecting the exercise library."""
     library = sub.add_parser("library", help="exercise library built from the NotebookLM notebook")
     lib_sub = library.add_subparsers(dest="library_command", required=True)
     build = lib_sub.add_parser("build", help="fill in instructions and pictures (missing exercises only)")
@@ -403,6 +424,9 @@ def main(argv: list[str] | None = None) -> None:
     lib_sub.add_parser("list", help="all exercises by chain")
     library.set_defaults(run=cmd_library)
 
+
+def _add_coach_commands(sub: argparse._SubParsersAction) -> None:
+    """Ladders and the coach's memory."""
     sub.add_parser("ladders", help="where you are on each progression chain").set_defaults(run=cmd_ladders)
     memory = sub.add_parser("memory", help="what the coach remembers about you")
     memory_sub = memory.add_subparsers(dest="memory_command")
@@ -411,6 +435,10 @@ def main(argv: list[str] | None = None) -> None:
     forget = memory_sub.add_parser("forget", help="remove a note (the coach won't re-add it without new evidence)")
     forget.add_argument("id", type=int)
     memory.set_defaults(run=cmd_memory)
+
+
+def _add_music_commands(sub: argparse._SubParsersAction) -> None:
+    """Spotify on the lock screen."""
     music = sub.add_parser("music", help="Spotify: what plays, play/pause, skip, start a playlist")
     music_sub = music.add_subparsers(dest="music_command")
     music_sub.add_parser("toggle", help="play or pause (starts Spotify if needed)")
@@ -422,6 +450,10 @@ def main(argv: list[str] | None = None) -> None:
     login.add_argument("--client-id", help="the Client ID of your Spotify app (remembered)")
     music_sub.add_parser("logout", help="disconnect your Spotify account")
     music.set_defaults(run=cmd_music)
+
+
+def _add_app_commands(sub: argparse._SubParsersAction) -> None:
+    """The app window, the doctor and problem reports."""
     app = sub.add_parser("app", help="open the sportlock window (profile, schedule & settings)")
     app.add_argument("tab", nargs="?", choices=("calendar", "report", "profile", "settings"), default="calendar")
     app.set_defaults(run=cmd_app)
@@ -434,16 +466,29 @@ def main(argv: list[str] | None = None) -> None:
     report.add_argument("note", nargs="*", help="what happened, in your words")
     report.set_defaults(run=cmd_report)
 
+
+def _add_agent_commands(sub: argparse._SubParsersAction) -> None:
+    """The coaching agent."""
     agent = sub.add_parser("agent", help="the coaching agent that plans your next session")
     agent_sub = agent.add_subparsers(dest="agent_command", required=True)
     agent_sub.add_parser("status", help="the current plan and recent runs")
     agent_sub.add_parser("run", help="plan the next session now (foreground, for debugging)")
     agent.set_defaults(run=cmd_agent)
 
+
+def main(argv: list[str] | None = None) -> None:
+    """Entry point of the `sportlock` command."""
+    parser = argparse.ArgumentParser(prog="sportlock")
+    sub = parser.add_subparsers(dest="command", required=True)
+    _add_lock_commands(sub)
+    _add_library_commands(sub)
+    _add_coach_commands(sub)
+    _add_music_commands(sub)
+    _add_app_commands(sub)
+    _add_agent_commands(sub)
+
     args = parser.parse_args(argv)
     if args.command == "service":
-        from sportlock.app.daemon import main as service_main
-
         service_main()
     else:
         args.run(args)

@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import os
 import tempfile
+from pathlib import Path
 
-_sandbox = tempfile.mkdtemp(prefix="sportlock-tests-")
+_sandbox = Path(tempfile.mkdtemp(prefix="sportlock-tests-"))
 for _var in ("XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_RUNTIME_DIR"):
-    os.environ[_var] = os.path.join(_sandbox, _var.lower())
-    os.makedirs(os.environ[_var], exist_ok=True)
+    (_sandbox / _var.lower()).mkdir(parents=True, exist_ok=True)
+    os.environ[_var] = str(_sandbox / _var.lower())
 
 import pytest  # noqa: E402
 

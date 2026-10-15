@@ -1,6 +1,8 @@
-"""The coach's review of the trainee, written after a session for the Report tab: who they are as a
-trainee (the dossier), how the last session went, and where they can improve. Kept per session, so
-the journal keeps every past answer."""
+"""The coach's review of the trainee, written after a session for the Report tab.
+
+Who they are as a trainee (the dossier), how the last session went, and where they can improve. Kept per session, so the
+journal keeps every past answer.
+"""
 
 from __future__ import annotations
 

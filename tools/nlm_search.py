@@ -22,13 +22,17 @@ from pathlib import Path
 import notebooklm._web.sources.search as search_mod
 from notebooklm import NotebookLMClient
 
+IMAGE_DATA_INDEX, MIME_TYPE_INDEX = 2, 3  # positions inside an inline-image part
+MIN_IMAGE_BYTES = 2000  # smaller images are glyphs and bullets
+CHUNKS_INDEX = 1  # position of a source row's chunk list
+
 logging.getLogger("notebooklm").setLevel(logging.ERROR)
 
 captured: list = []
 _original = search_mod.decode_relevant_chunks
 
 
-def _spy(payload, **kwargs):
+def _spy(payload: object, **kwargs: object) -> object:
     captured.append(payload)
     return _original(payload, **kwargs)
 
@@ -36,7 +40,7 @@ def _spy(payload, **kwargs):
 search_mod.decode_relevant_chunks = _spy
 
 
-def _walk_parts(parts, images_dir: Path | None):
+def _walk_parts(parts: list, images_dir: Path | None) -> tuple[str, list[dict]]:
     """A chunk's content parts are either [text] or [None, [None, None, base64, mime]]."""
     texts, images = [], []
     for part in parts if isinstance(parts, list) else []:
@@ -46,12 +50,12 @@ def _walk_parts(parts, images_dir: Path | None):
             isinstance(part, list)
             and len(part) > 1
             and isinstance(part[1], list)
-            and len(part[1]) > 3
-            and isinstance(part[1][2], str)
-            and str(part[1][3]).startswith("image/")
+            and len(part[1]) > MIME_TYPE_INDEX
+            and isinstance(part[1][IMAGE_DATA_INDEX], str)
+            and str(part[1][MIME_TYPE_INDEX]).startswith("image/")
         ):
-            data = base64.b64decode(part[1][2])
-            if images_dir is not None and len(data) > 2000:  # skip tiny glyphs/bullets
+            data = base64.b64decode(part[1][IMAGE_DATA_INDEX])
+            if images_dir is not None and len(data) > MIN_IMAGE_BYTES:
                 name = hashlib.sha1(data).hexdigest()[:16] + ".jpg"
                 images_dir.mkdir(parents=True, exist_ok=True)
                 (images_dir / name).write_bytes(data)
@@ -59,13 +63,13 @@ def _walk_parts(parts, images_dir: Path | None):
     return "".join(texts), images
 
 
-def _chunks(payload, images_dir: Path | None) -> list[dict]:
+def _chunks(payload: object, images_dir: Path | None) -> list[dict]:
     out = []
     rows = payload[0] if isinstance(payload, list) and payload and isinstance(payload[0], list) else []
     for source in rows:
-        if not isinstance(source, list) or len(source) < 2 or not isinstance(source[1], list):
+        if not isinstance(source, list) or len(source) <= CHUNKS_INDEX or not isinstance(source[CHUNKS_INDEX], list):
             continue
-        for chunk in source[1]:
+        for chunk in source[CHUNKS_INDEX]:
             try:
                 parts = chunk[0][0]
                 rank = chunk[1]
@@ -77,6 +81,7 @@ def _chunks(payload, images_dir: Path | None) -> list[dict]:
 
 
 async def main() -> None:
+    """Search the notebook's passages and print the matches as JSON."""
     parser = argparse.ArgumentParser()
     parser.add_argument("notebook")
     parser.add_argument("query")

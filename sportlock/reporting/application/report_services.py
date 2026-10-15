@@ -1,5 +1,7 @@
-"""The Report tab: the trainee's dossier, stats, last session, where to improve and a journal of every
-session; and the coach's review that writes the dossier and the advice."""
+"""The Report tab: the trainee's dossier, stats, last session, where to improve and a journal of every session.
+
+And the coach's review that writes the dossier and the advice.
+"""
 
 from __future__ import annotations
 
@@ -71,7 +73,7 @@ def _record(row: dict) -> SessionRecord:
 class BuildReportService:
     """Everything the Report tab shows, from the data and the coach's latest review."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 (one injected port per dependency)
         self,
         profiles: ProfileRepositoryProtocol,
         history: TrainingHistoryProtocol,

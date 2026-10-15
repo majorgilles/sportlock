@@ -1,5 +1,7 @@
-"""Built exercise details, one folder per exercise: <library>/<id>/exercise.json plus its picture,
-and video.json plus video.mp4 when a demonstration video was downloaded."""
+"""Built exercise details, one folder per exercise.
+
+<library>/<id>/exercise.json plus its picture, and video.json plus video.mp4 when a demonstration video was downloaded.
+"""
 
 from __future__ import annotations
 

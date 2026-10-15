@@ -1,6 +1,7 @@
 import json
 import sqlite3
 from datetime import timedelta
+from pathlib import Path
 
 from sportlock.progression.domain.ladders import positions
 from sportlock.shared_kernel.infrastructure.database import Database
@@ -64,7 +65,8 @@ def test_doctor__timed_exercise_with_a_rep_target__found_and_repaired(world):
 
 def test_doctor__stuck_session_and_leftover_run__repaired_outside_a_lock(world):
     world.c.database.execute(
-        "INSERT INTO sessions (id, day, finished_at, kind, status) VALUES (2, '2026-10-05', 'x', 'scheduled', 'in_progress')"
+        "INSERT INTO sessions (id, day, finished_at, kind, status)"
+        " VALUES (2, '2026-10-05', 'x', 'scheduled', 'in_progress')"
     )
     world.c.database.put("training", {"session_id": 99})
     world.cmd(cmd="doctor", fix=True)
@@ -80,7 +82,7 @@ def test_doctor__ladder_on_the_wrong_chain__reset(world):
 
 def test_report__written_with_the_note_and_the_doctor(world):
     path = world.cmd(cmd="report", note="lock screen froze")["path"]
-    text = open(path).read()
+    text = Path(path).read_text()
     assert "lock screen froze" in text and "## Doctor" in text
 
 
@@ -90,7 +92,8 @@ def test_database__version_two_database__coach_runs_moved_out_of_the_key_value_t
     Database(path).db.close()
     db = sqlite3.connect(path)
     db.executescript(
-        "DROP TABLE coach_runs; DROP TABLE coach_memory_notes; DROP TABLE replacement_answers; DROP TABLE coach_reviews;"
+        "DROP TABLE coach_runs; DROP TABLE coach_memory_notes; DROP TABLE replacement_answers;"
+        " DROP TABLE coach_reviews;"
         " PRAGMA user_version = 2;"
     )
     db.execute(

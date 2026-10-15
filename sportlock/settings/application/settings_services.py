@@ -1,5 +1,7 @@
-"""The settings in force, and their changes. Edits made while a lock is active or due within its
-10-minute warning only apply once that lock is over."""
+"""The settings in force, and their changes.
+
+Edits made while a lock is active or due within its 10-minute warning only apply once that lock is over.
+"""
 
 from __future__ import annotations
 
@@ -62,8 +64,10 @@ class SaveSettingsService:
         self.reload = reload
 
     def execute(self, form: dict, *, decision: Decision, now: datetime) -> bool:
-        """Validates and writes the file; returns whether applying it waits for the current lock.
-        Raises SettingsError."""
+        """Validates and writes the file.
+
+        Returns whether applying it waits for the current lock. Raises SettingsError.
+        """
         self.repository.save(self.state.settings.with_form(form))
         self.reload.execute(decision=decision, now=now)
         log.info(

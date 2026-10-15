@@ -1,9 +1,13 @@
-"""SQLite adapters for coaching: the plan (key-value), the run log, the versioned memory, and the
-athlete's answers to replaced exercises, and the coach's reviews."""
+"""SQLite adapters for coaching.
+
+The plan (key-value), the run log, the versioned memory, and the athlete's answers to replaced exercises, and the
+coach's reviews.
+"""
 
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import date
 from typing import override
 
@@ -209,7 +213,7 @@ class SqliteCoachReviewRepository(CoachReviewRepositoryProtocol):
         return {r["session_id"]: _review(r) for r in self.database.execute("SELECT * FROM coach_reviews")}
 
 
-def _review(row) -> CoachReview:
+def _review(row: sqlite3.Row) -> CoachReview:
     return CoachReview(
         session_id=row["session_id"],
         written_at=row["written_at"],

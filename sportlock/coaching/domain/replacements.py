@@ -74,9 +74,11 @@ class ReplacementAnswer(ValueObject):
 def replacements_after(
     session_id: int, moves: list[dict], current: dict[str, str], catalogue: Catalogue
 ) -> list[Replacement]:
-    """The chains whose exercise the moves recorded for a session changed, and that are still on the
-    new exercise. `moves` are the ladder repository's dicts in order; `current` is the exercise each
-    chain is on now. The reason is that of the move that brought the new exercise in."""
+    """The chains whose exercise the moves recorded for a session changed, and that are still on the new exercise.
+
+    `moves` are the ladder repository's dicts in order; `current` is the exercise each chain is on now. The reason is
+    that of the move that brought the new exercise in.
+    """
     replacements = []
     for chain in dict.fromkeys(m["chain"] for m in moves):
         on_chain = [m for m in moves if m["chain"] == chain]

@@ -52,8 +52,10 @@ class SessionSummary(ValueObject):
 
 
 class TrainingHistoryProtocol(Protocol):
-    """Read models over past sessions. "Credited" sessions are finished and neither test,
-    placeholder nor outside sessions."""
+    """Read models over past sessions.
+
+    "Credited" sessions are finished and neither test, placeholder nor outside sessions.
+    """
 
     def trained_days(self) -> set[date]:
         """Days with a credited session."""

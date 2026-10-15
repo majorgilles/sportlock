@@ -1,8 +1,11 @@
-"""Use cases of a training session: begin it when a lock starts, record what the athlete does on the
-lock screen, close it when the lock ends."""
+"""Use cases of a training session.
+
+Begin it when a lock starts, record what the athlete does on the lock screen, close it when the lock ends.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from typing import Literal
 
@@ -110,6 +113,23 @@ class RecordTrainingActionCommand(ValueObject):
     lead_in: int = 0
 
 
+TrainingAction = Callable[[TrainingSession, "RecordTrainingActionCommand", datetime, Catalogue], None]
+TRAINING_ACTIONS: dict[str, TrainingAction] = {
+    "start_set": lambda session, command, now, catalogue: session.start_set(now, command.lead_in),
+    "go_now": lambda session, command, now, catalogue: session.go_now(now),
+    "cancel_set": lambda session, command, now, catalogue: session.cancel_set(now),
+    "stop_set": lambda session, command, now, catalogue: session.stop_set(now),
+    "save_set": lambda session, command, now, catalogue: session.save_set(now, command.reps, command.load_kg),
+    "end_sets": lambda session, command, now, catalogue: session.end_sets(now),
+    "rate": lambda session, command, now, catalogue: session.rate(now, _required(command.rpe), command.note),
+    "skip": lambda session, command, now, catalogue: session.skip(now, command.reason),
+    "swap_easier": lambda session, command, now, catalogue: session.swap_easier(now, catalogue, set(START)),
+    "finish": lambda session, command, now, catalogue: session.finish(
+        now, _required(command.rpe), command.notes, command.calories, command.avg_hr, command.body_weight
+    ),
+}
+
+
 class RecordTrainingActionService:
     """Applies one action to the active session; a finished session moves the ladders."""
 
@@ -128,29 +148,9 @@ class RecordTrainingActionService:
         session = self.sessions.active()
         if session is None:
             raise TrainingError("no session in progress")
-        match command.action:
-            case "start_set":
-                session.start_set(now, command.lead_in)
-            case "go_now":
-                session.go_now(now)
-            case "cancel_set":
-                session.cancel_set(now)
-            case "stop_set":
-                session.stop_set(now)
-            case "save_set":
-                session.save_set(now, command.reps, command.load_kg)
-            case "end_sets":
-                session.end_sets(now)
-            case "rate":
-                session.rate(now, _required(command.rpe), command.note)
-            case "skip":
-                session.skip(now, command.reason)
-            case "swap_easier":
-                session.swap_easier(now, self.catalogue, set(START))
-            case "finish":
-                session.finish(
-                    now, _required(command.rpe), command.notes, command.calories, command.avg_hr, command.body_weight
-                )
+        action = TRAINING_ACTIONS.get(command.action)
+        if action:
+            action(session, command, now, self.catalogue)
         self.sessions.save(session)
         moves = self.progression.execute(session, now) if not session.active else []
         return session, moves

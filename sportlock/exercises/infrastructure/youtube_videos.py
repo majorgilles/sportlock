@@ -21,7 +21,7 @@ FORMAT = "b[height<=480][ext=mp4]/bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height
 
 def _yt_dlp(*args: str, timeout: float) -> subprocess.CompletedProcess | None:
     try:
-        return subprocess.run(["yt-dlp", *args], capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(["yt-dlp", *args], capture_output=True, text=True, timeout=timeout, check=False)
     except OSError, subprocess.TimeoutExpired:
         return None
 

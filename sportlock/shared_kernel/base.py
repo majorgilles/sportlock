@@ -1,5 +1,7 @@
-"""Base classes for the domain's building blocks (see docs/architecture-decision-records/
-2026_10_09_pydantic_domain_models.md)."""
+"""Base classes for the domain's building blocks.
+
+See docs/architecture-decision-records/2026_10_09_pydantic_domain_models.md.
+"""
 
 from __future__ import annotations
 
@@ -23,8 +25,10 @@ class DomainEvent(ValueObject):
 
 
 class Aggregate(Entity):
-    """An aggregate root: the only entry point for changing what it contains. It records the
-    domain events its behaviour methods raise; the application service collects them after saving."""
+    """An aggregate root: the only entry point for changing what it contains.
+
+    It records the domain events its behaviour methods raise; the application service collects them after saving.
+    """
 
     _events: list[DomainEvent] = PrivateAttr(default_factory=list)
 

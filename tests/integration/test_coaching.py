@@ -27,7 +27,7 @@ def test_run_coach__good_answer__plan_stored_fresh_and_announced(world):
 
 def test_run_coach__bad_answer__rejected_and_logged(world):
     output = copy.deepcopy(GOOD_PLAN)
-    output["hard"]["exercises"][1] = item("burpee-deluxe", 3, 8, 12)
+    output["hard"]["exercises"][1] = item("burpee-deluxe", 3, (8, 12))
     with pytest.raises(CoachOutputError):
         _run(world, output)
     assert world.c.freshness.fresh_plan() is None
@@ -65,7 +65,7 @@ def test_run_coach__override__moves_the_ladder_and_marks_the_rule_move(world):
     )
     output = copy.deepcopy(GOOD_PLAN)
     output["ladder_overrides"] = [
-        {"chain": "squat", **item("bodyweight-squat", 3, 12, 15), "reason": "Knee pain in notes"}
+        {"chain": "squat", **item("bodyweight-squat", 3, (12, 15)), "reason": "Knee pain in notes"}
     ]
     # when
     _run(world, output)

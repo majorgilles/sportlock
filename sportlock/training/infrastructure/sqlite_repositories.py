@@ -281,10 +281,12 @@ class SqliteTrainingHistory(TrainingHistoryProtocol):
     @override
     def exercise_timings(self, sessions: int) -> list[ExerciseTiming]:
         rows = self.database.execute(
-            "SELECT e.target, e.started_at, e.ended_at, (SELECT COUNT(*) FROM sets s WHERE s.session_exercise_id = e.id) AS n"
+            "SELECT e.target, e.started_at, e.ended_at,"
+            " (SELECT COUNT(*) FROM sets s WHERE s.session_exercise_id = e.id) AS n"
             " FROM session_exercises e JOIN sessions x ON x.id = e.session_id"
             " WHERE e.status = 'done' AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL"
-            " AND x.kind NOT IN ('test', 'placeholder') AND e.session_id IN (SELECT id FROM sessions ORDER BY id DESC LIMIT ?)",
+            " AND x.kind NOT IN ('test', 'placeholder')"
+            " AND e.session_id IN (SELECT id FROM sessions ORDER BY id DESC LIMIT ?)",
             (sessions,),
         ).fetchall()
         return [
@@ -385,7 +387,8 @@ class SqliteTrainingHistory(TrainingHistoryProtocol):
     def between(self, first: date, last: date) -> list[dict]:
         result = []
         for s in self.database.execute(
-            f"SELECT * FROM sessions WHERE day BETWEEN ? AND ? AND {COUNTED} AND status != 'in_progress' ORDER BY started_at",
+            f"SELECT * FROM sessions WHERE day BETWEEN ? AND ? AND {COUNTED}"
+            " AND status != 'in_progress' ORDER BY started_at",
             (first.isoformat(), last.isoformat()),
         ):
             exercises = []

@@ -19,7 +19,7 @@ REPO_DIR = Path(__file__).resolve().parents[3]
 
 def _cmd(*args: str, timeout: float = 15) -> str:
     try:
-        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(args, capture_output=True, text=True, timeout=timeout, check=False)
         return (result.stdout + result.stderr).strip()
     except (OSError, subprocess.TimeoutExpired) as error:
         return f"({error})"
@@ -83,7 +83,7 @@ def build_report(
     sections.append("## Training run (kv)\n\n```json\n" + json.dumps(run, indent=1) + "\n```")
     detail = []
     for s in database.db.execute("SELECT * FROM sessions ORDER BY id DESC LIMIT 3"):
-        detail.append(json.dumps({k: s[k] for k in s.keys()}, ensure_ascii=False))
+        detail.append(json.dumps(dict(s), ensure_ascii=False))
         for e in database.db.execute("SELECT * FROM session_exercises WHERE session_id = ? ORDER BY id", (s["id"],)):
             sets = [
                 dict(x)

@@ -21,6 +21,10 @@ from sportlock.shared_kernel.errors import DomainError
 from sportlock.shared_kernel.plans import SessionPlan
 from sportlock.shared_kernel.targets import Target
 
+BOOKENDS = 2  # the warm-up and the cool-down
+MIN_RPE, MAX_RPE = 1, 10
+MIN_SKIP_REASON_LENGTH = 3
+
 type Phase = Literal["ready", "running", "logging", "resting", "rating", "summary"]
 type SessionKind = Literal["scheduled", "manual", "test", "outside", "placeholder", "generated", "local"]
 type SessionStatus = Literal["in_progress", "finished", "abandoned", "overridden"]
@@ -132,9 +136,12 @@ class TrainingSession(Aggregate):
         return self.phase == "running" and self.set_started_at is not None and now < self.set_started_at
 
     def main_work_done(self) -> bool:
-        """Every exercise except the first (warm-up) and last (cool-down) is done or was swapped
-        for an easier one that is done."""
-        main = self.exercises[1:-1] if len(self.exercises) > 2 else self.exercises
+        """Whether the main exercises are all done.
+
+        Every exercise except the first (warm-up) and last (cool-down) is done or was swapped for an
+        easier one that is done.
+        """
+        main = self.exercises[1:-1] if len(self.exercises) > BOOKENDS else self.exercises
         return bool(main) and all(e.status in ("done", "swapped") for e in main)
 
     def _require(self, *phases: Phase) -> None:
@@ -221,7 +228,7 @@ class TrainingSession(Aggregate):
     def rate(self, now: datetime, rpe: int, note: str = "") -> None:
         """Effort for the exercise just done; moves on to the next one."""
         self._require("rating")
-        if not 1 <= int(rpe) <= 10:
+        if not MIN_RPE <= int(rpe) <= MAX_RPE:
             raise TrainingError("effort must be between 1 and 10")
         exercise = self.current_exercise
         exercise.status, exercise.rpe, exercise.note, exercise.ended_at = "done", int(rpe), note, now
@@ -230,7 +237,7 @@ class TrainingSession(Aggregate):
     def skip(self, now: datetime, reason: str) -> None:
         """Skip the current exercise, with a reason the coach reads."""
         self._require("ready", "running", "logging", "resting", "rating")
-        if len(reason.strip()) < 3:
+        if len(reason.strip()) < MIN_SKIP_REASON_LENGTH:
             raise TrainingError("give a reason for skipping")
         exercise = self.current_exercise
         exercise.status, exercise.skip_reason, exercise.ended_at = "skipped", reason.strip(), now
@@ -250,9 +257,11 @@ class TrainingSession(Aggregate):
         self._advance()
 
     def keep_instead(self, replaced: str, kept: str, target: Target, catalogue: Catalogue) -> bool:
-        """Put an exercise the athlete wants to keep back in place of its replacement, wherever the
-        replacement hasn't been started yet (the fitted number of sets is kept). Returns whether
-        anything changed."""
+        """Put an exercise the athlete wants to keep back in place of its replacement.
+
+        This happens wherever the replacement hasn't been started yet (the fitted number of sets is
+        kept). Returns whether anything changed.
+        """
         if not self.active:
             return False
         spec = catalogue.get(kept)
@@ -286,14 +295,16 @@ class TrainingSession(Aggregate):
     ) -> None:
         """All exercises are through: rate the whole session; it counts as training."""
         self._require("summary")
-        if not 1 <= int(rpe) <= 10:
+        if not MIN_RPE <= int(rpe) <= MAX_RPE:
             raise TrainingError("effort must be between 1 and 10")
         self.status, self.finished_at, self.rpe, self.notes = "finished", now, int(rpe), notes
         self.calories, self.avg_hr, self.body_weight = calories, avg_hr, body_weight
 
     def close(self, now: datetime, status: SessionStatus) -> None:
-        """End an unfinished session (abandoned when time ran out, overridden). When time ran out
-        but all the main work was done (only the cool-down, or less, left), it counts as finished."""
+        """End an unfinished session (abandoned when time ran out, overridden).
+
+        When time ran out but all the main work was done (only the cool-down, or less, left), it counts as finished.
+        """
         if not self.active:
             return
         if status == "abandoned" and self.main_work_done():

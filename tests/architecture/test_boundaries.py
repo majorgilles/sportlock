@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parents[2] / "sportlock"
+TESTS = Path(__file__).resolve().parents[1]
 FEATURES = {
     "athlete",
     "calendar",
@@ -71,26 +72,31 @@ def _violations(rule) -> list[str]:
     return problems
 
 
-def test_domain__imports_only_its_feature_the_shared_kernel_and_the_context_map():
-    def rule(module, imported):
-        feature, layer = _layer(module)
-        if layer != "domain":
-            return None
-        top = imported.split(".")[0]
-        if top != "sportlock":
-            if top in sys.stdlib_module_names or top in THIRD_PARTY_IN_DOMAIN:
-                return None
-            return "the domain uses only the standard library and pydantic"
-        other, other_layer = _layer(imported)
-        if other == "shared_kernel" and other_layer == "domain":
-            return None
-        if other_layer != "domain":
-            return f"the domain must not depend on {other_layer}"
-        if other != feature and other not in DOMAIN_CONTEXT_MAP.get(feature, set()):
-            return f"{feature}'s domain may not use {other}'s domain (add it to the context map with a reason)"
+def _external_domain_import(imported: str) -> str | None:
+    top = imported.split(".", maxsplit=1)[0]
+    if top in sys.stdlib_module_names or top in THIRD_PARTY_IN_DOMAIN:
         return None
+    return "the domain uses only the standard library and pydantic"
 
-    assert _violations(rule) == []
+
+def _domain_rule(module: str, imported: str) -> str | None:
+    feature, layer = _layer(module)
+    if layer != "domain":
+        return None
+    if imported.split(".", maxsplit=1)[0] != "sportlock":
+        return _external_domain_import(imported)
+    other, other_layer = _layer(imported)
+    if other == "shared_kernel" and other_layer == "domain":
+        return None
+    if other_layer != "domain":
+        return f"the domain must not depend on {other_layer}"
+    if other != feature and other not in DOMAIN_CONTEXT_MAP.get(feature, set()):
+        return f"{feature}'s domain may not use {other}'s domain (add it to the context map with a reason)"
+    return None
+
+
+def test_domain__imports_only_its_feature_the_shared_kernel_and_the_context_map():
+    assert _violations(_domain_rule) == []
 
 
 def test_application__never_imports_infrastructure_or_the_app():
@@ -137,3 +143,40 @@ def test_shared_kernel__depends_on_no_feature():
 def test_features__every_package_is_a_known_feature():
     packages = {p.name for p in PACKAGE.iterdir() if p.is_dir() and (p / "__init__.py").exists()}
     assert packages == FEATURES | {"shared_kernel", "app"}
+
+
+def _is_dataclass(decorator: ast.expr) -> bool:
+    target = decorator.func if isinstance(decorator, ast.Call) else decorator
+    return ast.unparse(target).split(".")[-1] == "dataclass"
+
+
+def test_domain__has_no_dataclasses():
+    offenders = [
+        str(path)
+        for path in PACKAGE.rglob("domain/*.py")
+        for node in ast.walk(ast.parse(path.read_text()))
+        if isinstance(node, ast.ClassDef) and any(_is_dataclass(decorator) for decorator in node.decorator_list)
+    ]
+
+    assert offenders == [], "domain models are pydantic models from shared_kernel/base.py"
+
+
+def _imports_mock(path: Path) -> bool:
+    for node in ast.walk(ast.parse(path.read_text())):
+        if isinstance(node, ast.Import) and any(alias.name.startswith("unittest.mock") for alias in node.names):
+            return True
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("unittest.mock"):
+            return True
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.module == "unittest"
+            and any(alias.name == "mock" for alias in node.names)
+        ):
+            return True
+    return False
+
+
+def test_tests__use_fakes_not_mocks():
+    offenders = [str(path) for path in TESTS.rglob("*.py") if _imports_mock(path)]
+
+    assert offenders == [], "fake the outside world through its ports (tests/world.py)"

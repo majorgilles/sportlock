@@ -1,5 +1,7 @@
-"""Whether the stored coach plan still matches the data: a new session or a profile change makes
-it stale, and the next coach run replaces it."""
+"""Whether the stored coach plan still matches the data.
+
+A new session or a profile change makes it stale, and the next coach run replaces it.
+"""
 
 from __future__ import annotations
 

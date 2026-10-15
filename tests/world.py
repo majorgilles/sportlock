@@ -186,18 +186,18 @@ class FakeClock:
 def item(
     exercise: str,
     sets: int = 3,
-    lo: int | None = None,
-    hi: int | None = None,
+    reps: tuple[int, int] | None = None,
     seconds: int | None = None,
     rest: int = 60,
     note: str = "",
 ) -> dict:
-    """One exercise as the coach writes it."""
+    """One exercise as the coach writes it; `reps` is the (low, high) range."""
+    low, high = reps or (None, None)
     return {
         "exercise": exercise,
         "sets": sets,
-        "reps_low": lo,
-        "reps_high": hi,
+        "reps_low": low,
+        "reps_high": high,
         "seconds": seconds,
         "rest": rest,
         "note": note,
@@ -210,8 +210,8 @@ GOOD_PLAN = {
         "title": "Push focus",
         "exercises": [
             item("dynamic-warmup", 1, seconds=300, rest=0),
-            item("knee-push-up", 3, 8, 12, note="Up a step: 3×12 felt easy"),
-            item("bodyweight-squat", 3, 12, 15),
+            item("knee-push-up", 3, (8, 12), note="Up a step: 3×12 felt easy"),
+            item("bodyweight-squat", 3, (12, 15)),
             item("plank", 3, seconds=40, rest=45),
             item("static-stretch", 1, seconds=300, rest=0),
         ],
@@ -221,7 +221,7 @@ GOOD_PLAN = {
         "day_type": "mobility",
         "exercises": [
             item("dynamic-warmup", 1, seconds=300, rest=0),
-            item("cat-cow", 2, 8, 10, rest=15),
+            item("cat-cow", 2, (8, 10), rest=15),
             item("static-stretch", 1, seconds=300, rest=0),
         ],
     },
@@ -304,7 +304,8 @@ class World:
         """A past session, written straight into the database."""
         started = finished - timedelta(minutes=minutes)
         self.c.database.execute(
-            "INSERT INTO sessions (day, started_at, finished_at, kind, status, day_type, rpe) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sessions (day, started_at, finished_at, kind, status, day_type, rpe)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
             (finished.date().isoformat(), iso(started), iso(finished), kind, status, day_type, rpe),
         )
 

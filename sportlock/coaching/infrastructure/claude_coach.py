@@ -1,5 +1,7 @@
-"""The coach as Claude Code running headless (`claude -p`), with read-only access to the
-athlete's books through the NotebookLM passage search, and nothing else."""
+"""The coach as Claude Code running headless (`claude -p`).
+
+It has read-only access to the athlete's books through the NotebookLM passage search, and nothing else.
+"""
 
 from __future__ import annotations
 
@@ -118,8 +120,9 @@ work, so order exercises by priority. The first and last item are kept.
 Each exercise: "exercise" is a catalogue id; "reps"-kind exercises use reps_low/reps_high
 (seconds null); "hold" and "timed" use seconds (reps null). For catalogue entries with "sides"
 ("each": one side then the other; "alternating": switch every rep), reps and seconds count PER
-SIDE, so 8 reps means 8 on each side; the app tells the user this, don't restate it in notes. Sets 1–6, rest in seconds. "note" is
-shown to the user on the exercise card: one short sentence on why this exercise at this level.
+SIDE, so 8 reps means 8 on each side; the app tells the user this, don't restate it in notes.
+Sets 1–6, rest in seconds. "note" is shown to the user on the exercise card: one short sentence on
+why this exercise at this level.
 
 "answers_to_replacements": before a session the user is asked about each exercise the last
 session's progression replaced (e.g. squats became step-ups): they agree, or keep the replaced
@@ -268,6 +271,7 @@ class ClaudeCoach(CoachProtocol):
                 text=True,
                 timeout=TIMEOUT_SECONDS,
                 cwd=self.search_tool.parent,
+                check=False,
             )
         except (OSError, subprocess.TimeoutExpired) as error:
             raise CoachUnavailableError(f"could not run Claude: {error}") from None

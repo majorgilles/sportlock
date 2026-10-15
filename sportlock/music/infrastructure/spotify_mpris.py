@@ -17,6 +17,8 @@ from typing import override
 from sportlock.music.domain.music import FULL_VOLUME, NowPlaying
 from sportlock.music.domain.ports import MusicPlayerProtocol
 
+VOLUME_INDEX = 2
+
 BUS_NAME = "org.mpris.MediaPlayer2.spotify"
 MPRIS_PATH = "/org/mpris/MediaPlayer2"
 MPRIS_PLAYER = "org.mpris.MediaPlayer2.Player"
@@ -25,7 +27,7 @@ STARTUP_SECONDS = 30
 
 def _busctl(*args: str, timeout: float = 2) -> subprocess.CompletedProcess | None:
     try:
-        return subprocess.run(["busctl", "--user", *args], capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(["busctl", "--user", *args], capture_output=True, text=True, timeout=timeout, check=False)
     except OSError, subprocess.TimeoutExpired:
         return None
 
@@ -37,7 +39,9 @@ def parse_now_playing(output: str) -> NowPlaying:
         status, metadata = values[0], values[1]
     except ValueError, KeyError, TypeError, IndexError:
         return NowPlaying(running=True)
-    volume = values[2] if len(values) > 2 and isinstance(values[2], (int, float)) else None
+    volume = (
+        values[VOLUME_INDEX] if len(values) > VOLUME_INDEX and isinstance(values[VOLUME_INDEX], (int, float)) else None
+    )
 
     def text(key: str) -> str:
         value = metadata.get(key, {}).get("data", "")

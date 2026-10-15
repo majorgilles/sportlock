@@ -25,6 +25,9 @@ type Rule = Literal[
 type Neighbour = tuple[str, str]  # (exercise id, name)
 
 MAX_TOP_REPS = 20
+EASY_RPE = 6
+MANAGEABLE_RPE = 8
+STRAINING_RPE = 9
 HOLD_UP_AT = 60
 HOLD_RESTART = 20
 HOLD_MAX = 90
@@ -46,10 +49,9 @@ class SetResult(ValueObject):
     seconds: float
 
 
-def propose(
+def propose(  # noqa: PLR0913 (one keyword per fact of the done exercise that the rules read)
     *,
     exercise: str,
-    name: str,
     kind: str,
     target: Target,
     sets: list[SetResult],
@@ -67,7 +69,7 @@ def propose(
 
 
 def too_hard(*, name: str, target: Target, easier: Neighbour) -> Proposal:
-    """ "Too hard" was pressed during the session: down to the easier variation."""
+    """The "Too hard" button was pressed during the session: down to the easier variation."""
     return Proposal(
         rule="too-hard",
         exercise=easier[0],
@@ -90,7 +92,7 @@ def _reps(
     missed = done < planned or any(r < lo for r in reps)
     did = f"{' / '.join(map(str, reps))} reps at effort {rpe}"
 
-    if all_top and rpe <= 6 or all_top and rpe <= 8 and hi >= MAX_TOP_REPS:
+    if all_top and rpe <= EASY_RPE or all_top and rpe <= MANAGEABLE_RPE and hi >= MAX_TOP_REPS:
         if harder:
             return Proposal(
                 rule="up",
@@ -104,11 +106,11 @@ def _reps(
             target=target.with_(reps=(lo + 2, hi + 2)),
             reason=f"{did}: hardest variation, +2 reps",
         )
-    if all_top and rpe <= 8:
+    if all_top and rpe <= MANAGEABLE_RPE:
         return Proposal(
             rule="add", exercise=exercise, target=target.with_(reps=(lo + 1, hi + 1)), reason=f"{did}: +1 rep per set"
         )
-    if missed or rpe >= 9 and not all_top:
+    if missed or rpe >= STRAINING_RPE and not all_top:
         why = f"{_plural(done, 'set')} of {planned}" if done < planned else did
         if easier:
             return Proposal(rule="down", exercise=easier[0], target=target, reason=f"{why}: too hard → {easier[1]}")
@@ -132,7 +134,7 @@ def _hold(
     missed = done < planned or any(s < goal * 0.8 for s in seconds)
     did = f"{' / '.join(str(round(s)) for s in seconds)} s at effort {rpe}"
 
-    if all_top and rpe <= 6:
+    if all_top and rpe <= EASY_RPE:
         if goal >= HOLD_UP_AT and harder:
             return Proposal(
                 rule="up",
@@ -143,11 +145,11 @@ def _hold(
         return Proposal(
             rule="add", exercise=exercise, target=target.with_(seconds=min(HOLD_MAX, goal + 10)), reason=f"{did}: +10 s"
         )
-    if all_top and rpe <= 8:
+    if all_top and rpe <= MANAGEABLE_RPE:
         return Proposal(
             rule="add", exercise=exercise, target=target.with_(seconds=min(HOLD_MAX, goal + 5)), reason=f"{did}: +5 s"
         )
-    if missed or rpe >= 9 and not all_top:
+    if missed or rpe >= STRAINING_RPE and not all_top:
         why = f"{_plural(done, 'set')} of {planned}" if done < planned else did
         if easier:
             return Proposal(

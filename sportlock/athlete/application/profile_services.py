@@ -10,8 +10,10 @@ from sportlock.settings.domain.settings import Settings
 
 
 class SaveProfileService:
-    """Validates and stores the profile. The first time only, an experienced athlete's ladders
-    start above the beginner positions."""
+    """Validates and stores the profile.
+
+    The first time only, an experienced athlete's ladders start above the beginner positions.
+    """
 
     def __init__(self, profiles: ProfileRepositoryProtocol, ladders: LadderRepositoryProtocol) -> None:
         self.profiles = profiles

@@ -1,5 +1,7 @@
-"""The active session as the lock screen shows it (part of the state-file contract with
-locks/ui/lock_screen/shell.qml)."""
+"""The active session as the lock screen shows it.
+
+This is part of the state-file contract with locks/ui/lock_screen/shell.qml.
+"""
 
 from __future__ import annotations
 

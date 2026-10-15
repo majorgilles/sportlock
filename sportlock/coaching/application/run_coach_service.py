@@ -1,5 +1,7 @@
-"""Plan the next session with the coach. Runs after every session and every profile change, in the
-background: it can take minutes."""
+"""Plan the next session with the coach.
+
+Runs after every session and every profile change, in the background: it can take minutes.
+"""
 
 from __future__ import annotations
 
@@ -46,7 +48,7 @@ class RunCoachCommand(ValueObject):
 class RunCoachService:
     """Asks the coach, validates, then stores the plan, its ladder overrides and memory changes."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 (one injected port per dependency)
         self,
         coach: CoachProtocol,
         catalogue: Catalogue,

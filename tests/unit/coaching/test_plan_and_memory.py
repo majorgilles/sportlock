@@ -41,18 +41,18 @@ def test_parse_coach_output__good_answer__plan_with_targets(catalogue):
 @pytest.mark.parametrize(
     "label, mutate",
     [
-        ("unknown exercise", lambda o: o["hard"]["exercises"].__setitem__(1, item("burpee-deluxe", 3, 8, 12))),
-        ("missing equipment", lambda o: o["hard"]["exercises"].__setitem__(1, item("pull-up", 3, 5, 8))),
-        ("reps on a hold", lambda o: o["hard"]["exercises"].__setitem__(3, item("plank", 3, 8, 12))),
-        ("too many sets", lambda o: o["hard"]["exercises"].__setitem__(2, item("bodyweight-squat", 9, 12, 15))),
+        ("unknown exercise", lambda o: o["hard"]["exercises"].__setitem__(1, item("burpee-deluxe", 3, (8, 12)))),
+        ("missing equipment", lambda o: o["hard"]["exercises"].__setitem__(1, item("pull-up", 3, (5, 8)))),
+        ("reps on a hold", lambda o: o["hard"]["exercises"].__setitem__(3, item("plank", 3, (8, 12)))),
+        ("too many sets", lambda o: o["hard"]["exercises"].__setitem__(2, item("bodyweight-squat", 9, (12, 15)))),
         (
             "override without reason",
-            lambda o: o["ladder_overrides"].append({"chain": "squat", **item("box-squat", 3, 10, 12), "reason": " "}),
+            lambda o: o["ladder_overrides"].append({"chain": "squat", **item("box-squat", 3, (10, 12)), "reason": " "}),
         ),
         (
             "override on the wrong chain",
             lambda o: o["ladder_overrides"].append(
-                {"chain": "core", **item("box-squat", 3, 10, 12), "reason": "knee pain"}
+                {"chain": "core", **item("box-squat", 3, (10, 12)), "reason": "knee pain"}
             ),
         ),
     ],

@@ -11,7 +11,8 @@ RATE = 44100
 OUT = Path(__file__).resolve().parent.parent / "sportlock" / "locks" / "ui" / "lock_screen" / "sounds"
 
 
-def render(name, ms, parts, volume):
+def render(name: str, ms: int, parts: list[tuple[str, float, float, float]], volume: float) -> None:
+    """Write one sound effect as a WAV file in the lock screen's sounds folder."""
     random.seed(7)
     n = int(RATE * ms / 1000)
     out = [0.0] * n

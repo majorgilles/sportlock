@@ -1,7 +1,10 @@
 from datetime import timedelta
 
+from sportlock.app.container import Container
+from sportlock.app.daemon import Daemon
 from sportlock.progression.domain.ladders import positions
 from sportlock.training.application.session_services import BeginTrainingSessionCommand
+from tests.world import World
 
 HOUSE = frozenset({"chair", "table", "bench", "doorway"})
 
@@ -102,8 +105,6 @@ def test_snapshot__exercises_on_both_sides__sides_shown(world):
 
 
 def test_session__survives_a_restart_of_the_service(world, tmp_path, catalogue):
-    from tests.world import World
-
     world.at("18:00")
     _do_set(world, 300)
     assert world.train("rate", rpe=3)["ok"]
@@ -111,9 +112,6 @@ def test_session__survives_a_restart_of_the_service(world, tmp_path, catalogue):
     # when: a new process on the same database
     restarted = World.__new__(World)
     restarted.__dict__.update(world.__dict__)
-    from sportlock.app.container import Container
-    from sportlock.app.daemon import Daemon
-
     restarted.c = Container(
         db_path=tmp_path / "db.sqlite",
         config_path=world.config_path,

@@ -1,5 +1,7 @@
-"""The exercises replaced after the last session, and the athlete's answer: agree, or keep the old
-exercise (the warning popup and the lock screen ask before the session)."""
+"""The exercises replaced after the last session, and the athlete's answer.
+
+Agree, or keep the old exercise (the warning popup and the lock screen ask before the session).
+"""
 
 from __future__ import annotations
 
@@ -51,10 +53,13 @@ class AnswerReplacementCommand(ValueObject):
 
 
 class AnswerReplacementService:
-    """Records the answer. Keeping the old exercise moves the ladder back and puts the exercise back
-    in the coach's plan and in a session that hasn't reached it yet."""
+    """Records the answer.
 
-    def __init__(
+    Keeping the old exercise moves the ladder back and puts the exercise back in the coach's plan and in a session that
+    hasn't reached it yet.
+    """
+
+    def __init__(  # noqa: PLR0913 (one injected port per dependency)
         self,
         pending: PendingReplacementsService,
         answers: ReplacementAnswerRepositoryProtocol,

@@ -1,5 +1,7 @@
-"""Composition root: builds the adapters and wires them into the use cases. The only module that
-knows every concrete class; tests pass fakes for the desktop, the screens, the coach and the clock."""
+"""Composition root: builds the adapters and wires them into the use cases.
+
+The only module that knows every concrete class; tests pass fakes for the desktop, the screens, the coach and the clock.
+"""
 
 from __future__ import annotations
 
@@ -90,7 +92,7 @@ class SystemClock(ClockProtocol):
 class Container:
     """Everything the service and the CLI use, built once."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 (the composition root takes one keyword per replaceable adapter)
         self,
         *,
         db_path: Path = DB_PATH,
@@ -113,6 +115,23 @@ class Container:
         self.catalogue = catalogue or load_catalogue()
         self.details = FileExerciseDetailsRepository(library_dir)
 
+        self._build_settings(config_path)
+        self._build_repositories()
+        self._build_adapters(
+            state_path=state_path,
+            lock_screen=lock_screen,
+            popup=popup,
+            coach=coach,
+            music_player=music_player,
+            music_library=music_library,
+            music_account=music_account,
+        )
+        self._build_training_services()
+        self._build_lock_services()
+        self._build_coach_services()
+        self._build_music_services()
+
+    def _build_settings(self, config_path: Path) -> None:
         self.settings = SettingsState()
         self.settings_repository = TomlSettingsRepository(config_path)
         self.reload_settings = ReloadSettingsService(self.settings, self.settings_repository, self.desktop)
@@ -120,6 +139,7 @@ class Container:
         self.get_settings = GetSettingsService(self.settings, self.settings_repository)
         self.save_settings = SaveSettingsService(self.settings, self.settings_repository, self.reload_settings)
 
+    def _build_repositories(self) -> None:
         self.profiles = KvProfileRepository(self.database)
         self.ladders = SqliteLadderRepository(self.database)
         self.sessions = SqliteTrainingSessionRepository(self.database)
@@ -134,6 +154,17 @@ class Container:
         self.coach_reviews = SqliteCoachReviewRepository(self.database)
         self.runtime = InMemoryLockRuntime()
 
+    def _build_adapters(  # noqa: PLR0913 (one keyword per replaceable adapter, as in __init__)
+        self,
+        *,
+        state_path: Path | None,
+        lock_screen: LockScreenProtocol | None,
+        popup: WarningPopupProtocol | None,
+        coach: CoachProtocol | None,
+        music_player: MusicPlayerProtocol | None,
+        music_library: MusicLibraryProtocol | None,
+        music_account: MusicAccountProtocol | None,
+    ) -> None:
         self.lock_screen = lock_screen or QuickshellLockScreen(state_path or Path("/dev/null"), CLI)
         self.popup = popup or QuickshellWarningPopup(CLI)
         self.music_player = music_player or SpotifyMprisPlayer()
@@ -142,6 +173,7 @@ class Container:
         self.music_account = music_account or spotify_web
         self.coach = coach or ClaudeCoach(self.settings.settings.notebook_id, SEARCH_TOOL)
 
+    def _build_training_services(self) -> None:
         self.freshness = CoachPlanFreshness(self.coach_plans, self.history, self.profiles)
         self.progression = ApplySessionProgressionService(self.ladders, self.catalogue)
         self.save_profile = SaveProfileService(self.profiles, self.ladders)
@@ -163,6 +195,8 @@ class Container:
             self.sessions,
             self.catalogue,
         )
+
+    def _build_lock_services(self) -> None:
         self.plan_lock = PlanScheduledLockService(
             self.lock_state, self.freshness, self.history, self.lock_events, self.desktop
         )
@@ -191,6 +225,8 @@ class Container:
         self.end_lock_on_finish = EndLockOnSessionFinishedService(
             self.runtime, self.lock_events, self.catalogue, self.desktop
         )
+
+    def _build_coach_services(self) -> None:
         self.run_coach = RunCoachService(
             self.coach,
             self.catalogue,
@@ -224,6 +260,8 @@ class Container:
         self.calendar = BuildCalendarService(
             self.history, self.lock_events, self.lock_state, self.freshness, self.catalogue
         )
+
+    def _build_music_services(self) -> None:
         self.control_music = ControlMusicService(self.music_player)
         self.music_snapshot = MusicSnapshotService(self.music_player, self.music_library, self.settings)
         self.connect_music_account = ConnectMusicAccountService(self.music_account)

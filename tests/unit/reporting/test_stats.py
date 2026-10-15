@@ -13,18 +13,20 @@ from sportlock.reporting.domain.report import (
 TODAY = date(2026, 10, 13)
 
 
-def _session(id, day, minutes=20, rpe=5, status="finished", day_type="hard", exercises=()):
+def _session(session_id, day, minutes=20, **overrides):
+    """A session record; `overrides` replace the defaults for rpe, status, day_type and exercises."""
+    fields = {"rpe": 5, "status": "finished", "day_type": "hard", "exercises": (), **overrides}
     start = datetime.combine(day, datetime.min.time()).replace(hour=18)
     return SessionRecord(
-        id=id,
+        id=session_id,
         day=day,
         started_at=start,
         finished_at=start.replace(minute=minutes),
         kind="scheduled",
-        status=status,
-        day_type=day_type,
-        rpe=rpe,
-        exercises=tuple(exercises),
+        status=fields["status"],
+        day_type=fields["day_type"],
+        rpe=fields["rpe"],
+        exercises=tuple(fields["exercises"]),
     )
 
 

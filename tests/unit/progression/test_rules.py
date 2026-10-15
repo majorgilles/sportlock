@@ -18,7 +18,6 @@ def _holds(*values):
 def _propose(target, sets, rpe, kind="reps", easier=EASIER, harder=HARDER):
     return propose(
         exercise="incline-push-up",
-        name="Incline push-up",
         kind=kind,
         target=target,
         sets=sets,

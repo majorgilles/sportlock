@@ -76,8 +76,10 @@ def windows_for_day(settings: Settings, day: date) -> list[Window]:
 
 
 def windows_around(settings: Settings, now: datetime) -> list[Window]:
-    """Windows from yesterday (one may run past midnight) through the next week, so the next
-    lock is found even across a weekend or a schedule with few days."""
+    """Windows from yesterday (one may run past midnight) through the next week.
+
+    The next lock is then found even across a weekend or a schedule with few days.
+    """
     today = now.date()
     days = [today + timedelta(days=offset) for offset in range(-1, LOOKAHEAD_DAYS)]
     return [window for day in days for window in windows_for_day(settings, day)]
@@ -85,7 +87,9 @@ def windows_around(settings: Settings, now: datetime) -> list[Window]:
 
 def decide(settings: Settings, now: datetime, *, trained_days: set[date], ended: set[str]) -> Decision:
     """`trained_days`: days with a finished session (their windows are skipped).
-    `ended`: keys of windows already ended early (session finished, override or rest day)."""
+
+    `ended`: keys of windows already ended early (session finished, override or rest day).
+    """
     if not settings.enabled:
         return Decision(active=None, next=None, warning=None)
     live = [w for w in windows_around(settings, now) if w.day not in trained_days and w.key not in ended]

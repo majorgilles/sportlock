@@ -82,8 +82,11 @@ class CoachMemory(Aggregate):
         return sorted(self.notes.values(), key=lambda n: n.id)
 
     def apply(self, operations: list[MemoryOperation], *, by: str, today: date) -> list[str]:
-        """Apply the coach's operations in order. Invalid ones are skipped (one bad operation must
-        not lose a whole plan); returns why each skipped one was refused."""
+        """Apply the coach's operations in order.
+
+        Invalid ones are skipped (one bad operation must not lose a whole plan); returns why each skipped one was
+        refused.
+        """
         refused = []
         for operation in operations:
             text = " ".join((operation.text or "").split())[:MAX_NOTE_LENGTH]

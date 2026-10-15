@@ -5,20 +5,27 @@ from __future__ import annotations
 from sportlock.shared_kernel.plans import PlannedExercise, SessionPlan
 
 MIN_TIMED_SECONDS = 120
+BOOKENDS = 2  # the warm-up and the cool-down, never dropped
+MIN_FITTED_SETS = 2  # fitting never takes an exercise below this many sets
 
 
 def estimate_seconds(
     items: list[PlannedExercise] | tuple[PlannedExercise, ...], *, pace: float = 1.0, transition: int = 0
 ) -> int:
-    """Expected session length: sets × (work + rest) scaled by the measured pace, plus the
-    measured gap between exercises."""
+    """Expected session length.
+
+    Sets × (work + rest) scaled by the measured pace, plus the measured gap between exercises.
+    """
     work = sum(item.target.naive_seconds() for item in items)
     return int(work * pace + transition * len(items))
 
 
 def fit_plan(plan: SessionPlan, minutes: float, *, pace: float = 1.0, transition: int = 0) -> SessionPlan:
-    """Shrink the plan to fit the lock: fewer sets first, then shorter warm-up/cool-down, then
-    drop main exercises from the end. Warm-up and cool-down (first/last) always stay."""
+    """Shrink the plan to fit the lock.
+
+    Fewer sets first, then shorter warm-up/cool-down, then drop main exercises from the end. Warm-up and cool-down
+    (first/last) always stay.
+    """
     items = list(plan.items)
     budget = minutes * 60
 
@@ -26,10 +33,10 @@ def fit_plan(plan: SessionPlan, minutes: float, *, pace: float = 1.0, transition
         return estimate_seconds(items, pace=pace, transition=transition) > budget
 
     def main() -> range:
-        return range(1, len(items) - 1) if len(items) > 2 else range(0)
+        return range(1, len(items) - 1) if len(items) > BOOKENDS else range(0)
 
     while too_long():
-        reducible = [i for i in main() if items[i].target.sets > 2]
+        reducible = [i for i in main() if items[i].target.sets > MIN_FITTED_SETS]
         if reducible:
             i = max(reducible, key=lambda i: items[i].target.sets)
             items[i] = items[i].model_copy(update={"target": items[i].target.with_(sets=items[i].target.sets - 1)})
