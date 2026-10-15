@@ -39,7 +39,7 @@ These shapes are contracts. They are kept as they were, and changed only on purp
 ### Positive
 
 - The refactor shipped without touching the QML or migrating stored JSON.
-- An upgrade mid-session resumes the session (tested: `test_session__survives_a_restart_of_the_service`).
+- An upgrade mid-session resumes the session (tested: `test_session__service_restarted__resumes`).
 
 ### Negative
 

@@ -42,7 +42,7 @@ class DesktopProtocol(Protocol):
         ...
 
     def theme(self) -> dict[str, str]:
-        """Colours for the sportlock screens."""
+        """Colors for the sportlock screens."""
         ...
 
 

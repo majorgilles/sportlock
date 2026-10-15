@@ -46,7 +46,7 @@ def test_finish__a_session__unlocks_counts_and_says_what_changes(world):
     assert "Session done ✓" in world.desktop.notifications
 
 
-def test_override__needs_the_phrase_then_waits_out_the_countdown(world):
+def test_override__phrase_typed_exactly__ends_the_lock_after_the_countdown(world):
     world.at("18:00")
     assert not world.cmd(cmd="override", phrase="let me out")["ok"]
     assert world.cmd(cmd="override", phrase="i am choosing  to skip my training TODAY")["ok"]
@@ -57,7 +57,7 @@ def test_override__needs_the_phrase_then_waits_out_the_countdown(world):
     assert world.c.database.execute("SELECT status FROM sessions").fetchone()[0] == "overridden"
 
 
-def test_cancel_override__the_lock_stays(world):
+def test_cancel_override__during_the_countdown__keeps_the_lock(world):
     world.at("18:00")
     world.cmd(cmd="override", phrase="I am choosing to skip my training today")
     world.cmd(cmd="cancel-override")
@@ -98,7 +98,7 @@ def test_test_lock__one_minute__not_overridable_and_never_counts(world):
     assert world.at("18:00")["locked"]  # a test session is not training
 
 
-def test_test_lock__runs_out_after_a_minute(world):
+def test_test_lock__after_a_minute__runs_out(world):
     world.at("12:00")
     world.cmd(cmd="test")
     assert world.at("12:00")["locked"]

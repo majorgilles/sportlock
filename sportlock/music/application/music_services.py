@@ -53,7 +53,7 @@ class ControlMusicService:
 class MusicSnapshotService:
     """The music panel's part of the state file.
 
-    The player, the favourites from the settings, and the playlists in the user's Spotify account.
+    The player, the favorites from the settings, and the playlists in the user's Spotify account.
     """
 
     def __init__(self, player: MusicPlayerProtocol, library: MusicLibraryProtocol, settings: SettingsState) -> None:
@@ -64,7 +64,7 @@ class MusicSnapshotService:
     def execute(self) -> dict:
         """The music panel's data.
 
-        Shaped {"player": {...}, "playlists": [favourites], "library": {"connected", "loading", "error", "playlists"}}.
+        Shaped {"player": {...}, "playlists": [favorites], "library": {"connected", "loading", "error", "playlists"}}.
         """
         return {
             "player": self.player.now_playing().model_dump(),

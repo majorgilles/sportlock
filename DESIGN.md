@@ -1,4 +1,4 @@
-# sportlock — design
+# sportlock design
 
 Agreed design (grilling session, 2026-10-02). This is the source of truth for scope.
 
@@ -30,7 +30,7 @@ session skips the rest of the day's locks.
 
 ## Training mode
 
-`ext-session-lock` surface on every monitor (Quickshell `WlSessionLock`), Omarchy theme colours.
+`ext-session-lock` surface on every monitor (Quickshell `WlSessionLock`), Omarchy theme colors.
 One exercise card at a time: picture, target, "Details" (steps, cues, mistakes, variations,
 citations). Per-set reps/weight with rest timer, one RPE (1–10) per exercise, keyboard driven.
 "Too hard" swaps to the easier variation; "Skip" requires a reason. End: overall RPE + notes.

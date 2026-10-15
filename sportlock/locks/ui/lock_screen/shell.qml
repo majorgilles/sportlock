@@ -1272,7 +1272,7 @@ ShellRoot {
               }
             }
 
-            // Favourites (from the settings), then every playlist in the Spotify account
+            // Favorites (from the settings), then every playlist in the Spotify account
             Column {
               width: parent.width
               spacing: 12

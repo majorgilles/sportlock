@@ -80,7 +80,7 @@ def test_doctor__ladder_on_the_wrong_chain__reset(world):
     assert world.c.database.execute("SELECT COUNT(*) FROM ladders").fetchone()[0] == 0
 
 
-def test_report__written_with_the_note_and_the_doctor(world):
+def test_report__with_a_note__includes_the_note_and_the_doctor(world):
     path = world.cmd(cmd="report", note="lock screen froze")["path"]
     text = Path(path).read_text()
     assert "lock screen froze" in text and "## Doctor" in text

@@ -1,4 +1,4 @@
-"""The Omarchy desktop: notifications, media players, idle and lock state, theme colours."""
+"""The Omarchy desktop: notifications, media players, idle and lock state, theme colors."""
 
 from __future__ import annotations
 
@@ -78,7 +78,7 @@ def omarchy_lock_active() -> bool:
 
 
 def theme() -> dict[str, str]:
-    """The current Omarchy theme's colours."""
+    """The current Omarchy theme's colors."""
     colors = {
         "background": "#121212",
         "foreground": "#bebebe",
@@ -132,5 +132,5 @@ class OmarchyDesktop(DesktopProtocol):
 
     @override
     def theme(self) -> dict[str, str]:
-        """The current Omarchy theme's colours."""
+        """The current Omarchy theme's colors."""
         return theme()

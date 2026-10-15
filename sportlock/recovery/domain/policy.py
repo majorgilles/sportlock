@@ -1,6 +1,6 @@
 """Recovery-aware scheduling.
 
-How fast the athlete really trains, how much load they carry, and what each scheduled lock should be — a hard session, a
+How fast the athlete really trains, how much load they carry, and what each scheduled lock should be: a hard session, a
 (shorter) recovery session, or a rest day.
 
 The coach proposes what the next lock should be (`next_lock` in its plan); these rules make the

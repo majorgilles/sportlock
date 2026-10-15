@@ -81,7 +81,7 @@ def test_local_plan__recovery__mobility_day_with_available_stretches(catalogue):
     assert plan.note == "Hard session 20 h ago"
 
 
-def test_is_recovery_day__by_the_48_hour_rule():
+def test_is_recovery_day__within_48_hours_of_a_hard_session__is_true():
     assert is_recovery_day(None, NOW - timedelta(hours=20), NOW)
     assert not is_recovery_day(None, NOW - timedelta(hours=49), NOW)
     assert not is_recovery_day("hard", NOW - timedelta(hours=20), NOW)

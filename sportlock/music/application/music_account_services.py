@@ -31,7 +31,7 @@ class DisconnectMusicAccountService:
         self.account = account
 
     def execute(self) -> None:
-        """The lock screen only shows the favourites afterwards."""
+        """The lock screen only shows the favorites afterwards."""
         self.account.logout()
 
 

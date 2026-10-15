@@ -23,7 +23,8 @@ from sportlock.athlete.application.profile_services import equipment_of
 from sportlock.coaching.application.run_coach_service import RunCoachCommand
 from sportlock.coaching.domain.plan import CoachOutputError
 from sportlock.coaching.domain.ports import CoachUnavailableError
-from sportlock.locks.application.lock_services import policy_of, restore_desktop
+from sportlock.locks.application.lock_services import policy_of
+from sportlock.locks.application.tick_services import restore_desktop
 from sportlock.locks.domain.schedule import Decision, settings_frozen, windows_around
 from sportlock.music.application.music_account_services import ConnectMusicAccountCommand
 from sportlock.music.domain.music import MusicError, client_id_of
@@ -62,7 +63,7 @@ class Daemon:
         """Reload settings, back up, lock or unlock, refresh the state file, maybe run the coach."""
         with self.mutex:
             now = self.c.clock.now()
-            self.c.reload_settings.execute(decision=self.c.tick.decision(now), now=now)
+            self.c.reload_settings.execute(decision=self.c.schedule_decision.execute(now), now=now)
             self.c.database.backup_daily(now.date())
             decision = self.c.tick.execute(now)
             self.write_state(now, decision)
@@ -204,7 +205,7 @@ class Daemon:
             "replacements": [r.to_dict() for r in self.c.pending_replacements.execute()] if lock else [],
             "theme": self.c.desktop.theme(),
             "setup": {
-                "profile": self.c.tick.setup_complete(),
+                "profile": self.c.check_setup.execute(),
                 "agent_running": self.coach_running(),
                 "plan_ready": self.c.freshness.fresh_plan() is not None,
             },
@@ -219,7 +220,7 @@ class Daemon:
 
     def frozen(self, now: datetime) -> bool:
         """Whether settings edits wait for the current lock."""
-        return settings_frozen(self.c.tick.decision(now), now)
+        return settings_frozen(self.c.schedule_decision.execute(now), now)
 
     # -- lifecycle ---------------------------------------------------------------------------
 
@@ -245,8 +246,8 @@ class Daemon:
             time.sleep(TICK_SECONDS)
         with self.mutex:
             now = self.c.clock.now()
-            self.c.tick.release(now)
-            self.write_state(now, self.c.tick.decision(now))
+            self.c.leave_lock.execute(now)
+            self.write_state(now, self.c.schedule_decision.execute(now))
         server.shutdown()
         SOCKET_PATH.unlink(missing_ok=True)
 

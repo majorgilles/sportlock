@@ -89,7 +89,7 @@ def test_decide__before_a_lock__most_urgent_warning_crossed():
         assert _decide(SIX_PM, _at(MON, now)).warning == expected, now
 
 
-def test_settings_frozen__from_ten_minutes_before_until_the_lock_ends():
+def test_settings_frozen__ten_minutes_before_until_the_lock_ends__is_true():
     def frozen(now):
         return settings_frozen(_decide(SIX_PM, _at(MON, now)), _at(MON, now))
 

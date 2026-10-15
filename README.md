@@ -130,7 +130,7 @@ equipment = ["chair", "table", "bench", "doorway"]
 [notebook]
 id = "876228fa-5c2b-4ced-8d81-ee0de4d7e93a"   # NotebookLM notebook with your training books
 
-# Favourite Spotify playlists, albums or songs, at the top of the lock screen's music panel.
+# Favorite Spotify playlists, albums or songs, at the top of the lock screen's music panel.
 # In Spotify: Share → Copy link.
 [[music.playlist]]
 name = "Beast mode"
@@ -214,7 +214,7 @@ full volume when a lock begins (or when the panel starts it) and put back to you
 **Open Spotify** starts the app if it isn't running. Other players are still paused when a lock
 begins; you pick the music.
 
-**Playlists** opens your favourites (★, from the settings) and, once your Spotify account is
+**Playlists** opens your favorites (★, from the settings) and, once your Spotify account is
 connected, every playlist in it plus Liked Songs, with covers and a filter. Click one to play it.
 Connecting the account is a one-time setup in `sportlock app settings` → **Spotify account**
 (Spotify's Web API needs an app of your own; it is free and needs no secret):
@@ -452,7 +452,7 @@ tools/make_sounds.py            # regenerate the tick sounds
 SPORTLOCK_PREVIEW=1 SPORTLOCK_STATE=$XDG_RUNTIME_DIR/sportlock/state.json qs -p sportlock/locks/ui/lock_screen
 ```
 
-The code is organised by feature (screaming architecture), each feature in clean-architecture
+The code is organized by feature (screaming architecture), each feature in clean-architecture
 layers: `domain/` (pydantic models and rules, no I/O), `application/` (use cases, one
 `execute` each, depending on ports), `infrastructure/` (SQLite, config.toml, Claude,
 NotebookLM, Quickshell, the Omarchy desktop, Spotify). `sportlock/app/` is the composition root and the

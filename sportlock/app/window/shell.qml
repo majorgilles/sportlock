@@ -1,5 +1,5 @@
 // sportlock app window: calendar, report, profile, and schedule & settings. Talks to the service through
-// `sportlock raw`, reads theme colours from the service's state file.
+// `sportlock raw`, reads theme colors from the service's state file.
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -1562,7 +1562,7 @@ ShellRoot {
         }
 
         Section {
-          title: "Favourite music"
+          title: "Favorite music"
           hint: "Playlists, albums or songs shown first (★) in the lock screen's music panel; they work without connecting an account. In Spotify: Share → Copy link, then paste it here."
           Repeater {
             model: root.settings ? root.settings.music_playlists : []

@@ -178,7 +178,7 @@ def _settings_get(daemon: Daemon, request: dict, now: datetime) -> dict:
 
 def _settings_save(daemon: Daemon, request: dict, now: datetime) -> dict:
     c = daemon.c
-    pending = c.save_settings.execute(request.get("settings") or {}, decision=c.tick.decision(now), now=now)
+    pending = c.save_settings.execute(request.get("settings") or {}, decision=c.schedule_decision.execute(now), now=now)
     daemon.schedule_tick()
     return {"ok": True, "pending": pending}
 
@@ -244,7 +244,7 @@ def _log(daemon: Daemon, request: dict, now: datetime) -> dict:
 
 def _reload(daemon: Daemon, request: dict, now: datetime) -> dict:
     c = daemon.c
-    c.reload_settings.execute(decision=c.tick.decision(now), now=now, force=not c.settings.pending)
+    c.reload_settings.execute(decision=c.schedule_decision.execute(now), now=now, force=not c.settings.pending)
     return {"ok": True, "pending": c.settings.pending, "error": c.settings.error}
 
 

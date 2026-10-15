@@ -11,10 +11,21 @@ from pathlib import Path
 from sportlock.athlete.application.profile_services import SaveProfileService
 from sportlock.athlete.infrastructure.kv_profile_repository import KvProfileRepository
 from sportlock.calendar.application.build_calendar_service import BuildCalendarService
+from sportlock.coaching.application.coach_context_service import BuildCoachContextService, RecallCoachMemoryService
 from sportlock.coaching.application.fresh_plan import CoachPlanFreshness
 from sportlock.coaching.application.memory_services import ForgetMemoryNoteService, GetMemoryService
-from sportlock.coaching.application.replacement_services import AnswerReplacementService, PendingReplacementsService
-from sportlock.coaching.application.run_coach_service import RunCoachService
+from sportlock.coaching.application.replacement_services import (
+    AnswerReplacementService,
+    KeepReplacedExerciseService,
+    PendingReplacementsService,
+)
+from sportlock.coaching.application.run_coach_service import (
+    ApplyLadderOverridesService,
+    LogCoachRunService,
+    PrepareCoachRunService,
+    RunCoachService,
+    StoreCoachPlanService,
+)
 from sportlock.coaching.domain.ports import CoachProtocol
 from sportlock.coaching.infrastructure.claude_coach import ClaudeCoach
 from sportlock.coaching.infrastructure.sqlite_repositories import (
@@ -35,9 +46,20 @@ from sportlock.locks.application.lock_services import (
     EndLockOnSessionFinishedService,
     PlanScheduledLockService,
     RequestOverrideService,
-    RunLockTickService,
     StartManualLockService,
     StartTestLockService,
+)
+from sportlock.locks.application.tick_services import (
+    CheckSetupCompleteService,
+    ChooseLockService,
+    EnterLockService,
+    GetScheduleDecisionService,
+    LeaveLockService,
+    PrepareDesktopForLockService,
+    RunLockTickService,
+    SettleOverrideService,
+    SwitchLockService,
+    WarnOfNextLockService,
 )
 from sportlock.locks.infrastructure.in_memory_runtime import InMemoryLockRuntime
 from sportlock.locks.infrastructure.quickshell import QuickshellLockScreen, QuickshellWarningPopup
@@ -57,7 +79,11 @@ from sportlock.music.infrastructure.spotify_mpris import SpotifyMprisPlayer
 from sportlock.music.infrastructure.spotify_web import SpotifyWebLibrary
 from sportlock.progression.application.apply_session_progression_service import ApplySessionProgressionService
 from sportlock.progression.infrastructure.sqlite_ladder_repository import SqliteLadderRepository
-from sportlock.reporting.application.report_services import BuildReportService, WriteCoachReviewService
+from sportlock.reporting.application.report_services import (
+    BuildReportService,
+    TrainingRecords,
+    WriteCoachReviewService,
+)
 from sportlock.settings.application.settings_services import (
     GetSettingsService,
     ReloadSettingsService,
@@ -189,34 +215,32 @@ class Container:
         self.answer_replacement = AnswerReplacementService(
             self.pending_replacements,
             self.replacement_answers,
-            self.ladders,
-            self.coach_plans,
-            self.freshness,
-            self.sessions,
-            self.catalogue,
+            KeepReplacedExerciseService(self.ladders, self.coach_plans, self.freshness, self.sessions, self.catalogue),
         )
 
     def _build_lock_services(self) -> None:
         self.plan_lock = PlanScheduledLockService(
             self.lock_state, self.freshness, self.history, self.lock_events, self.desktop
         )
+        self.schedule_decision = GetScheduleDecisionService(self.settings, self.history, self.lock_events)
+        self.check_setup = CheckSetupCompleteService(self.profiles)
+        prepare_desktop = PrepareDesktopForLockService(self.lock_state, self.desktop, self.music_player, self.popup)
+        enter_lock = EnterLockService(
+            self.runtime, prepare_desktop, self.lock_events, self.begin_session, self.profiles, self.settings
+        )
+        self.leave_lock = LeaveLockService(
+            self.runtime, self.lock_events, self.close_session, self.lock_state, self.desktop, self.music_player
+        )
         self.tick = RunLockTickService(
-            self.settings,
-            self.runtime,
-            self.lock_events,
-            self.overrides,
-            self.lock_state,
-            self.history,
-            self.profiles,
-            self.plan_lock,
-            self.begin_session,
-            self.close_session,
-            self.freshness,
-            self.pending_replacements,
-            self.desktop,
-            self.lock_screen,
-            self.popup,
-            self.music_player,
+            SettleOverrideService(self.runtime, self.overrides, self.lock_events),
+            self.schedule_decision,
+            ChooseLockService(
+                self.runtime, self.lock_state, self.lock_events, self.plan_lock, self.check_setup, self.settings
+            ),
+            WarnOfNextLockService(
+                self.settings, self.lock_state, self.freshness, self.pending_replacements, self.desktop, self.popup
+            ),
+            SwitchLockService(self.runtime, enter_lock, self.leave_lock, self.lock_screen),
         )
         self.start_test_lock = StartTestLockService(self.runtime)
         self.start_manual_lock = StartManualLockService(self.runtime, self.lock_state)
@@ -227,33 +251,34 @@ class Container:
         )
 
     def _build_coach_services(self) -> None:
+        build_context = BuildCoachContextService(
+            self.profiles,
+            self.ladders,
+            self.history,
+            self.lock_events,
+            self.catalogue,
+            RecallCoachMemoryService(self.memory, self.replacement_answers, self.catalogue),
+        )
+        store_plan = StoreCoachPlanService(
+            ApplyLadderOverridesService(self.ladders),
+            self.history,
+            self.memory,
+            self.coach_plans,
+            self.coach_reviews,
+            self.clock,
+        )
         self.run_coach = RunCoachService(
             self.coach,
             self.catalogue,
-            self.coach_plans,
-            self.coach_runs,
-            self.memory,
-            self.replacement_answers,
-            self.coach_reviews,
-            self.ladders,
-            self.history,
-            self.profiles,
-            self.lock_events,
+            PrepareCoachRunService(self.clock, self.freshness, build_context),
+            LogCoachRunService(self.coach_runs, self.clock),
+            store_plan,
             self.desktop,
-            self.clock,
         )
-        self.report = BuildReportService(
-            self.profiles,
-            self.history,
-            self.ladders,
-            self.memory,
-            self.coach_reviews,
-            self.lock_events,
-            self.catalogue,
-            self.clock,
-        )
+        records = TrainingRecords(self.history, self.ladders, self.lock_events, self.catalogue, self.clock)
+        self.report = BuildReportService(records, self.profiles, self.memory, self.coach_reviews, self.clock)
         self.write_review = WriteCoachReviewService(
-            self.coach, self.run_coach, self.report, self.coach_reviews, self.history, self.clock
+            self.coach, build_context, records, self.coach_reviews, self.history, self.clock
         )
         self.get_memory = GetMemoryService(self.memory)
         self.forget_memory_note = ForgetMemoryNoteService(self.memory, self.clock)

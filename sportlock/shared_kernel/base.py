@@ -27,13 +27,13 @@ class DomainEvent(ValueObject):
 class Aggregate(Entity):
     """An aggregate root: the only entry point for changing what it contains.
 
-    It records the domain events its behaviour methods raise; the application service collects them after saving.
+    It records the domain events its behavior methods raise; the application service collects them after saving.
     """
 
     _events: list[DomainEvent] = PrivateAttr(default_factory=list)
 
     def record(self, event: DomainEvent) -> None:
-        """Record an event raised by a behaviour method."""
+        """Record an event raised by a behavior method."""
         self._events.append(event)
 
     def pull_events(self) -> list[DomainEvent]:

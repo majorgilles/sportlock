@@ -9,7 +9,7 @@
 ## Context
 
 The old tests patched `sportlock.service.system.*`, `Service._ensure_locker`, `Service._show_popup` and
-`Agent._claude` with `mock.patch`. Renaming a private method broke tests without changing behaviour,
+`Agent._claude` with `mock.patch`. Renaming a private method broke tests without changing behavior,
 and a patched path that no longer existed passed silently.
 
 ## Decision
@@ -23,7 +23,7 @@ and a patched path that no longer existed passed silently.
   - `FakeClock` is set by the test.
 - **Repositories are the real SQLite adapters on a temporary file.** Each test's `World` builds
   the full app through `Container`. In-memory fake repositories would duplicate the SQL's
-  behaviour and drift from it, and SQLite in a temp file runs the whole suite in under a second.
+  behavior and drift from it, and SQLite in a temp file runs the whole suite in under a second.
 - Layout:
   - `tests/unit/<feature>/`: domain models and rules, no database;
   - `tests/integration/`: use cases end to end through the socket API and the container;
@@ -32,13 +32,13 @@ and a patched path that no longer existed passed silently.
   - flat `test_*` functions, named `test_<function>__<case>__<expected>`;
   - `# given / # when / # then` where the phases aren't obvious;
   - hard-coded expected values;
-  - one behaviour per test.
+  - one behavior per test.
 
 ## Consequences
 
 ### Positive
 
-- Tests check behaviour (state, notifications, rows), not calls, and survive refactors.
+- Tests check behavior (state, notifications, rows), not calls, and survive refactors.
 - The integration tests also cover the SQL and the migrations.
 
 ### Negative

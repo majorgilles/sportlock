@@ -22,7 +22,7 @@ from sportlock.shared_kernel.targets import Target
 type Rule = Literal[
     "up", "add", "hold", "down", "too-hard", "override", "kept"
 ]  # kept: the athlete refused a replacement
-type Neighbour = tuple[str, str]  # (exercise id, name)
+type Neighbor = tuple[str, str]  # (exercise id, name)
 
 MAX_TOP_REPS = 20
 EASY_RPE = 6
@@ -49,26 +49,27 @@ class SetResult(ValueObject):
     seconds: float
 
 
-def propose(  # noqa: PLR0913 (one keyword per fact of the done exercise that the rules read)
-    *,
-    exercise: str,
-    kind: str,
-    target: Target,
-    sets: list[SetResult],
-    rpe: int | None,
-    easier: Neighbour | None,
-    harder: Neighbour | None,
-) -> Proposal | None:
+class DoneExercise(ValueObject):
+    """What the rules read about an exercise the athlete finished: its target, the sets and the effort."""
+
+    exercise: str
+    kind: str
+    target: Target
+    sets: tuple[SetResult, ...]
+    rpe: int | None
+
+
+def propose(done: DoneExercise, easier: Neighbor | None, harder: Neighbor | None) -> Proposal | None:
     """The rule's proposal for one done exercise, or None when no rule applies."""
-    if kind == "timed" or rpe is None or not sets:
+    if done.kind == "timed" or done.rpe is None or not done.sets:
         return None
-    target = target.with_(progress=None, sides=None)
-    if kind == "reps":
-        return _reps(exercise, target, [s.reps or 0 for s in sets], rpe, easier, harder)
-    return _hold(exercise, target, [s.seconds for s in sets], rpe, easier, harder)
+    target = done.target.with_(progress=None, sides=None)
+    if done.kind == "reps":
+        return _reps(done.exercise, target, [s.reps or 0 for s in done.sets], done.rpe, easier, harder)
+    return _hold(done.exercise, target, [s.seconds for s in done.sets], done.rpe, easier, harder)
 
 
-def too_hard(*, name: str, target: Target, easier: Neighbour) -> Proposal:
+def too_hard(*, name: str, target: Target, easier: Neighbor) -> Proposal:
     """The "Too hard" button was pressed during the session: down to the easier variation."""
     return Proposal(
         rule="too-hard",
@@ -83,7 +84,7 @@ def _plural(n: int, word: str) -> str:
 
 
 def _reps(
-    exercise: str, target: Target, reps: list[int], rpe: int, easier: Neighbour | None, harder: Neighbour | None
+    exercise: str, target: Target, reps: list[int], rpe: int, easier: Neighbor | None, harder: Neighbor | None
 ) -> Proposal:
     assert target.reps is not None
     lo, hi = target.reps
@@ -126,7 +127,7 @@ def _reps(
 
 
 def _hold(
-    exercise: str, target: Target, seconds: list[float], rpe: int, easier: Neighbour | None, harder: Neighbour | None
+    exercise: str, target: Target, seconds: list[float], rpe: int, easier: Neighbor | None, harder: Neighbor | None
 ) -> Proposal:
     goal = target.seconds or 0
     planned, done = target.sets, len(seconds)

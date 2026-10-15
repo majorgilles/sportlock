@@ -1,4 +1,4 @@
-from sportlock.progression.domain.rules import SetResult, propose
+from sportlock.progression.domain.rules import DoneExercise, SetResult, propose
 from sportlock.shared_kernel.targets import Target
 
 EASIER = ("wall-push-up", "Wall push-up")
@@ -16,15 +16,8 @@ def _holds(*values):
 
 
 def _propose(target, sets, rpe, kind="reps", easier=EASIER, harder=HARDER):
-    return propose(
-        exercise="incline-push-up",
-        kind=kind,
-        target=target,
-        sets=sets,
-        rpe=rpe,
-        easier=easier,
-        harder=harder,
-    )
+    done = DoneExercise(exercise="incline-push-up", kind=kind, target=target, sets=tuple(sets), rpe=rpe)
+    return propose(done, easier, harder)
 
 
 def test_propose__easy_top_of_range__moves_up():

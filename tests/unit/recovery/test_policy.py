@@ -78,7 +78,7 @@ def test_decide_lock__recovery_longer_than_the_lock__capped_at_the_lock():
     assert _decide(state, advice, minutes=20).minutes == 20
 
 
-def test_rest_days_in_a_row__counts_back_from_yesterday():
+def test_rest_days_in_a_row__rest_days_before_today__counted_back_from_yesterday():
     today = date(2026, 10, 6)
     assert rest_days_in_a_row({date(2026, 10, 5), date(2026, 10, 4), date(2026, 10, 2)}, today) == 2
 
@@ -112,5 +112,5 @@ def test_pace_factor__exercises_took_twice_the_estimate__two():
     assert pace_factor(timings) == 2.0
 
 
-def test_transition_seconds__average_of_plausible_gaps():
+def test_transition_seconds__implausible_gaps__are_left_out_of_the_average():
     assert transition_seconds([30, 60, 90, 5000]) == 60

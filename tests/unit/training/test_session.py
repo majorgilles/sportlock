@@ -91,23 +91,39 @@ def test_start_set__with_lead_in__set_timed_from_the_end_of_the_countdown(catalo
     assert session.exercises[0].sets[0].seconds == 60
 
 
-def test_go_now_and_cancel_set__during_the_lead_in(catalogue):
+def test_go_now__during_the_lead_in__starts_the_set_at_once(catalogue):
+    # given
     session = _session(catalogue)
     session.start_set(_t(0), lead_in=5)
+
+    # when
     session.go_now(_t(2))
+
+    # then
     assert session.set_started_at == _t(2)
-    session.stop_set(_t(30))
-    session.save_set(_t(31))
-    session.rate(_t(32), 3)
-    session.start_set(_t(40), lead_in=5)
-    session.cancel_set(_t(42))
+
+
+def test_cancel_set__during_the_lead_in__returns_to_ready(catalogue):
+    # given
+    session = _session(catalogue)
+    session.start_set(_t(0), lead_in=5)
+
+    # when
+    session.cancel_set(_t(2))
+
+    # then
     assert session.phase == "ready"
-    session.start_set(_t(50), lead_in=5)
+
+
+def test_cancel_set__set_already_running__is_refused(catalogue):
+    session = _session(catalogue)
+    session.start_set(_t(0), lead_in=5)
+
     with pytest.raises(TrainingError):
-        session.cancel_set(_t(60))  # already running
+        session.cancel_set(_t(10))
 
 
-def test_skip__needs_a_reason(catalogue):
+def test_skip__without_a_reason__is_refused(catalogue):
     session = _session(catalogue)
     with pytest.raises(TrainingError):
         session.skip(_t(1), "")

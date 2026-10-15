@@ -8,7 +8,8 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from sportlock.athlete.domain.profile import ProfileRepositoryProtocol
-from sportlock.coaching.application.run_coach_service import RunCoachCommand, RunCoachService
+from sportlock.coaching.application.coach_context_service import BuildCoachContextService
+from sportlock.coaching.application.run_coach_command import RunCoachCommand
 from sportlock.coaching.domain.memory import TOPICS
 from sportlock.coaching.domain.ports import CoachMemoryRepositoryProtocol, CoachProtocol, CoachReviewRepositoryProtocol
 from sportlock.coaching.domain.review import CoachReview, parse_review
@@ -70,25 +71,23 @@ def _record(row: dict) -> SessionRecord:
     )
 
 
-class BuildReportService:
-    """Everything the Report tab shows, from the data and the coach's latest review."""
+class TrainingRecords:
+    """Read-only questions about the trainee's history, shared by the report and the coach's review.
 
-    def __init__(  # noqa: PLR0913 (one injected port per dependency)
+    It is a query helper rather than a use case, like `CoachPlanFreshness`
+    (see 2026_10_09_application_services_execute.md).
+    """
+
+    def __init__(
         self,
-        profiles: ProfileRepositoryProtocol,
         history: TrainingHistoryProtocol,
         ladders: LadderRepositoryProtocol,
-        memory: CoachMemoryRepositoryProtocol,
-        reviews: CoachReviewRepositoryProtocol,
         lock_events: LockEventRepositoryProtocol,
         catalogue: Catalogue,
         clock: ClockProtocol,
     ) -> None:
-        self.profiles = profiles
         self.history = history
         self.ladders = ladders
-        self.memory = memory
-        self.reviews = reviews
         self.lock_events = lock_events
         self.catalogue = catalogue
         self.clock = clock
@@ -126,41 +125,12 @@ class BuildReportService:
         )
         return training_stats(sessions, [lock["outcome"] for lock in locks], self.clock.now().date())
 
-    def execute(self) -> dict:
-        """The report (part of the socket API's contract with the app window)."""
-        sessions = self.sessions()
-        stats = self.stats(sessions)
-        levels = self.levels(sessions)
-        laddered = {e for chain in START for e in self._chain_ids(chain)}
-        reviews = self.reviews.all()
-        latest = self.reviews.latest()
-        profile = self.profiles.get()
-        journal = [self._entry(s, reviews.get(s.id)) for s in reversed(sessions)]
-        memory = self.memory.load().current()
-        return {
-            "generated_at": iso(self.clock.now()),
-            "profile": profile.to_dict() if profile else None,
-            "dossier": latest
-            and {"text": latest.dossier, "written_at": latest.written_at, "session": latest.session_id},
-            "memory": [
-                {"topic": n.topic, "note": n.text, "since": n.since.isoformat()}
-                for n in sorted(memory, key=lambda n: (TOPICS.index(n.topic), n.id))
-            ],
-            "ladders": [{**level.model_dump(), "moved": level.moved} for level in levels],
-            "stats": stats.model_dump(mode="json"),
-            "bests": [b.model_dump(mode="json") for b in personal_bests(sessions, laddered)],
-            "last_session": journal[0] if journal else None,
-            "improve": {
-                "coach": [i.model_dump() for i in latest.improve] if latest else [],
-                "numbers": [o.model_dump() for o in observations(stats, levels)],
-            },
-            "journal": journal,
-        }
+    def laddered_exercises(self) -> set[str]:
+        """Every exercise on one of the ladders."""
+        return {e for chain in START for e in self.catalogue.get(START[chain][0]).chain_ids}
 
-    def _chain_ids(self, chain: str) -> tuple[str, ...]:
-        return self.catalogue.get(START[chain][0]).chain_ids
-
-    def _entry(self, session: SessionRecord, review: CoachReview | None) -> dict:
+    def journal_entry(self, session: SessionRecord, review: CoachReview | None) -> dict:
+        """One session as the journal shows it, with its ladder changes and the coach's answer."""
         changes = [
             {
                 "chain": m["chain"],
@@ -193,21 +163,70 @@ class BuildReportService:
         }
 
 
+class BuildReportService:
+    """Everything the Report tab shows, from the data and the coach's latest review."""
+
+    def __init__(
+        self,
+        records: TrainingRecords,
+        profiles: ProfileRepositoryProtocol,
+        memory: CoachMemoryRepositoryProtocol,
+        reviews: CoachReviewRepositoryProtocol,
+        clock: ClockProtocol,
+    ) -> None:
+        self.records = records
+        self.profiles = profiles
+        self.memory = memory
+        self.reviews = reviews
+        self.clock = clock
+
+    def execute(self) -> dict:
+        """The report (part of the socket API's contract with the app window)."""
+        sessions = self.records.sessions()
+        stats = self.records.stats(sessions)
+        levels = self.records.levels(sessions)
+        laddered = self.records.laddered_exercises()
+        reviews = self.reviews.all()
+        latest = self.reviews.latest()
+        profile = self.profiles.get()
+        journal = [self.records.journal_entry(s, reviews.get(s.id)) for s in reversed(sessions)]
+        memory = self.memory.load().current()
+        return {
+            "generated_at": iso(self.clock.now()),
+            "profile": profile.to_dict() if profile else None,
+            "dossier": latest
+            and {"text": latest.dossier, "written_at": latest.written_at, "session": latest.session_id},
+            "memory": [
+                {"topic": n.topic, "note": n.text, "since": n.since.isoformat()}
+                for n in sorted(memory, key=lambda n: (TOPICS.index(n.topic), n.id))
+            ],
+            "ladders": [{**level.model_dump(), "moved": level.moved} for level in levels],
+            "stats": stats.model_dump(mode="json"),
+            "bests": [b.model_dump(mode="json") for b in personal_bests(sessions, laddered)],
+            "last_session": journal[0] if journal else None,
+            "improve": {
+                "coach": [i.model_dump() for i in latest.improve] if latest else [],
+                "numbers": [o.model_dump() for o in observations(stats, levels)],
+            },
+            "journal": journal,
+        }
+
+
 class WriteCoachReviewService:
     """Asks the coach to review the trainee after their latest session, with the report's numbers."""
 
     def __init__(
         self,
         coach: CoachProtocol,
-        run_coach: RunCoachService,
-        report: BuildReportService,
+        build_context: BuildCoachContextService,
+        records: TrainingRecords,
         reviews: CoachReviewRepositoryProtocol,
         history: TrainingHistoryProtocol,
         clock: ClockProtocol,
     ) -> None:
         self.coach = coach
-        self.run_coach = run_coach
-        self.report = report
+        self.build_context = build_context
+        self.records = records
         self.reviews = reviews
         self.history = history
         self.clock = clock
@@ -218,12 +237,12 @@ class WriteCoachReviewService:
         if session_id is None:
             raise ReviewError("train once first: the coach reviews your sessions")
         now = self.clock.now()
-        sessions = self.report.sessions()
+        sessions = self.records.sessions()
         context = {
-            **self.run_coach.context(now, command),
-            "stats": self.report.stats(sessions).model_dump(mode="json"),
+            **self.build_context.execute(now, command),
+            "stats": self.records.stats(sessions).model_dump(mode="json"),
             "ladder_levels": [
-                {**level.model_dump(), "moved_since_start": level.moved} for level in self.report.levels(sessions)
+                {**level.model_dump(), "moved_since_start": level.moved} for level in self.records.levels(sessions)
             ],
         }
         review = parse_review(self.coach.write_review(context), session_id=session_id, written_at=iso(now))

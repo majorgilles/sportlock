@@ -95,11 +95,11 @@ def _domain_rule(module: str, imported: str) -> str | None:
     return None
 
 
-def test_domain__imports_only_its_feature_the_shared_kernel_and_the_context_map():
+def test_domain__any_module__imports_only_its_feature_the_shared_kernel_and_the_context_map():
     assert _violations(_domain_rule) == []
 
 
-def test_application__never_imports_infrastructure_or_the_app():
+def test_application__any_module__never_imports_infrastructure_or_the_app():
     def rule(module, imported):
         if _layer(module)[1] != "application" or not imported.startswith("sportlock."):
             return None
@@ -111,7 +111,7 @@ def test_application__never_imports_infrastructure_or_the_app():
     assert _violations(rule) == []
 
 
-def test_infrastructure__never_imports_application_or_the_app():
+def test_infrastructure__any_module__never_imports_application_or_the_app():
     def rule(module, imported):
         if _layer(module)[1] != "infrastructure" or not imported.startswith("sportlock."):
             return None
@@ -122,7 +122,7 @@ def test_infrastructure__never_imports_application_or_the_app():
     assert _violations(rule) == []
 
 
-def test_app__only_the_app_package_imports_it():
+def test_app__imported_from_elsewhere__only_by_the_app_package():
     def rule(module, imported):
         if imported.startswith("sportlock.app") and not module.startswith("sportlock.app"):
             return "the composition root and entry points sit on top of everything"
@@ -131,7 +131,7 @@ def test_app__only_the_app_package_imports_it():
     assert _violations(rule) == []
 
 
-def test_shared_kernel__depends_on_no_feature():
+def test_shared_kernel__any_module__depends_on_no_feature():
     def rule(module, imported):
         if _layer(module)[0] != "shared_kernel" or not imported.startswith("sportlock."):
             return None
@@ -140,7 +140,7 @@ def test_shared_kernel__depends_on_no_feature():
     assert _violations(rule) == []
 
 
-def test_features__every_package_is_a_known_feature():
+def test_features__every_package__is_a_known_feature():
     packages = {p.name for p in PACKAGE.iterdir() if p.is_dir() and (p / "__init__.py").exists()}
     assert packages == FEATURES | {"shared_kernel", "app"}
 
@@ -150,7 +150,7 @@ def _is_dataclass(decorator: ast.expr) -> bool:
     return ast.unparse(target).split(".")[-1] == "dataclass"
 
 
-def test_domain__has_no_dataclasses():
+def test_domain__any_class__is_not_a_dataclass():
     offenders = [
         str(path)
         for path in PACKAGE.rglob("domain/*.py")
@@ -176,7 +176,7 @@ def _imports_mock(path: Path) -> bool:
     return False
 
 
-def test_tests__use_fakes_not_mocks():
+def test_tests__any_module__imports_no_mocks():
     offenders = [str(path) for path in TESTS.rglob("*.py") if _imports_mock(path)]
 
     assert offenders == [], "fake the outside world through its ports (tests/world.py)"

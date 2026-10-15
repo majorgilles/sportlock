@@ -141,7 +141,7 @@ def test_begin__fresh_coach_plan__served_with_its_rationale(world):
     assert training["exercises"][1]["target"]["progress"] == "Up a step: 3×12 felt easy"
 
 
-def test_agent_status__plan_and_runs(world):
+def test_agent_status__after_a_coach_run__shows_the_plan_and_the_runs(world):
     _run(world)
     status = world.cmd(cmd="agent-status")
     assert status["plan"]["hard"]["title"] == "Push focus" and status["runs"][-1]["ok"]

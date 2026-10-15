@@ -58,8 +58,8 @@ new cross-feature domain dependency is added to the context map in that test, wi
 
 - `diagnostics` is infrastructure only. Its checks are about how the data is stored (stuck runs,
   targets that don't match the exercise kind), so a domain model would only mirror the tables.
-- `exercises/infrastructure/notebooklm_library.py` is a build tool. The CLI calls it directly; there
-  is no use case around it.
+- `exercises/infrastructure/notebooklm_library.py` and `exercises/infrastructure/youtube_videos.py`
+  are build tools. The CLI calls them directly; there is no use case around them, and no port.
 
 ## Consequences
 

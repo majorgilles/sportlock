@@ -30,8 +30,8 @@ their playlists, from the lock screen.
   Songs): `SpotifyWebLibrary`. Tokens live in the key-value table; the access token is refreshed
   when it expires. The list is cached in memory and refreshed in a background thread every
   10 minutes while the music panel is shown, so a tick never waits on the network.
-- **Favourites** (`[[music.playlist]]` in config.toml) work without the Web API and come first.
-- The state file gets a `music` key during a lock (player, favourites, library); the lock screen
+- **Favorites** (`[[music.playlist]]` in config.toml) work without the Web API and come first.
+- The state file gets a `music` key during a lock (player, favorites, library); the lock screen
   sends `{"cmd": "music", "action": ..., "link": ...}` through `sportlock raw`.
 - Locks still pause every playing player when they begin; the user picks the music.
 

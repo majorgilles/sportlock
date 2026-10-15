@@ -128,7 +128,7 @@ played on the lock screen. *Feature:* exercises · `exercises/domain/videos.py:c
 **Music panel**: the lock screen's Spotify controls: the current song, play/pause and skip, and the
 playlist browser. *Feature:* music · `locks/ui/lock_screen/shell.qml`
 
-**Favourite**: a playlist, album or song saved in the settings (`[[music.playlist]]`), shown first.
+**Favorite**: a playlist, album or song saved in the settings (`[[music.playlist]]`), shown first.
 *Feature:* music · `music/domain/music.py:Playlist`
 
 **Library**: the playlists in the user's Spotify account, read with the Web API after

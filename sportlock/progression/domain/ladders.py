@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Protocol
 
 from sportlock.exercises.domain.catalogue import Catalogue
-from sportlock.progression.domain.rules import Proposal, SetResult, propose, too_hard
+from sportlock.progression.domain.rules import DoneExercise, Proposal, SetResult, propose, too_hard
 from sportlock.shared_kernel.base import ValueObject
 from sportlock.shared_kernel.targets import Target
 
@@ -117,15 +117,14 @@ def moves_for_session(results: list[ExerciseResult], catalogue: Catalogue) -> li
         if result.status == "swapped":
             proposal = too_hard(name=result.name, target=result.target, easier=easier) if easier else None
         elif result.status == "done":
-            proposal = propose(
+            done = DoneExercise(
                 exercise=result.exercise,
                 kind=result.kind,
                 target=result.target,
-                sets=list(result.sets),
+                sets=tuple(result.sets),
                 rpe=result.rpe,
-                easier=easier,
-                harder=harder,
             )
+            proposal = propose(done, easier, harder)
         else:
             proposal = None
         if proposal is not None:

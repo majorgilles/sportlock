@@ -68,7 +68,7 @@ class SessionExercise(Entity):
 
 
 class TrainingSession(Aggregate):
-    """The session aggregate root; every change goes through its behaviour methods."""
+    """The session aggregate root; every change goes through its behavior methods."""
 
     day: date
     started_at: datetime

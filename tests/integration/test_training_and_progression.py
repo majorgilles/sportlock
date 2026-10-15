@@ -104,7 +104,7 @@ def test_snapshot__exercises_on_both_sides__sides_shown(world):
     assert exercises[1]["target"]["sides"] == "each"
 
 
-def test_session__survives_a_restart_of_the_service(world, tmp_path, catalogue):
+def test_session__service_restarted__resumes(world, tmp_path, catalogue):
     world.at("18:00")
     _do_set(world, 300)
     assert world.train("rate", rpe=3)["ok"]

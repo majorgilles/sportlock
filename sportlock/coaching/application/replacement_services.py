@@ -52,43 +52,25 @@ class AnswerReplacementCommand(ValueObject):
     note: str = ""
 
 
-class AnswerReplacementService:
-    """Records the answer.
+class KeepReplacedExerciseService:
+    """Puts a replaced exercise back: on the ladder, in the coach's plan, and in a session that hasn't reached it."""
 
-    Keeping the old exercise moves the ladder back and puts the exercise back in the coach's plan and in a session that
-    hasn't reached it yet.
-    """
-
-    def __init__(  # noqa: PLR0913 (one injected port per dependency)
+    def __init__(
         self,
-        pending: PendingReplacementsService,
-        answers: ReplacementAnswerRepositoryProtocol,
         ladders: LadderRepositoryProtocol,
         plans: CoachPlanRepositoryProtocol,
         freshness: CoachPlanFreshness,
         sessions: TrainingSessionRepositoryProtocol,
         catalogue: Catalogue,
     ) -> None:
-        self.pending = pending
-        self.answers = answers
         self.ladders = ladders
         self.plans = plans
         self.freshness = freshness
         self.sessions = sessions
         self.catalogue = catalogue
 
-    def execute(self, command: AnswerReplacementCommand, now: datetime) -> Replacement:
-        """The replacement answered. Raises ReplacementError when there is none on that chain."""
-        replacement = next((r for r in self.pending.execute() if r.chain == command.chain), None)
-        if replacement is None:
-            raise ReplacementError("no replaced exercise to answer on that chain")
-        answer = ReplacementAnswer.to(replacement, agreed=command.agree, note=command.note, answered_at=iso(now))
-        self.answers.add(answer)
-        if not command.agree:
-            self._keep(replacement, answer, now)
-        return replacement
-
-    def _keep(self, replacement: Replacement, answer: ReplacementAnswer, now: datetime) -> None:
+    def execute(self, replacement: Replacement, answer: ReplacementAnswer, now: datetime) -> None:
+        """Keep the old exercise, recorded as the athlete's decision."""
         reason = f"You kept {replacement.from_name} instead of {replacement.to_name}" + (
             f": {answer.note}" if answer.note else "."
         )
@@ -118,3 +100,28 @@ class AnswerReplacementService:
             replacement.to_exercise, replacement.from_exercise, target.with_(progress=reason), self.catalogue
         ):
             self.sessions.save(session)
+
+
+class AnswerReplacementService:
+    """Records the athlete's answer; keeping the old exercise puts it back everywhere."""
+
+    def __init__(
+        self,
+        pending: PendingReplacementsService,
+        answers: ReplacementAnswerRepositoryProtocol,
+        keep: KeepReplacedExerciseService,
+    ) -> None:
+        self.pending = pending
+        self.answers = answers
+        self.keep = keep
+
+    def execute(self, command: AnswerReplacementCommand, now: datetime) -> Replacement:
+        """The replacement answered. Raises ReplacementError when there is none on that chain."""
+        replacement = next((r for r in self.pending.execute() if r.chain == command.chain), None)
+        if replacement is None:
+            raise ReplacementError("no replaced exercise to answer on that chain")
+        answer = ReplacementAnswer.to(replacement, agreed=command.agree, note=command.note, answered_at=iso(now))
+        self.answers.add(answer)
+        if not command.agree:
+            self.keep.execute(replacement, answer, now)
+        return replacement

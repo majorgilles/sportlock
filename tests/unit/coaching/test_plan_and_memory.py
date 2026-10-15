@@ -72,7 +72,7 @@ def test_parse_coach_output__recommendations__trimmed_and_empty_ones_dropped(cat
     ]
 
 
-def test_version_for__by_the_lock_decision_or_the_48_hour_rule(catalogue):
+def test_version_for__lock_decision_or_48_hour_rule__picks_hard_or_recovery(catalogue):
     plan = _parse(GOOD_PLAN, catalogue).plan
     assert plan.version_for(None, last_hard=None, now=NOW).day_type == "hard"
     assert plan.version_for(None, last_hard=NOW - timedelta(hours=20), now=NOW).day_type == "mobility"
