@@ -24,6 +24,7 @@ from sportlock.locks.application.lock_services import policy_of, restore_desktop
 from sportlock.locks.domain.schedule import Decision, settings_frozen, windows_around
 from sportlock.music.application.music_account_services import ConnectMusicAccountCommand
 from sportlock.music.domain.music import MusicError, client_id_of
+from sportlock.reporting.application.report_services import ReviewError
 from sportlock.shared_kernel.infrastructure.logging_setup import setup_logging
 from sportlock.shared_kernel.time import epoch_ms
 
@@ -45,6 +46,8 @@ class Daemon:
         self.running = True
         self.coach_enabled = True
         self.coach_thread: threading.Thread | None = None
+        self.review_thread: threading.Thread | None = None
+        self.review_error = ""
         self.coach_retry_at: datetime | None = None
         self.state: dict | None = None
         self.music_login_thread: threading.Thread | None = None
@@ -112,12 +115,36 @@ class Daemon:
             plan = self.c.run_coach.execute(command)
             log.info("coach planned: hard=%s recovery=%s", plan.hard.title, plan.recovery.title)
             self.coach_retry_at = None
+            self._write_review(command)  # the Report tab's dossier and advice, after the plan
         except (CoachUnavailableError, CoachOutputError) as error:
             log.warning("coach failed: %s", error)
             self.coach_retry_at = self.c.clock.now() + COACH_RETRY
             self.c.desktop.notify(
                 "Coach couldn't plan your next session", f"{error}. Using the built-in planner; retrying in 30 min."
             )
+
+    def review_running(self) -> bool:
+        """Whether the coach is writing the report on request."""
+        return bool(self.review_thread and self.review_thread.is_alive())
+
+    def start_review(self, now: datetime) -> None:
+        """Ask the coach to rewrite the report now, in the background."""
+        if self.review_running() or self.coach_running():
+            raise ReviewError("the coach is already working; the report updates when it's done")
+        if self.c.history.last_counted_id() is None:
+            raise ReviewError("train once first: the coach reviews your sessions")
+        self.review_error = ""
+        self.review_thread = threading.Thread(target=self._write_review, args=(self.coach_command(now),), daemon=True)
+        self.review_thread.start()
+
+    def _write_review(self, command: RunCoachCommand) -> None:
+        try:
+            self.c.write_review.execute(command)
+            log.info("coach reviewed the trainee")
+            self.review_error = ""
+        except (CoachUnavailableError, CoachOutputError, ReviewError) as error:
+            log.warning("coach review failed: %s", error)
+            self.review_error = str(error)
 
     # -- the Spotify login -------------------------------------------------------------------
 
@@ -171,6 +198,7 @@ class Daemon:
             "trained_today": now.date() in self.c.history.trained_days(),
             "training": self.c.training_snapshot.execute() if lock else None,
             "music": self.c.music_snapshot.execute() if lock else None,
+            "replacements": [r.to_dict() for r in self.c.pending_replacements.execute()] if lock else [],
             "theme": self.c.desktop.theme(),
             "setup": {
                 "profile": self.c.tick.setup_complete(),

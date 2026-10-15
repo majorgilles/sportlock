@@ -19,7 +19,9 @@ from typing import Literal
 from sportlock.shared_kernel.base import ValueObject
 from sportlock.shared_kernel.targets import Target
 
-type Rule = Literal["up", "add", "hold", "down", "too-hard", "override"]
+type Rule = Literal[
+    "up", "add", "hold", "down", "too-hard", "override", "kept"
+]  # kept: the athlete refused a replacement
 type Neighbour = tuple[str, str]  # (exercise id, name)
 
 MAX_TOP_REPS = 20

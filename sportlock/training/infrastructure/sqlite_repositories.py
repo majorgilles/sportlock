@@ -151,9 +151,13 @@ class SqliteTrainingSessionRepository(TrainingSessionRepositoryProtocol):
                 ).lastrowid
         for exercise in session.exercises:
             self.database.execute(
-                "UPDATE session_exercises SET target = ?, status = ?, rpe = ?, note = ?, skip_reason = ?,"
-                " swapped_to = ?, started_at = ?, ended_at = ? WHERE id = ?",
+                "UPDATE session_exercises SET exercise = ?, name = ?, pattern = ?, kind = ?, target = ?, status = ?,"
+                " rpe = ?, note = ?, skip_reason = ?, swapped_to = ?, started_at = ?, ended_at = ? WHERE id = ?",
                 (
+                    exercise.exercise,
+                    exercise.name,
+                    exercise.pattern,
+                    exercise.kind,
                     json.dumps(exercise.target.to_dict()),
                     exercise.status,
                     exercise.rpe,
@@ -399,7 +403,9 @@ class SqliteTrainingHistory(TrainingHistoryProtocol):
                 ]
                 exercises.append(
                     {
+                        "exercise": e["exercise"],
                         "name": e["name"],
+                        "kind": e["kind"],
                         "status": e["status"],
                         "rpe": e["rpe"],
                         "note": e["note"] or "",

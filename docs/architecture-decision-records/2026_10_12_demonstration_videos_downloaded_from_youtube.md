@@ -24,8 +24,8 @@ can be opened while it is up, and the machine may be offline.
   wrong movement.
 - **The video's source lives in its own `video.json`**, next to the file, so rebuilding the
   instructions (`library build --force`) never loses it, and the source is shown under the video.
-- The lock screen shows the video instead of the picture for exercises done fewer than 3 times
-  (like the full instructions); **V** switches.
+- The lock screen shows the picture by default; the video replaces it on request (**▶ Video** or
+  **V**), for the current exercise only.
 
 ## Consequences
 

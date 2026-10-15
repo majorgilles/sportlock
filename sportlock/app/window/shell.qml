@@ -1,4 +1,4 @@
-// sportlock app window. For now: the profile (onboarding) form. Talks to the service through
+// sportlock app window: calendar, report, profile, and schedule & settings. Talks to the service through
 // `sportlock raw`, reads theme colours from the service's state file.
 import QtQuick
 import Quickshell
@@ -227,11 +227,57 @@ ShellRoot {
                                         plans: "Plans", context: "Setup", coaching: "Coaching" })
 
   function loadMemory() { send({ cmd: "memory-get" }, function(response) { root.memory = response.notes }) }
+  // -- the report ------------------------------------------------------------------------------
+
+  property var report: null
+  property bool reportWriting: false
+  property string reportError: ""
+
+  function loadReport() {
+    send({ cmd: "trainee-report" }, function(response) {
+      root.report = response.report
+      root.reportWriting = response.writing
+      root.reportError = response.error
+    })
+  }
+
+  function writeReport() {
+    root.reportError = ""
+    send({ cmd: "trainee-report-write" }, function() { root.reportWriting = true },
+         function(error) { root.reportError = error })
+  }
+
+  Timer {
+    interval: 4000
+    repeat: true
+    running: root.reportWriting && root.tab === "report"
+    onTriggered: root.loadReport()
+  }
+
+  function esc(text) { return String(text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;") }
+  function dayText(iso) { return iso ? Qt.formatDate(new Date(iso.slice(0, 10) + "T12:00:00"), "ddd d MMM") : "" }
+  function hoursText(minutes) {
+    return minutes < 60 ? minutes + " min" : Math.floor(minutes / 60) + " h " + String(minutes % 60).padStart(2, "0")
+  }
+  function chainText(chain) {
+    return ({ "push-horizontal": "Push", "push-vertical": "Overhead push", "dip": "Dip", "pull-horizontal": "Row / upper back",
+              "pull-vertical": "Pull-up", "squat": "Squat / legs", "hinge": "Hips / hamstrings", "core": "Core (plank)",
+              "core-flexion": "Abs", "calf": "Calves", "hip": "Side hip" })[chain] || chain
+  }
+  function exerciseLine(e) {
+    if (e.status === "skipped") return root.esc(e.name) + " — <i>skipped" + (e.skip_reason ? ": " + root.esc(e.skip_reason) : "") + "</i>"
+    var line = root.esc(e.name) + (e.sets.length ? " — " + root.setsText(e.sets) : "")
+    if (e.rpe) line += " · effort " + e.rpe
+    if (e.note) line += " · <i>“" + root.esc(e.note) + "”</i>"
+    return line
+  }
+
   function forgetNote(id) { send({ cmd: "memory-forget", id: id }, function() { root.loadMemory() }) }
 
   Component.onCompleted: {
     loadMemory()
     loadCalendar()
+    loadReport()
     loadSettings()
     send({ cmd: "profile-get" }, function(response) {
       root.choices = response.choices
@@ -326,6 +372,134 @@ ShellRoot {
     }
   }
 
+  // One session in the journal: what was done, what you said, what changed, what the coach answered.
+  component JournalEntry: Rectangle {
+    id: entryBox
+    property var entry: null
+    property bool open: false
+    width: parent ? parent.width : 600
+    height: entryCol.implicitHeight + 28
+    radius: 8
+    color: root.panel
+    border.width: 1
+    border.color: root.line
+    Column {
+      id: entryCol
+      x: 18; y: 14
+      width: parent.width - 36
+      spacing: 8
+      Item {
+        width: parent.width
+        height: entryHead.implicitHeight
+        Text {
+          id: entryHead
+          width: parent.width - 90
+          wrapMode: Text.WordWrap
+          textFormat: Text.StyledText
+          text: entryBox.entry ? "<b>" + root.dayText(entryBox.entry.date) + "</b>  ·  " + root.esc(entryBox.entry.title || "Session")
+                + "  ·  " + entryBox.entry.minutes + " min" + (entryBox.entry.effort ? "  ·  effort " + entryBox.entry.effort + "/10" : "")
+                + (entryBox.entry.status !== "finished" ? "  ·  <font color='" + root.urgent + "'>" + entryBox.entry.status + "</font>" : "")
+                + (entryBox.entry.kind === "manual" ? "  ·  started by you" : "") : ""
+          color: root.fg
+          font.pixelSize: 16
+        }
+        Text {
+          anchors.right: parent.right
+          text: entryBox.open ? "less ▴" : "details ▾"
+          color: root.muted
+          font.pixelSize: 13
+          MouseArea { anchors.fill: parent; anchors.margins: -6; cursorShape: Qt.PointingHandCursor; onClicked: entryBox.open = !entryBox.open }
+        }
+      }
+      Text {
+        visible: entryBox.entry && !!entryBox.entry.notes
+        width: parent.width
+        wrapMode: Text.WordWrap
+        textFormat: Text.PlainText
+        text: entryBox.entry && entryBox.entry.notes ? "“" + entryBox.entry.notes.trim() + "”" : ""
+        color: root.fg
+        font.pixelSize: 15
+        font.italic: true
+      }
+      Repeater {
+        // Collapsed: only the exercises you wrote about or skipped.
+        model: entryBox.entry ? entryBox.entry.exercises.filter(function(e) { return entryBox.open || e.note || e.status === "skipped" }) : []
+        delegate: Text {
+          required property var modelData
+          width: entryCol.width
+          wrapMode: Text.WordWrap
+          textFormat: Text.StyledText
+          text: "•  " + root.exerciseLine(modelData)
+          color: modelData.status === "skipped" ? root.muted : root.fg
+          font.pixelSize: 14
+        }
+      }
+      Repeater {
+        model: entryBox.entry ? entryBox.entry.changes : []
+        delegate: Text {
+          required property var modelData
+          width: entryCol.width
+          wrapMode: Text.WordWrap
+          textFormat: Text.StyledText
+          text: (modelData.from !== modelData.to ? "↗  <b>" + root.esc(modelData.from) + " → " + root.esc(modelData.to) + "</b>"
+                                                 : "↗  <b>" + root.esc(modelData.to) + "</b>")
+                + "  <font color='" + root.muted + "'>(" + modelData.by + ") " + root.esc(modelData.reason) + "</font>"
+          color: root.accent
+          font.pixelSize: 13
+        }
+      }
+      Column {
+        visible: entryBox.entry !== null && entryBox.entry.coach !== null
+        width: parent.width
+        spacing: 6
+        topPadding: 4
+        Text { text: "Coach"; color: root.accent; font.pixelSize: 12; font.capitalization: Font.AllUppercase; font.letterSpacing: 1 }
+        Text {
+          visible: entryBox.entry && entryBox.entry.coach && !!entryBox.entry.coach.last_session
+          width: parent.width
+          wrapMode: Text.WordWrap
+          textFormat: Text.PlainText
+          text: entryBox.entry && entryBox.entry.coach ? entryBox.entry.coach.last_session : ""
+          color: root.fg
+          font.pixelSize: 14
+        }
+        Repeater {
+          model: entryBox.entry && entryBox.entry.coach ? entryBox.entry.coach.recommendations : []
+          delegate: Text {
+            required property var modelData
+            width: entryCol.width
+            wrapMode: Text.WordWrap
+            textFormat: Text.StyledText
+            text: "•  <b>" + root.esc(modelData.about) + ":</b> " + root.esc(modelData.advice)
+            color: root.fg
+            font.pixelSize: 14
+          }
+        }
+      }
+    }
+  }
+
+  // A headline number.
+  component Tile: Rectangle {
+    property string label: ""
+    property string value: ""
+    property string detail: ""
+    width: 200
+    height: 92
+    radius: 8
+    color: root.panel
+    border.width: 1
+    border.color: root.line
+    Column {
+      x: 14; y: 12
+      width: parent.width - 28
+      spacing: 3
+      Text { text: parent.parent.label; color: root.muted; font.pixelSize: 12; font.capitalization: Font.AllUppercase; font.letterSpacing: 1 }
+      Text { text: parent.parent.value; color: root.fg; font.pixelSize: 24; font.weight: Font.DemiBold }
+      Text { width: parent.width; elide: Text.ElideRight; text: parent.parent.detail; color: root.muted; font.pixelSize: 12 }
+    }
+  }
+
   component Section: Column {
     property string title: ""
     property string hint: ""
@@ -370,6 +544,7 @@ ShellRoot {
       x: 40; y: 20
       spacing: 8
       Chip { label: "Calendar"; on: root.tab === "calendar"; onClicked: { root.tab = "calendar"; root.loadCalendar() } }
+      Chip { label: "Report"; on: root.tab === "report"; onClicked: { root.tab = "report"; root.loadReport() } }
       Chip { label: "Profile"; on: root.tab === "profile"; onClicked: { root.tab = "profile"; root.loadMemory() } }
       Chip { label: "Schedule & settings"; on: root.tab === "settings"; onClicked: { root.tab = "settings"; root.loadSettings() } }
     }
@@ -840,6 +1015,278 @@ ShellRoot {
         }
       }
     }
+    // -- report: dossier, stats, last session, where to improve, journal ----------------------
+    Flickable {
+      anchors.top: tabs.bottom
+      anchors.topMargin: 4
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.bottom: parent.bottom
+      visible: root.tab === "report"
+      contentHeight: reportCol.implicitHeight + 64
+      clip: true
+      boundsBehavior: Flickable.StopAtBounds
+
+      Column {
+        id: reportCol
+        readonly property var r: root.report
+        readonly property var stats: r ? r.stats : null
+        x: 40; y: 32
+        width: parent.width - 80
+        spacing: 28
+
+        Column {
+          width: parent.width
+          spacing: 8
+          Text { text: "Your report"; color: root.fg; font.pixelSize: 30; font.weight: Font.DemiBold }
+          Text {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            color: root.muted
+            font.pixelSize: 15
+            text: !reportCol.r ? "Loading…"
+                  : reportCol.r.dossier ? "The coach's review was written " + root.dayText(reportCol.r.dossier.written_at)
+                    + ". The numbers are always up to date; the coach rewrites its part after each session."
+                  : "The numbers below are always up to date. The coach writes your dossier and advice after each session, or now if you ask."
+          }
+          Row {
+            spacing: 12
+            Chip {
+              label: root.reportWriting ? "The coach is writing…" : "Ask the coach to update it"
+              on: root.reportWriting
+              onClicked: if (!root.reportWriting) root.writeReport()
+            }
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              visible: root.reportWriting || root.reportError.length > 0
+              text: root.reportError.length > 0 ? root.reportError : "about a minute; this page updates by itself"
+              color: root.reportError.length > 0 ? root.urgent : root.muted
+              font.pixelSize: 13
+            }
+          }
+        }
+
+        // -- dossier ------------------------------------------------------------------------
+        Section {
+          title: "Your dossier"
+          visible: reportCol.r !== null
+          Text {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            textFormat: Text.PlainText
+            text: reportCol.r && reportCol.r.dossier ? reportCol.r.dossier.text : "Not written yet: ask the coach above."
+            color: reportCol.r && reportCol.r.dossier ? root.fg : root.muted
+            font.pixelSize: 16
+            lineHeight: 1.15
+          }
+          Text {
+            visible: reportCol.r && reportCol.r.profile
+            width: parent.width
+            wrapMode: Text.WordWrap
+            textFormat: Text.StyledText
+            readonly property var p: reportCol.r ? reportCol.r.profile : null
+            text: !p ? "" : "<b>" + p.experience.charAt(0).toUpperCase() + p.experience.slice(1) + "</b>"
+                  + (p.age ? " · " + p.age + " years old" : "") + (p.weight_kg ? " · " + p.weight_kg + " kg" : "")
+                  + (p.years_training ? " · " + p.years_training + " years of training" : "")
+                  + " · goals: " + root.esc(p.goals.join(", "))
+                  + " · trains with: " + root.esc(p.equipment.map(function(e) { return (root.equipmentLabels[e] || e).toLowerCase() }).join(", "))
+                  + (reportCol.stats && reportCol.stats.first_day ? " · training with sportlock since " + root.dayText(reportCol.stats.first_day) : "")
+            color: root.fg
+            font.pixelSize: 14
+          }
+          Text {
+            visible: reportCol.r && reportCol.r.profile && !!reportCol.r.profile.injuries
+            width: parent.width
+            wrapMode: Text.WordWrap
+            textFormat: Text.PlainText
+            text: reportCol.r && reportCol.r.profile ? "Working around: " + reportCol.r.profile.injuries.replace(/^- /gm, "").split("\n").join("; ") : ""
+            color: root.muted
+            font.pixelSize: 14
+          }
+        }
+
+        Section {
+          title: "Your level on each movement"
+          hint: "Each movement is a ladder of exercises from easiest to hardest. The bar shows your step."
+          visible: reportCol.r !== null && reportCol.r.ladders.length > 0
+          Repeater {
+            model: reportCol.r ? reportCol.r.ladders : []
+            delegate: Row {
+              required property var modelData
+              spacing: 14
+              Text { width: reportCol.width * 0.17; elide: Text.ElideRight; text: root.chainText(modelData.chain); color: root.muted; font.pixelSize: 14; anchors.verticalCenter: parent.verticalCenter }
+              Text { width: reportCol.width * 0.3; elide: Text.ElideRight; text: modelData.name; color: root.fg; font.pixelSize: 15; anchors.verticalCenter: parent.verticalCenter }
+              Rectangle {
+                anchors.verticalCenter: parent.verticalCenter
+                width: reportCol.width * 0.15; height: 8; radius: 4
+                color: root.line
+                Rectangle { width: parent.width * modelData.step / modelData.steps; height: parent.height; radius: 4; color: root.accent }
+              }
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                width: reportCol.width * 0.38 - 42
+                elide: Text.ElideRight
+                text: "step " + modelData.step + " of " + modelData.steps
+                      + (modelData.moved > 0 ? "  ·  +" + modelData.moved + " since start" : modelData.moved < 0 ? "  ·  " + modelData.moved + " (easier)" : "  ·  starting step")
+                color: modelData.moved > 0 ? root.accent : root.muted
+                font.pixelSize: 13
+              }
+            }
+          }
+        }
+
+        Section {
+          title: "What the coach remembers about you"
+          hint: "The coach's long-term notes (remove a wrong one in the Profile tab)."
+          visible: reportCol.r !== null && reportCol.r.memory.length > 0
+          property bool all: false
+          Repeater {
+            model: reportCol.r ? (parent.all ? reportCol.r.memory : reportCol.r.memory.slice(0, 5)) : []
+            delegate: Text {
+              required property var modelData
+              width: reportCol.width
+              wrapMode: Text.WordWrap
+              textFormat: Text.StyledText
+              text: "<font color='" + root.muted + "'>" + modelData.topic + "</font>   " + root.esc(modelData.note)
+              color: root.fg
+              font.pixelSize: 14
+            }
+          }
+          Text {
+            id: memoryToggle
+            visible: reportCol.r !== null && reportCol.r.memory.length > 5
+            text: parent.all ? "show fewer ▴" : "show all " + (reportCol.r ? reportCol.r.memory.length : 0) + " notes ▾"
+            color: root.accent
+            font.pixelSize: 13
+            MouseArea { anchors.fill: parent; anchors.margins: -6; cursorShape: Qt.PointingHandCursor; onClicked: memoryToggle.parent.all = !memoryToggle.parent.all }
+          }
+        }
+
+        // -- stats --------------------------------------------------------------------------
+        Section {
+          title: "Your stats"
+          visible: reportCol.stats !== null
+          Flow {
+            width: parent.width
+            spacing: 10
+            Tile { label: "Sessions"; value: reportCol.stats ? reportCol.stats.sessions : ""; detail: reportCol.stats ? reportCol.stats.hard_sessions + " hard · " + reportCol.stats.light_sessions + " light" : "" }
+            Tile { label: "Time trained"; value: reportCol.stats ? root.hoursText(reportCol.stats.minutes) : ""; detail: reportCol.stats && reportCol.stats.sessions ? "about " + Math.round(reportCol.stats.minutes / reportCol.stats.sessions) + " min a session" : "" }
+            Tile { label: "Last 7 days"; value: reportCol.stats ? reportCol.stats.last_7_days.sessions + " sessions" : ""; detail: reportCol.stats ? reportCol.stats.last_7_days.minutes + " min · 28 days: " + reportCol.stats.last_28_days.sessions + " sessions" : "" }
+            Tile { label: "Effort"; value: reportCol.stats && reportCol.stats.average_effort !== null ? reportCol.stats.average_effort + " / 10" : "–"; detail: reportCol.stats && reportCol.stats.recent_effort !== null ? "last sessions: " + reportCol.stats.recent_effort + " / 10" : "" }
+            Tile { label: "Locks kept"; value: reportCol.stats ? reportCol.stats.locks_kept_in_a_row + " in a row" : ""; detail: reportCol.stats ? reportCol.stats.locks.completed + " done · " + reportCol.stats.locks.override + " overridden · " + reportCol.stats.locks.expired + " ran out" : "" }
+            Tile { label: "Exercises"; value: reportCol.stats ? reportCol.stats.exercises_done + " done" : ""; detail: reportCol.stats ? reportCol.stats.exercises_skipped + " skipped · " + reportCol.stats.exercises_swapped + " made easier" : "" }
+          }
+          Text { text: "Minutes per week"; color: root.muted; font.pixelSize: 13; topPadding: 6 }
+          Row {
+            id: weekBars
+            readonly property int most: reportCol.stats ? Math.max(30, Math.max.apply(null, reportCol.stats.weeks.map(function(w) { return w.minutes }))) : 30
+            spacing: 10
+            height: 150
+            Repeater {
+              model: reportCol.stats ? reportCol.stats.weeks : []
+              delegate: Column {
+                required property var modelData
+                width: Math.min(72, (reportCol.width - 70) / 8)
+                spacing: 4
+                anchors.bottom: parent.bottom
+                Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.minutes ? modelData.minutes + "′" : ""; color: root.fg; font.pixelSize: 12 }
+                Rectangle {
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  width: Math.min(40, parent.width - 8)
+                  height: Math.max(2, 96 * modelData.minutes / weekBars.most)
+                  radius: 4
+                  color: modelData.minutes ? root.accent : root.line
+                }
+                Text { anchors.horizontalCenter: parent.horizontalCenter; text: Qt.formatDate(new Date(modelData.start + "T12:00:00"), "d MMM"); color: root.muted; font.pixelSize: 11 }
+                Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.sessions ? modelData.sessions + "×" : ""; color: root.muted; font.pixelSize: 11 }
+              }
+            }
+          }
+          Text { text: "Personal bests (best single set)"; color: root.muted; font.pixelSize: 13; topPadding: 6; visible: reportCol.r && reportCol.r.bests.length > 0 }
+          Flow {
+            width: parent.width
+            spacing: 8
+            Repeater {
+              model: reportCol.r ? reportCol.r.bests : []
+              delegate: Rectangle {
+                required property var modelData
+                width: bestText.implicitWidth + 24
+                height: 34
+                radius: 17
+                color: root.panel
+                border.width: 1
+                border.color: root.line
+                Text {
+                  id: bestText
+                  anchors.centerIn: parent
+                  textFormat: Text.StyledText
+                  text: root.esc(modelData.name) + "  <b>" + (modelData.reps !== null ? modelData.reps + " reps" : Math.round(modelData.seconds) + " s") + "</b>"
+                        + "  <font color='" + root.muted + "'>" + Qt.formatDate(new Date(modelData.day + "T12:00:00"), "d MMM") + "</font>"
+                  color: root.fg
+                  font.pixelSize: 13
+                }
+              }
+            }
+          }
+        }
+
+        // -- last session -------------------------------------------------------------------
+        Section {
+          title: "Your last session"
+          visible: reportCol.r !== null && reportCol.r.last_session !== null
+          JournalEntry { entry: reportCol.r ? reportCol.r.last_session : null; open: true }
+        }
+
+        // -- where to improve ---------------------------------------------------------------
+        Section {
+          title: "Where you can improve"
+          visible: reportCol.r !== null && (reportCol.r.improve.coach.length + reportCol.r.improve.numbers.length) > 0
+          Repeater {
+            model: reportCol.r ? reportCol.r.improve.coach : []
+            delegate: Text {
+              required property var modelData
+              width: reportCol.width
+              wrapMode: Text.WordWrap
+              textFormat: Text.StyledText
+              text: "•  <b>" + root.esc(modelData.area) + ":</b> " + root.esc(modelData.advice)
+              color: root.fg
+              font.pixelSize: 15
+            }
+          }
+          Text {
+            visible: reportCol.r !== null && reportCol.r.improve.numbers.length > 0
+            text: "From your numbers"
+            color: root.muted
+            font.pixelSize: 13
+            topPadding: 4
+          }
+          Repeater {
+            model: reportCol.r ? reportCol.r.improve.numbers : []
+            delegate: Text {
+              required property var modelData
+              width: reportCol.width
+              wrapMode: Text.WordWrap
+              textFormat: Text.StyledText
+              text: "•  <b>" + root.esc(modelData.area) + ":</b> " + root.esc(modelData.advice)
+              color: root.fg
+              font.pixelSize: 14
+            }
+          }
+        }
+
+        // -- journal ------------------------------------------------------------------------
+        Section {
+          title: "Journal"
+          hint: "Every session, newest first: what you did, what you wrote, what changed, and what the coach answered."
+          visible: reportCol.r !== null && reportCol.r.journal.length > 0
+          Repeater {
+            model: reportCol.r ? reportCol.r.journal : []
+            delegate: JournalEntry { required property var modelData; entry: modelData; width: reportCol.width }
+          }
+        }
+      }
+    }
+
       Flickable {
       anchors.top: tabs.bottom
       anchors.topMargin: 4

@@ -17,6 +17,7 @@ from pydantic import ValidationError
 
 from sportlock.athlete.domain.profile import EQUIPMENT, EXPERIENCE, GOALS, LOCATIONS
 from sportlock.coaching.application.memory_services import ForgetMemoryNoteCommand
+from sportlock.coaching.application.replacement_services import AnswerReplacementCommand
 from sportlock.diagnostics.infrastructure import doctor, report
 from sportlock.exercises.infrastructure.notebooklm_library import NotebookLMLibraryBuilder
 from sportlock.locks.application.lock_services import RequestOverrideCommand, StartManualLockCommand
@@ -69,6 +70,27 @@ def _dispatch(daemon: Daemon, request: dict) -> dict:
         return {"ok": True}
     if cmd == "train":
         return _train(daemon, request, now)
+    if cmd == "trainee-report":
+        return {
+            "ok": True,
+            "report": c.report.execute(),
+            "writing": daemon.review_running() or daemon.coach_running(),
+            "error": daemon.review_error,
+        }
+    if cmd == "trainee-report-write":
+        daemon.start_review(now)
+        return {"ok": True}
+    if cmd == "replacement-answer":
+        c.answer_replacement.execute(
+            AnswerReplacementCommand(
+                chain=str(request.get("chain", "")),
+                agree=bool(request.get("agree")),
+                note=str(request.get("note", "")),
+            ),
+            now,
+        )
+        daemon.schedule_tick()
+        return {"ok": True}
     if cmd == "music":
         try:
             command = ControlMusicCommand(

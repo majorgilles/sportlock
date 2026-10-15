@@ -370,7 +370,7 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("cancel-override", help="cancel a pending override").set_defaults(run=cmd_simple("cancel-override"))
 
     start = sub.add_parser("start", help="start a training session now (locks the desktop)")
-    start.add_argument("--minutes", type=int, default=30, choices=(20, 30, 45))
+    start.add_argument("--minutes", type=int, default=30, help="how long, 10 to 90 minutes (default 30)")
     start.set_defaults(run=cmd_start)
 
     raw = sub.add_parser("raw", help=argparse.SUPPRESS)  # JSON request, used by the lock screen
@@ -423,7 +423,7 @@ def main(argv: list[str] | None = None) -> None:
     music_sub.add_parser("logout", help="disconnect your Spotify account")
     music.set_defaults(run=cmd_music)
     app = sub.add_parser("app", help="open the sportlock window (profile, schedule & settings)")
-    app.add_argument("tab", nargs="?", choices=("calendar", "profile", "settings"), default="calendar")
+    app.add_argument("tab", nargs="?", choices=("calendar", "report", "profile", "settings"), default="calendar")
     app.set_defaults(run=cmd_app)
 
     doctor = sub.add_parser("doctor", help="check your data for inconsistencies")

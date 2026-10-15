@@ -6,6 +6,7 @@ the lock's time runs out, whichever comes first**, so it never holds your comput
 
 Open the app with `sportlock app` (or Omarchy menu → **Sportlock**): a **Calendar** of past
 sessions and planned locks (hard, recovery or rest, with the coach's plan for the next one), your
+**Report** (your dossier as a trainee, stats, last session, where to improve, and a journal), your
 **Profile**, and **Schedule & settings**.
 
 Sessions are planned by a coach (Claude Code, running headless) from your profile, your history
@@ -171,9 +172,9 @@ resumed afterwards) and Omarchy's idle lock is kept off.
 **The flow, per exercise:**
 
 1. Read the card: name, target (e.g. *3 sets × 8–12 reps · rest 60 s*), why it is at this level,
-   and the picture with cues beside it. Exercises you have done fewer than 3 times show a short
-   YouTube demonstration video instead of the picture (muted, looping; click to pause, **Sound on**
-   for the instructor's voice); **V** switches between video and picture. The full instructions (steps, cues, common mistakes,
+   and the picture with cues beside it. **▶ Video** (or **V**) shows a short YouTube demonstration
+   instead of the picture (muted, looping; click to pause, **Sound on** for the instructor's
+   voice); it goes back to the picture on the next exercise. The full instructions (steps, cues, common mistakes,
    breathing, easier/harder variations and which book they come from) are open for exercises
    you have done fewer than 3 times; **D** shows or hides them.
 
@@ -201,7 +202,7 @@ early after at least one set.
 Enter to submit), optionally add calories, average heart rate and body weight from your watch,
 then **Finish session**. The screen unlocks and a notification says what changes next time.
 
-**Override:** **Override…** → type the phrase exactly → a 5-minute countdown starts (you can
+**Override:** **Override…** → type the phrase exactly → a 5-second countdown starts (you can
 cancel it). Every override is logged. Test locks can't be overridden.
 
 ### Music
@@ -282,6 +283,27 @@ easier at home, recovery, or a setting to change. You get them in a notification
 has planned, in the warning popup before the next lock, and in the Calendar (under that session
 and under the next planned lock).
 
+**Replaced exercises.** When the last session moved a ladder to another exercise (squats became
+step-ups), you are asked before the next session, in the warning popup and at the top of the lock
+screen while the new exercise is still ahead: **Agree**, or **Keep** the old exercise, with an
+optional note for the coach. Keeping it puts the old exercise back on the ladder, in the coach's
+plan and in the running session; the coach reads your answers on its next run and won't bring the
+replacement straight back.
+
+**Your report.** `sportlock app report` shows:
+
+- **Your dossier**: the coach's portrait of you as a trainee, your profile, your step on each
+  movement's ladder (and how far you've climbed), and what the coach remembers about you.
+- **Your stats**: sessions, time trained, the last 7 and 28 days, effort, locks kept in a row,
+  exercises done and skipped, minutes per week, and your personal bests.
+- **Your last session** with the coach's take on it.
+- **Where you can improve**: the coach's advice, plus what your numbers show.
+- **A journal** of every session: what you did, what you wrote, what changed on the ladders, and what
+  the coach answered.
+
+The numbers are always current. The coach rewrites its part (dossier, last session, advice) in the
+background after it plans each session, or right away with **Ask the coach to update it**.
+
 **Recovery and rest days.** Each scheduled lock is decided about 10 minutes before it starts:
 
 - **hard**: the full session for the full lock;
@@ -327,13 +349,13 @@ Rebuild one exercise with `sportlock library build <id> --force` (ids: `sportloc
 | Command | What it does |
 |---|---|
 | `sportlock status` | lock state, next lock, whether you trained today |
-| `sportlock start --minutes 20\|30\|45` | start a session now (a full lock) |
+| `sportlock start [--minutes 10–90]` | start a session now (a full lock; default 30 min) |
 | `sportlock test` | 1-minute lock, can't be overridden, doesn't count |
 | `sportlock override <phrase>` | start the override countdown (same as the lock-screen button) |
 | `sportlock cancel-override` | cancel it |
 | `sportlock log` | recent locks and how they ended |
 | `sportlock ladders` | your position on every chain, with the reason |
-| `sportlock app [calendar\|profile\|settings]` | the app, on the given tab (default: calendar) |
+| `sportlock app [calendar\|report\|profile\|settings]` | the app, on the given tab (default: calendar) |
 | `sportlock agent status` | the coach's current plan and its recent runs |
 | `sportlock agent run` | plan the next session now, in the foreground |
 | `sportlock reload` | re-read `config.toml` |
@@ -444,7 +466,7 @@ sportlock/
   training/       the session aggregate, fitting       progression/  ladders, rules, built-in planner
   recovery/       hard / recovery / rest decisions     coaching/     the coach, its plan and memory
   calendar/       past and planned days                diagnostics/  doctor and problem reports
-  music/          Spotify on the lock screen
+  music/          Spotify on the lock screen           reporting/    the Report tab: stats, journal, coach's review
   app/            composition root, daemon, socket API, CLI, app window
 ```
 

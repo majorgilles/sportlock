@@ -11,13 +11,16 @@ from sportlock.athlete.infrastructure.kv_profile_repository import KvProfileRepo
 from sportlock.calendar.application.build_calendar_service import BuildCalendarService
 from sportlock.coaching.application.fresh_plan import CoachPlanFreshness
 from sportlock.coaching.application.memory_services import ForgetMemoryNoteService, GetMemoryService
+from sportlock.coaching.application.replacement_services import AnswerReplacementService, PendingReplacementsService
 from sportlock.coaching.application.run_coach_service import RunCoachService
 from sportlock.coaching.domain.ports import CoachProtocol
 from sportlock.coaching.infrastructure.claude_coach import ClaudeCoach
 from sportlock.coaching.infrastructure.sqlite_repositories import (
     KvCoachPlanRepository,
     SqliteCoachMemoryRepository,
+    SqliteCoachReviewRepository,
     SqliteCoachRunLog,
+    SqliteReplacementAnswerRepository,
 )
 from sportlock.exercises.domain.catalogue import Catalogue
 from sportlock.exercises.infrastructure.details_repository import (
@@ -52,6 +55,7 @@ from sportlock.music.infrastructure.spotify_mpris import SpotifyMprisPlayer
 from sportlock.music.infrastructure.spotify_web import SpotifyWebLibrary
 from sportlock.progression.application.apply_session_progression_service import ApplySessionProgressionService
 from sportlock.progression.infrastructure.sqlite_ladder_repository import SqliteLadderRepository
+from sportlock.reporting.application.report_services import BuildReportService, WriteCoachReviewService
 from sportlock.settings.application.settings_services import (
     GetSettingsService,
     ReloadSettingsService,
@@ -126,10 +130,12 @@ class Container:
         self.coach_plans = KvCoachPlanRepository(self.database)
         self.coach_runs = SqliteCoachRunLog(self.database)
         self.memory = SqliteCoachMemoryRepository(self.database)
+        self.replacement_answers = SqliteReplacementAnswerRepository(self.database)
+        self.coach_reviews = SqliteCoachReviewRepository(self.database)
         self.runtime = InMemoryLockRuntime()
 
         self.lock_screen = lock_screen or QuickshellLockScreen(state_path or Path("/dev/null"), CLI)
-        self.popup = popup or QuickshellWarningPopup()
+        self.popup = popup or QuickshellWarningPopup(CLI)
         self.music_player = music_player or SpotifyMprisPlayer()
         spotify_web = SpotifyWebLibrary(self.database)
         self.music_library = music_library or spotify_web
@@ -145,6 +151,18 @@ class Container:
         self.close_session = CloseTrainingSessionService(self.sessions, self.progression)
         self.record_training_action = RecordTrainingActionService(self.sessions, self.catalogue, self.progression)
         self.training_snapshot = TrainingSnapshotService(self.sessions, self.history, self.catalogue, self.details)
+        self.pending_replacements = PendingReplacementsService(
+            self.history, self.ladders, self.replacement_answers, self.catalogue
+        )
+        self.answer_replacement = AnswerReplacementService(
+            self.pending_replacements,
+            self.replacement_answers,
+            self.ladders,
+            self.coach_plans,
+            self.freshness,
+            self.sessions,
+            self.catalogue,
+        )
         self.plan_lock = PlanScheduledLockService(
             self.lock_state, self.freshness, self.history, self.lock_events, self.desktop
         )
@@ -160,6 +178,7 @@ class Container:
             self.begin_session,
             self.close_session,
             self.freshness,
+            self.pending_replacements,
             self.desktop,
             self.lock_screen,
             self.popup,
@@ -178,12 +197,27 @@ class Container:
             self.coach_plans,
             self.coach_runs,
             self.memory,
+            self.replacement_answers,
+            self.coach_reviews,
             self.ladders,
             self.history,
             self.profiles,
             self.lock_events,
             self.desktop,
             self.clock,
+        )
+        self.report = BuildReportService(
+            self.profiles,
+            self.history,
+            self.ladders,
+            self.memory,
+            self.coach_reviews,
+            self.lock_events,
+            self.catalogue,
+            self.clock,
+        )
+        self.write_review = WriteCoachReviewService(
+            self.coach, self.run_coach, self.report, self.coach_reviews, self.history, self.clock
         )
         self.get_memory = GetMemoryService(self.memory)
         self.forget_memory_note = ForgetMemoryNoteService(self.memory, self.clock)

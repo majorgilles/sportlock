@@ -208,3 +208,40 @@ def test_for_kind__between_reps_and_holds__converts_the_target():
     assert Target(sets=2, rest=15, reps=(8, 10)).for_kind("timed") == Target(sets=2, rest=15, seconds=120)
     assert Target(sets=3, rest=45, seconds=30).for_kind("reps") == Target(sets=3, rest=45, reps=(8, 12))
     assert Target(sets=3, rest=45, seconds=30).for_kind("hold") == Target(sets=3, rest=45, seconds=30)
+
+
+def _squat_session(catalogue):
+    plan = SessionPlan(
+        title="t",
+        day_type="hard",
+        items=(
+            PlannedExercise(exercise="dynamic-warmup", target=Target(sets=1, seconds=60)),
+            PlannedExercise(exercise="step-up", target=Target(sets=2, rest=60, reps=(8, 12))),
+            PlannedExercise(exercise="static-stretch", target=Target(sets=1, seconds=60)),
+        ),
+    )
+    return _session(catalogue, plan)
+
+
+def test_keep_instead__replacement_not_reached_yet__old_exercise_back_with_the_fitted_sets(catalogue):
+    session = _squat_session(catalogue)
+    changed = session.keep_instead("step-up", "bodyweight-squat", Target(sets=3, rest=60, reps=(12, 15)), catalogue)
+    squat = session.exercises[1]
+    assert changed
+    assert (squat.exercise, squat.name, squat.target.sets, squat.target.reps) == (
+        "bodyweight-squat",
+        "Bodyweight squat",
+        2,
+        (12, 15),
+    )
+
+
+def test_keep_instead__replacement_already_started__unchanged(catalogue):
+    # given: the warm-up is done and the step-up's first set is running
+    session = _squat_session(catalogue)
+    _do_timed(session, 0, 60)
+    session.start_set(_t(80))
+    # when
+    changed = session.keep_instead("step-up", "bodyweight-squat", Target(sets=3, reps=(12, 15)), catalogue)
+    # then
+    assert not changed and session.exercises[1].exercise == "step-up"

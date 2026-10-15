@@ -84,6 +84,19 @@ class CoachPlan(ValueObject):
             "generated_at": self.generated_at,
         }
 
+    def keeping(self, replaced: str, kept: str, target: Target, note: str) -> CoachPlan:
+        """The plan with `kept` back in place of `replaced`, in both versions (the athlete refused the
+        replacement)."""
+
+        def swap(version: SessionPlan) -> SessionPlan:
+            items = [
+                PlannedExercise(exercise=kept, target=target.with_(progress=note)) if i.exercise == replaced else i
+                for i in version.items
+            ]
+            return version.with_items(items)
+
+        return self.model_copy(update={"hard": swap(self.hard), "recovery": swap(self.recovery)})
+
     def version_for(self, mode: str | None, *, last_hard: datetime | None, now: datetime) -> SessionPlan:
         """The hard or recovery version: as decided for the lock, else by the 48-hour rule."""
         if mode == "hard":

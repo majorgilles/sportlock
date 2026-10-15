@@ -33,7 +33,7 @@ sportlock/app/                       composition root (container.py), daemon, so
 ```
 
 Features: athlete, calendar, coaching, diagnostics, exercises, locks, music, progression, recovery,
-settings, training.
+reporting, settings, training.
 
 ### Dependency rules
 

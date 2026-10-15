@@ -161,7 +161,7 @@ class LadderRepositoryProtocol(Protocol):
         ...
 
     def record_move(self, session_id: int, move: LadderMove, *, decided_by: str, now: datetime) -> None:
-        """Keep the proposal that moved a chain (decided_by: rules | agent)."""
+        """Keep the proposal that moved a chain (decided_by: rules | agent | athlete)."""
         ...
 
     def mark_last_overridden(self, chain: str, reason: str) -> None:
@@ -169,7 +169,7 @@ class LadderRepositoryProtocol(Protocol):
         ...
 
     def moves_for(self, session_id: int) -> list[dict]:
-        """Moves recorded for a session, as {chain, rule, from, to, target, reason}."""
+        """Moves recorded for a session, in order, as {chain, rule, from, from_target, to, target, reason, decided_by}."""
         ...
 
 

@@ -44,6 +44,24 @@ ShellRoot {
   readonly property string phase: tr ? tr.phase : ""
   readonly property var ex: tr && tr.current < tr.exercises.length ? tr.exercises[tr.current] : null
   readonly property string exKey: tr ? tr.id + ":" + tr.current : ""  // changes only when the exercise does
+  // Exercises replaced after the last session whose replacement is still ahead in this session
+  // (not started): the athlete can agree, or keep the old exercise.
+  readonly property var replacementsAhead: {
+    var found = []
+    var pending = st && st.replacements ? st.replacements : []
+    if (!tr) return found
+    for (var r = 0; r < pending.length; r++) {
+      for (var i = tr.current; i < tr.exercises.length; i++) {
+        var e = tr.exercises[i]
+        if (e.name === pending[r].to_name && e.status === "pending" && e.sets.length === 0
+            && (i > tr.current || phase === "ready")) {
+          found.push(pending[r])
+          break
+        }
+      }
+    }
+    return found
+  }
   readonly property int setNo: ex ? ex.sets.length + 1 : 0
   readonly property double elapsedMs: tr && tr.set_started_at && phase === "running" ? Math.max(0, nowMs - tr.set_started_at) : 0
   // Get-ready countdown between pressing Start and the set clock starting.
@@ -69,6 +87,11 @@ ShellRoot {
     var m = Math.floor(s / 60)
     s = s % 60
     return m + ":" + (s < 10 ? "0" : "") + s
+  }
+
+  // "5-second" or "5-minute": the override countdown's length.
+  function waitText(seconds) {
+    return seconds < 60 ? seconds + "-second" : Math.round(seconds / 60) + "-minute"
   }
 
   function targetText(e) {
@@ -470,11 +493,10 @@ ShellRoot {
                                      : (root.preview && Quickshell.env("SPORTLOCK_SHOW_DETAILS") === "1") || (root.ex !== null && root.ex.times_done < 3)
     function toggleDetails() { detailsToggled = !showCues }
 
-    // The video plays (muted, looping) for exercises done fewer than 3 times; V toggles it.
-    property var videoToggled: null
+    // The picture shows by default; the demonstration video (muted, looping) on request: V or the button.
+    property bool videoToggled: false
     property bool videoSound: false
-    readonly property bool showVideo: root.ex !== null && !!root.ex.video
-                                      && (videoToggled !== null ? videoToggled : (root.ex.times_done < 3 || root.ex.image === ""))
+    readonly property bool showVideo: root.ex !== null && !!root.ex.video && videoToggled
     function toggleVideo() { if (root.ex && root.ex.video) videoToggled = !showVideo }
     property bool skipOpen: false
 
@@ -521,7 +543,7 @@ ShellRoot {
       function onPlaylistsOpenChanged() {
         if (root.playlistsOpen) Qt.callLater(function() { page.contentY = Math.max(0, page.contentHeight - page.height) })
       }
-      function onExKeyChanged() { surface.detailsToggled = null; surface.videoToggled = null }
+      function onExKeyChanged() { surface.detailsToggled = null; surface.videoToggled = false }
       function onPhaseChanged() {
         surface.skipOpen = false
         ratePicker.value = 0
@@ -635,6 +657,68 @@ ShellRoot {
               color: modelData.status === "done" ? root.accent
                      : modelData.status === "skipped" ? root.urgent
                      : isCurrent ? root.fg : root.line
+            }
+          }
+        }
+
+        // The exercises replaced after the last session: agree, or keep the old one.
+        Repeater {
+          model: root.replacementsAhead
+          delegate: Rectangle {
+            id: change
+            required property var modelData
+            width: mainColumn.width
+            height: changeCol.implicitHeight + 32
+            radius: 10
+            color: root.panel
+            border.width: 1
+            border.color: root.accent
+            Column {
+              id: changeCol
+              x: 20; y: 16
+              width: parent.width - 40
+              spacing: 10
+              Text {
+                text: change.modelData.by === "coach" ? "The coach changed an exercise" : "Changed after your last session"
+                color: root.accent
+                font.pixelSize: 13
+                font.capitalization: Font.AllUppercase
+                font.letterSpacing: 1
+              }
+              Text {
+                width: parent.width
+                wrapMode: Text.WordWrap
+                text: change.modelData.to_name + " replaces " + change.modelData.from_name
+                color: root.fg
+                font.pixelSize: 20
+                font.weight: Font.DemiBold
+              }
+              Text {
+                width: parent.width
+                visible: !!change.modelData.reason
+                wrapMode: Text.WordWrap
+                text: change.modelData.reason
+                color: root.muted
+                font.pixelSize: 15
+              }
+              Flow {
+                width: parent.width
+                spacing: 12
+                Field {
+                  id: why
+                  width: Math.min(420, changeCol.width)
+                  placeholder: "tell the coach why (optional)"
+                }
+                Btn {
+                  primary: true
+                  label: "Agree"
+                  onClicked: root.send({ cmd: "replacement-answer", chain: change.modelData.chain, agree: true, note: why.text })
+                }
+                Btn {
+                  label: "Keep " + change.modelData.from_name
+                  onClicked: root.send({ cmd: "replacement-answer", chain: change.modelData.chain, agree: false, note: why.text })
+                }
+              }
             }
           }
         }
@@ -922,7 +1006,6 @@ ShellRoot {
               Btn {
                 label: surface.showVideo ? "Picture" : "▶ Video"
                 hint: "V"
-                visible: root.ex !== null && root.ex.image !== ""
                 onClicked: surface.toggleVideo()
               }
               Btn {
@@ -1321,8 +1404,8 @@ ShellRoot {
           Text {
             width: parent.width
             wrapMode: Text.WordWrap
-            text: "Type this to start a " + Math.round((root.st ? root.st.override_wait_seconds : 300) / 60)
-                  + "-minute countdown:\n“" + (root.st ? root.st.override_phrase : "") + "”"
+            text: "Type this to start a " + root.waitText(root.st ? root.st.override_wait_seconds : 300)
+                  + " countdown:\n“" + (root.st ? root.st.override_phrase : "") + "”"
             color: root.muted
             font.pixelSize: 15
           }

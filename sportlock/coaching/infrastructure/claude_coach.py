@@ -121,6 +121,12 @@ Each exercise: "exercise" is a catalogue id; "reps"-kind exercises use reps_low/
 SIDE, so 8 reps means 8 on each side; the app tells the user this, don't restate it in notes. Sets 1–6, rest in seconds. "note" is
 shown to the user on the exercise card: one short sentence on why this exercise at this level.
 
+"answers_to_replacements": before a session the user is asked about each exercise the last
+session's progression replaced (e.g. squats became step-ups): they agree, or keep the replaced
+exercise (the app then moves the ladder back), sometimes with a note. Respect a "kept": don't
+bring that replacement back on the next runs unless the history gives a new reason, and say why
+when you do. A note often tells you something worth a memory note.
+
 "ladder_overrides": only when you disagree with where the rule engine put a chain for the
 future (e.g. it moved them up but notes report pain). Each needs a concrete reason. Usually [].
 
@@ -167,6 +173,53 @@ DATA
 """
 
 
+REVIEW_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "dossier": {"type": "string"},
+        "last_session": {"type": "string"},
+        "improve": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"area": {"type": "string"}, "advice": {"type": "string"}},
+                "required": ["area", "advice"],
+            },
+        },
+    },
+    "required": ["dossier", "last_session", "improve"],
+}
+
+REVIEW_PROMPT = """You are the coach inside "sportlock", a desktop app that locks the user's computer until they
+finish a home training session (bodyweight calisthenics and mobility). Write the user's REPORT,
+read in the app's Report tab. Talk to them directly ("you"), plainly, like a good personal trainer
+reviewing their file. Ground everything in the data below: "stats" (computed from every session),
+"coach_memory" (your long-term notes about them: body, preferences, progress, plans), the profile,
+the ladders and "recent_sessions" (newest first).
+
+Knowledge: the user's own training books are in a NotebookLM notebook. You may search them with
+  {search} {notebook} "<query>" --limit 6
+(read-only passage search, JSON output) when the books' guidance helps.
+
+- "dossier": 4–6 sentences: who they are as a trainee today. Their level on each movement pattern
+  (from the ladders), strengths, weak links, the limitations and injuries you work around, their
+  habits (consistency, how hard sessions feel to them, what they enjoy or dislike), and how they
+  have progressed since they started.
+- "last_session": 2–4 sentences about their most recent session (the first of
+  "recent_sessions"): what went well, what the sets, efforts and notes show, and what changes next
+  time because of it.
+- "improve": 2–4 items, most important first. "area" names it in a few words (e.g. "Effort
+  level", "Upper back", "Consistency"); "advice" is 1–2 concrete sentences they can act on. Use the
+  numbers: low reported effort, skipped or swapped exercises, lagging chains, missed or overridden
+  locks, short sessions, mobility gaps.
+
+Don't invent data. Don't repeat the plan's recommendations word for word.
+
+DATA
+{context}
+"""
+
+
 class ClaudeCoach(CoachProtocol):
     """Asks Claude for the plan, forcing its answer into SCHEMA."""
 
@@ -182,6 +235,18 @@ class ClaudeCoach(CoachProtocol):
             max_notes=MAX_NOTES,
             context=json.dumps(context, ensure_ascii=False, indent=1),
         )
+        return self._ask(prompt, SCHEMA)
+
+    @override
+    def write_review(self, context: dict) -> dict:
+        prompt = REVIEW_PROMPT.format(
+            search=self.search_tool,
+            notebook=self.notebook_id,
+            context=json.dumps(context, ensure_ascii=False, indent=1),
+        )
+        return self._ask(prompt, REVIEW_SCHEMA)
+
+    def _ask(self, prompt: str, schema: dict) -> dict:
         claude = shutil.which("claude") or str(Path.home() / ".local/bin/claude")
         try:
             result = subprocess.run(
@@ -193,7 +258,7 @@ class ClaudeCoach(CoachProtocol):
                     "json",
                     "--no-session-persistence",
                     "--json-schema",
-                    json.dumps(SCHEMA),
+                    json.dumps(schema),
                     "--tools",
                     "Bash",
                     "--allowedTools",

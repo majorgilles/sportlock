@@ -86,10 +86,32 @@ A new session makes it stale.
 
 **Recommendations**: the coach's answers to the athlete's feedback on the last session.
 
+**Replacement / answer**: a chain the last session's moves put on another exercise, which the
+athlete is asked about before the next session: agree, or keep the old exercise (a "kept" move,
+decided by the athlete). *Feature:* coaching · `coaching/domain/replacements.py:Replacement`
+
 **Memory / note**: what the coach remembers across runs, changed by add, update and delete operations
 and kept as versions. *Feature:* coaching · `coaching/domain/memory.py:CoachMemory`
 
 **Forgotten note**: a note the athlete removed. The coach must not re-add it without new evidence.
+
+## Reporting
+
+**Report**: the app's Report tab: dossier, stats, last session, where to improve, journal.
+*Feature:* reporting · `reporting/application/report_services.py:BuildReportService`
+
+**Dossier**: the coach's portrait of the trainee, rewritten after each session.
+
+**Coach review**: what the coach wrote after a session: the dossier, a word on that session, advice
+on where to improve, and its answers to the session's feedback. Kept per session.
+*Feature:* coaching · `coaching/domain/review.py:CoachReview`
+
+**Journal**: every counted session, newest first, with the notes, ladder changes and coach's answers.
+
+**Personal best**: the best single set on a laddered exercise (reps, or seconds for holds).
+
+**Observation**: an improvement the numbers alone show (low effort, missed locks, skips, chains that
+haven't moved). *Feature:* reporting · `reporting/domain/report.py:observations`
 
 ## Exercises
 

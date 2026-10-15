@@ -6,6 +6,8 @@ from typing import Protocol
 
 from sportlock.coaching.domain.memory import CoachMemory
 from sportlock.coaching.domain.plan import CoachPlan
+from sportlock.coaching.domain.replacements import ReplacementAnswer
+from sportlock.coaching.domain.review import CoachReview
 from sportlock.shared_kernel.base import ValueObject
 
 
@@ -14,6 +16,10 @@ class CoachProtocol(Protocol):
 
     def write_plan(self, context: dict) -> dict:
         """The coach's raw answer (validated by `parse_coach_output`). Raises CoachUnavailableError."""
+        ...
+
+    def write_review(self, context: dict) -> dict:
+        """The coach's raw review of the trainee (validated by `parse_review`). Raises CoachUnavailableError."""
         ...
 
 
@@ -72,4 +78,40 @@ class CoachMemoryRepositoryProtocol(Protocol):
     def history(self, limit: int) -> list[dict]:
         """Every version of every note, newest first, as {note_id, topic, text, valid_from, valid_to,
         written_by, ended_by, end_reason}."""
+        ...
+
+
+class ReplacementAnswerRepositoryProtocol(Protocol):
+    """The athlete's answers to replaced exercises."""
+
+    def add(self, answer: ReplacementAnswer) -> None:
+        """Keep an answer."""
+        ...
+
+    def answered(self, session_id: int) -> set[str]:
+        """The chains already answered for the replacements after that session."""
+        ...
+
+    def recent(self, limit: int) -> list[ReplacementAnswer]:
+        """The latest answers, oldest first."""
+        ...
+
+
+class CoachReviewRepositoryProtocol(Protocol):
+    """The coach's reviews, one per session."""
+
+    def save(self, review: CoachReview) -> None:
+        """Keep a review (replacing an earlier one about the same session)."""
+        ...
+
+    def get(self, session_id: int) -> CoachReview | None:
+        """The review about a session."""
+        ...
+
+    def latest(self) -> CoachReview | None:
+        """The most recent review with a dossier."""
+        ...
+
+    def all(self) -> dict[int, CoachReview]:
+        """Every review, by session."""
         ...

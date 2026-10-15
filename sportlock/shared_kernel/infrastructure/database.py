@@ -56,6 +56,29 @@ def _move_coach_runs(db: sqlite3.Connection) -> None:
     db.execute("DELETE FROM kv WHERE key IN ('agent_runs', 'coach_memory', 'coach_memory_previous')")
 
 
+def _add_coach_reviews(db: sqlite3.Connection) -> None:
+    db.execute(
+        """
+        CREATE TABLE coach_reviews (       -- the coach's review after a session, for the Report tab
+            session_id INTEGER PRIMARY KEY REFERENCES sessions(id),
+            written_at TEXT NOT NULL,
+            dossier TEXT NOT NULL DEFAULT '',        -- the trainee as the coach sees them then
+            last_session TEXT NOT NULL DEFAULT '',   -- about this session
+            improve TEXT NOT NULL DEFAULT '[]',      -- JSON [{area, advice}]
+            recommendations TEXT NOT NULL DEFAULT '[]'  -- JSON [{about, advice}]: answers to the session's feedback
+        )
+        """
+    )
+    # The latest plan's answers to its session's feedback start the journal.
+    row = db.execute("SELECT value FROM kv WHERE key = 'next_session'").fetchone()
+    plan = json.loads(row[0]) if row else {}
+    if plan.get("feedback_session") and plan.get("recommendations"):
+        db.execute(
+            "INSERT INTO coach_reviews (session_id, written_at, recommendations) VALUES (?, ?, ?)",
+            (plan["feedback_session"], plan.get("generated_at", ""), json.dumps(plan["recommendations"])),
+        )
+
+
 # Each entry upgrades the schema by one version (PRAGMA user_version): SQL, or a function for
 # data moves.
 MIGRATIONS: list[str | Callable[[sqlite3.Connection], None]] = [
@@ -109,14 +132,14 @@ MIGRATIONS: list[str | Callable[[sqlite3.Connection], None]] = [
         session_id INTEGER NOT NULL REFERENCES sessions(id),
         session_exercise_id INTEGER REFERENCES session_exercises(id),
         chain TEXT NOT NULL,
-        rule TEXT NOT NULL,                -- up | add | hold | down | too-hard | override
+        rule TEXT NOT NULL,                -- up | add | hold | down | too-hard | override | kept
         from_exercise TEXT NOT NULL,
         from_target TEXT NOT NULL,
         to_exercise TEXT NOT NULL,
         to_target TEXT NOT NULL,
         reason TEXT NOT NULL,
         status TEXT NOT NULL,              -- applied | overridden
-        decided_by TEXT NOT NULL,          -- rules | agent
+        decided_by TEXT NOT NULL,          -- rules | agent | athlete
         override_reason TEXT,
         created_at TEXT NOT NULL
     );
@@ -143,6 +166,19 @@ MIGRATIONS: list[str | Callable[[sqlite3.Connection], None]] = [
     CREATE INDEX coach_memory_current ON coach_memory_notes (valid_to);
     """,
     _move_coach_runs,
+    """
+    CREATE TABLE replacement_answers (     -- the athlete's answer to an exercise replaced after a session
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES sessions(id),  -- the session whose progression replaced it
+        chain TEXT NOT NULL,
+        from_exercise TEXT NOT NULL,       -- the exercise that was replaced
+        to_exercise TEXT NOT NULL,         -- its replacement
+        agreed INTEGER NOT NULL,           -- 1: go with the replacement; 0: keep the old exercise
+        note TEXT NOT NULL DEFAULT '',
+        answered_at TEXT NOT NULL
+    );
+    """,
+    _add_coach_reviews,
 ]
 
 

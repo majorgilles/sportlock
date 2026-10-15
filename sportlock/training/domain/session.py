@@ -249,6 +249,25 @@ class TrainingSession(Aggregate):
         self.exercises.insert(self.current + 1, replacement)
         self._advance()
 
+    def keep_instead(self, replaced: str, kept: str, target: Target, catalogue: Catalogue) -> bool:
+        """Put an exercise the athlete wants to keep back in place of its replacement, wherever the
+        replacement hasn't been started yet (the fitted number of sets is kept). Returns whether
+        anything changed."""
+        if not self.active:
+            return False
+        spec = catalogue.get(kept)
+        changed = False
+        for index, exercise in enumerate(self.exercises):
+            started = index < self.current or (index == self.current and self.phase != "ready")
+            if exercise.exercise != replaced or exercise.status != "pending" or exercise.sets or started:
+                continue
+            exercise.exercise, exercise.name, exercise.pattern, exercise.kind = kept, spec.name, spec.pattern, spec.kind
+            exercise.target = target.for_kind(spec.kind).with_(
+                sets=min(target.sets, exercise.target.sets), sides=spec.sides
+            )
+            changed = True
+        return changed
+
     def _advance(self) -> None:
         self.current += 1
         self.phase = "summary" if self.current >= len(self.exercises) else "ready"

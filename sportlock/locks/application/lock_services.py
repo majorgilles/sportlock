@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from sportlock.athlete.application.profile_services import equipment_of
 from sportlock.athlete.domain.profile import ProfileRepositoryProtocol
 from sportlock.coaching.application.fresh_plan import CoachPlanFreshness
+from sportlock.coaching.application.replacement_services import PendingReplacementsService
 from sportlock.exercises.domain.catalogue import Catalogue
 from sportlock.locks.domain.locks import ActiveLock, LockPlan
 from sportlock.locks.domain.repositories import (
@@ -118,6 +119,7 @@ class RunLockTickService:
         begin_session: BeginTrainingSessionService,
         close_session: CloseTrainingSessionService,
         freshness: CoachPlanFreshness,
+        replacements: PendingReplacementsService,
         desktop: DesktopProtocol,
         lock_screen: LockScreenProtocol,
         popup: WarningPopupProtocol,
@@ -134,6 +136,7 @@ class RunLockTickService:
         self.begin_session = begin_session
         self.close_session = close_session
         self.freshness = freshness
+        self.replacements = replacements
         self.desktop = desktop
         self.lock_screen = lock_screen
         self.popup = popup
@@ -242,6 +245,7 @@ class RunLockTickService:
                     "title": version.title if version else "",
                     "reason": plan.reason if plan else "",
                     "recommendations": [r.model_dump() for r in coach.recommendations] if coach else [],
+                    "replacements": [r.to_dict() for r in self.replacements.execute()],
                     "theme": self.desktop.theme(),
                 }
             )

@@ -89,7 +89,10 @@ def test_database__version_two_database__coach_runs_moved_out_of_the_key_value_t
     path = tmp_path / "old.db"
     Database(path).db.close()
     db = sqlite3.connect(path)
-    db.executescript("DROP TABLE coach_runs; DROP TABLE coach_memory_notes; PRAGMA user_version = 2;")
+    db.executescript(
+        "DROP TABLE coach_runs; DROP TABLE coach_memory_notes; DROP TABLE replacement_answers; DROP TABLE coach_reviews;"
+        " PRAGMA user_version = 2;"
+    )
     db.execute(
         "INSERT INTO kv VALUES ('agent_runs', ?)",
         (json.dumps([{"at": "2026-10-01T10:00:00", "seconds": 60, "ok": True, "error": None}]),),

@@ -77,9 +77,11 @@ class SqliteLadderRepository(LadderRepositoryProtocol):
                 "chain": p["chain"],
                 "rule": p["rule"],
                 "from": p["from_exercise"],
+                "from_target": json.loads(p["from_target"]),
                 "to": p["to_exercise"],
                 "target": json.loads(p["to_target"]),
                 "reason": p["reason"],
+                "decided_by": p["decided_by"],
             }
             for p in self.database.execute("SELECT * FROM proposals WHERE session_id = ? ORDER BY id", (session_id,))
         ]

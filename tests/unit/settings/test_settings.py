@@ -121,3 +121,7 @@ def test_with_form__without_music_playlists__keeps_the_current_ones():
     form = current.to_form()
     del form["music_playlists"]
     assert current.with_form(form).music_playlists == current.music_playlists
+
+
+def test_parse__no_override_wait__unlocks_five_minutes_after_the_phrase():
+    assert Settings.parse({}).override_wait_seconds == 300

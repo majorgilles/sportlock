@@ -1,18 +1,24 @@
-"""SQLite adapters for coaching: the plan (key-value), the run log, and the versioned memory."""
+"""SQLite adapters for coaching: the plan (key-value), the run log, the versioned memory, and the
+athlete's answers to replaced exercises, and the coach's reviews."""
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from typing import override
 
 from sportlock.coaching.domain.memory import CoachMemory, MemoryNote, NoteAdded, NoteDeleted, NoteForgotten, NoteUpdated
-from sportlock.coaching.domain.plan import CoachPlan
+from sportlock.coaching.domain.plan import CoachPlan, Recommendation
 from sportlock.coaching.domain.ports import (
     CoachMemoryRepositoryProtocol,
     CoachPlanRepositoryProtocol,
+    CoachReviewRepositoryProtocol,
     CoachRun,
     CoachRunLogProtocol,
+    ReplacementAnswerRepositoryProtocol,
 )
+from sportlock.coaching.domain.replacements import ReplacementAnswer
+from sportlock.coaching.domain.review import CoachReview, Improvement
 from sportlock.shared_kernel.infrastructure.database import Database
 
 PLAN_KEY = "next_session"
@@ -117,3 +123,98 @@ class SqliteCoachMemoryRepository(CoachMemoryRepositoryProtocol):
             (limit,),
         )
         return [dict(r) for r in rows]
+
+
+class SqliteReplacementAnswerRepository(ReplacementAnswerRepositoryProtocol):
+    """replacement_answers table."""
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    @override
+    def add(self, answer: ReplacementAnswer) -> None:
+        self.database.execute(
+            "INSERT INTO replacement_answers (session_id, chain, from_exercise, to_exercise, agreed, note, answered_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                answer.session_id,
+                answer.chain,
+                answer.from_exercise,
+                answer.to_exercise,
+                int(answer.agreed),
+                answer.note,
+                answer.answered_at,
+            ),
+        )
+
+    @override
+    def answered(self, session_id: int) -> set[str]:
+        rows = self.database.execute("SELECT chain FROM replacement_answers WHERE session_id = ?", (session_id,))
+        return {r["chain"] for r in rows}
+
+    @override
+    def recent(self, limit: int) -> list[ReplacementAnswer]:
+        rows = self.database.execute(
+            "SELECT * FROM (SELECT * FROM replacement_answers ORDER BY id DESC LIMIT ?) ORDER BY id", (limit,)
+        ).fetchall()
+        return [
+            ReplacementAnswer(
+                session_id=r["session_id"],
+                chain=r["chain"],
+                from_exercise=r["from_exercise"],
+                to_exercise=r["to_exercise"],
+                agreed=bool(r["agreed"]),
+                note=r["note"],
+                answered_at=r["answered_at"],
+            )
+            for r in rows
+        ]
+
+
+class SqliteCoachReviewRepository(CoachReviewRepositoryProtocol):
+    """coach_reviews table: one row per session."""
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    @override
+    def save(self, review: CoachReview) -> None:
+        self.database.execute(
+            "INSERT OR REPLACE INTO coach_reviews (session_id, written_at, dossier, last_session, improve,"
+            " recommendations) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                review.session_id,
+                review.written_at,
+                review.dossier,
+                review.last_session,
+                json.dumps([i.model_dump() for i in review.improve]),
+                json.dumps([r.model_dump() for r in review.recommendations]),
+            ),
+        )
+
+    @override
+    def get(self, session_id: int) -> CoachReview | None:
+        row = self.database.execute("SELECT * FROM coach_reviews WHERE session_id = ?", (session_id,)).fetchone()
+        return _review(row) if row else None
+
+    @override
+    def latest(self) -> CoachReview | None:
+        row = self.database.execute(
+            "SELECT * FROM coach_reviews WHERE dossier != '' ORDER BY session_id DESC LIMIT 1"
+        ).fetchone()
+        return _review(row) if row else None
+
+    @override
+    def all(self) -> dict[int, CoachReview]:
+        return {r["session_id"]: _review(r) for r in self.database.execute("SELECT * FROM coach_reviews")}
+
+
+def _review(row) -> CoachReview:
+    return CoachReview(
+        session_id=row["session_id"],
+        written_at=row["written_at"],
+        dossier=row["dossier"],
+        last_session=row["last_session"],
+        improve=tuple(Improvement(**i) for i in json.loads(row["improve"])),
+        recommendations=tuple(Recommendation(**r) for r in json.loads(row["recommendations"])),
+    )

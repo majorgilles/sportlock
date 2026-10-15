@@ -12,10 +12,13 @@ from sportlock.coaching.domain.ports import (
     CoachMemoryRepositoryProtocol,
     CoachPlanRepositoryProtocol,
     CoachProtocol,
+    CoachReviewRepositoryProtocol,
     CoachRun,
     CoachRunLogProtocol,
     CoachUnavailableError,
+    ReplacementAnswerRepositoryProtocol,
 )
+from sportlock.coaching.domain.review import CoachReview
 from sportlock.exercises.domain.catalogue import Catalogue
 from sportlock.locks.domain.repositories import LockEventRepositoryProtocol
 from sportlock.progression.domain.ladders import START, LadderMove, LadderPosition, LadderRepositoryProtocol, positions
@@ -29,6 +32,7 @@ from sportlock.training.domain.repositories import TrainingHistoryProtocol
 HISTORY_DAYS = 28
 HISTORY_SESSIONS = 12
 FORGOTTEN_SHOWN = 30
+ANSWERS_SHOWN = 10
 
 
 class RunCoachCommand(ValueObject):
@@ -49,6 +53,8 @@ class RunCoachService:
         plans: CoachPlanRepositoryProtocol,
         runs: CoachRunLogProtocol,
         memory: CoachMemoryRepositoryProtocol,
+        answers: ReplacementAnswerRepositoryProtocol,
+        reviews: CoachReviewRepositoryProtocol,
         ladders: LadderRepositoryProtocol,
         history: TrainingHistoryProtocol,
         profiles: ProfileRepositoryProtocol,
@@ -61,6 +67,8 @@ class RunCoachService:
         self.plans = plans
         self.runs = runs
         self.memory = memory
+        self.answers = answers
+        self.reviews = reviews
         self.ladders = ladders
         self.history = history
         self.profiles = profiles
@@ -121,6 +129,9 @@ class RunCoachService:
         memory.apply(list(parsed.memory), by=f"coach-run:{run_id}", today=now.date())
         self.memory.save(memory)
         self.plans.save(plan)
+        if last_session and plan.recommendations:  # the journal keeps every answer to the athlete's feedback
+            review = self.reviews.get(last_session) or CoachReview(session_id=last_session, written_at=iso(now))
+            self.reviews.save(review.with_recommendations(plan.recommendations))
 
         if plan.recommendations:
             self.desktop.notify(
@@ -176,6 +187,17 @@ class RunCoachService:
                 {"id": n.id, "topic": n.topic, "note": n.text, "since": n.since.isoformat()} for n in memory.current()
             ],
             "forgotten_by_user": self.memory.forgotten(FORGOTTEN_SHOWN),
+            "answers_to_replacements": [
+                {
+                    "on": a.answered_at[:10],
+                    "chain": a.chain,
+                    "replaced": self.catalogue.name(a.from_exercise),
+                    "by": self.catalogue.name(a.to_exercise),
+                    "answer": "agreed" if a.agreed else "kept the replaced exercise",
+                    **({"note": a.note} if a.note else {}),
+                }
+                for a in self.answers.recent(ANSWERS_SHOWN)
+            ],
             "equipment": sorted(command.equipment),
             "last_hard_session": iso(last_hard) if last_hard else None,
             "ladders": ladders,

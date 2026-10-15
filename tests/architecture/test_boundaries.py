@@ -18,6 +18,7 @@ FEATURES = {
     "music",
     "progression",
     "recovery",
+    "reporting",
     "settings",
     "training",
 }

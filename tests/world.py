@@ -88,10 +88,11 @@ class FakePopup:
 
 
 class FakeCoach:
-    """Answers with a prepared output (deep-copied), or fails; records the contexts it saw."""
+    """Answers with a prepared plan or review (deep-copied), or fails; records the contexts it saw."""
 
     def __init__(self) -> None:
         self.output: dict | None = None
+        self.review: dict | None = None
         self.contexts: list[dict] = []
 
     def write_plan(self, context: dict) -> dict:
@@ -99,6 +100,12 @@ class FakeCoach:
         if self.output is None:
             raise CoachUnavailableError("no answer prepared")
         return copy.deepcopy(self.output)
+
+    def write_review(self, context: dict) -> dict:
+        self.contexts.append(context)
+        if self.review is None:
+            raise CoachUnavailableError("no review prepared")
+        return copy.deepcopy(self.review)
 
 
 class FakeMusicPlayer:
