@@ -17,6 +17,7 @@ from sportlock.locks.domain.locks import (
 from sportlock.shared_kernel.base import ValueObject
 from sportlock.shared_kernel.repositories import (
     CreateRepositoryProtocol,
+    DeleteSingletonRepositoryProtocol,
     FindRepositoryProtocol,
     GetRepositoryProtocol,
     GetSingletonRepositoryProtocol,
@@ -86,9 +87,12 @@ class LockPlanRepositoryProtocol(
 
 
 class ManualLockRepositoryProtocol(
-    GetSingletonRepositoryProtocol[ActiveLock], UpdateSingletonRepositoryProtocol[ActiveLock | None], Protocol
+    GetSingletonRepositoryProtocol[ActiveLock],
+    UpdateSingletonRepositoryProtocol[ActiveLock],
+    DeleteSingletonRepositoryProtocol,
+    Protocol,
 ):
-    """The lock started with `sportlock start`; `update(None)` forgets it."""
+    """The lock started with `sportlock start`; `delete` forgets it."""
 
 
 class GivenWarningRepositoryProtocol(
@@ -99,10 +103,11 @@ class GivenWarningRepositoryProtocol(
 
 class DesktopToRestoreRepositoryProtocol(
     GetSingletonRepositoryProtocol[DesktopToRestore],
-    UpdateSingletonRepositoryProtocol[DesktopToRestore | None],
+    UpdateSingletonRepositoryProtocol[DesktopToRestore],
+    DeleteSingletonRepositoryProtocol,
     Protocol,
 ):
-    """The desktop state to restore when the lock ends; `update(None)` forgets it once restored."""
+    """The desktop state to restore when the lock ends; `delete` forgets it once restored."""
 
 
 class LockRuntimeProtocol(Protocol):

@@ -67,3 +67,11 @@ class UpdateSingletonRepositoryProtocol[EntityT](Protocol):
     def update(self, entity: EntityT) -> EntityT:
         """Store the value, creating it the first time, and return it as stored."""
         ...
+
+
+class DeleteSingletonRepositoryProtocol(Protocol):
+    """Removes the one stored value of its kind, such as a lock that is over."""
+
+    def delete(self) -> None:
+        """Remove the stored value; removing a missing one is not an error."""
+        ...

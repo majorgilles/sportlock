@@ -174,15 +174,16 @@ class KvManualLockRepository(ManualLockRepositoryProtocol):
         return ActiveLock(key=saved["key"], window=window, kind="manual")
 
     @override
-    def update(self, entity: ActiveLock | None) -> ActiveLock | None:
-        if entity is None:
-            self.database.delete(MANUAL_LOCK_KEY)
-        else:
-            self.database.put(
-                MANUAL_LOCK_KEY,
-                {"key": entity.key, "start": entity.window.start.isoformat(), "end": entity.window.end.isoformat()},
-            )
+    def update(self, entity: ActiveLock) -> ActiveLock:
+        self.database.put(
+            MANUAL_LOCK_KEY,
+            {"key": entity.key, "start": entity.window.start.isoformat(), "end": entity.window.end.isoformat()},
+        )
         return entity
+
+    @override
+    def delete(self) -> None:
+        self.database.delete(MANUAL_LOCK_KEY)
 
 
 class KvGivenWarningRepository(GivenWarningRepositoryProtocol):
@@ -219,9 +220,10 @@ class KvDesktopToRestoreRepository(DesktopToRestoreRepositoryProtocol):
         return DesktopToRestore.from_dict(saved) if saved is not None else None
 
     @override
-    def update(self, entity: DesktopToRestore | None) -> DesktopToRestore | None:
-        if entity is None:
-            self.database.delete(RESTORE_KEY)
-        else:
-            self.database.put(RESTORE_KEY, entity.to_dict())
+    def update(self, entity: DesktopToRestore) -> DesktopToRestore:
+        self.database.put(RESTORE_KEY, entity.to_dict())
         return entity
+
+    @override
+    def delete(self) -> None:
+        self.database.delete(RESTORE_KEY)

@@ -117,7 +117,6 @@ from sportlock.training.infrastructure.sqlite_repositories import (
     SqliteCompletedExerciseRepository,
     SqliteCountedSessionRepository,
     SqliteExerciseTimingRepository,
-    SqliteSessionDetailsRepository,
     SqliteSessionSummaryRepository,
     SqliteTrainingSessionRepository,
     SqliteTransitionGapRepository,
@@ -200,7 +199,6 @@ class Container:
             SqliteExerciseTimingRepository(self.database),
             SqliteTransitionGapRepository(self.database),
             SqliteCompletedExerciseRepository(self.database),
-            SqliteSessionDetailsRepository(self.database),
             SqliteCountedSessionRepository(self.database),
         )
         self.lock_event_repository = SqliteLockEventRepository(self.database)

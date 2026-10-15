@@ -142,7 +142,7 @@ class ChooseLockService:
             return None
         if now < manual.window.end and manual.key not in self._ended_early():
             return manual
-        self.manual_lock_repository.update(None)
+        self.manual_lock_repository.delete()
         return None
 
     def _scheduled_candidate(self, now: datetime, decision: Decision) -> ActiveLock | None:
@@ -354,7 +354,7 @@ def restore_desktop(
     desktop.resume_media(saved.paused)
     if saved.stay_awake is not None:
         desktop.set_idle_stay_awake(bool(saved.stay_awake))
-    desktop_to_restore_repository.update(None)
+    desktop_to_restore_repository.delete()
 
 
 class LeaveLockService:

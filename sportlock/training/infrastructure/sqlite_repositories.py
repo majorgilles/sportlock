@@ -13,6 +13,7 @@ from typing import override
 from sportlock.shared_kernel.infrastructure.database import Database
 from sportlock.shared_kernel.targets import Target
 from sportlock.shared_kernel.time import iso
+from sportlock.training.domain.counted_session import CountedSession, RecordedExercise, RecordedSet
 from sportlock.training.domain.repositories import (
     CompletedExercise,
     CompletedExerciseFilters,
@@ -22,8 +23,6 @@ from sportlock.training.domain.repositories import (
     ExerciseTiming,
     ExerciseTimingFilters,
     ExerciseTimingRepositoryProtocol,
-    SessionDetailsFilters,
-    SessionDetailsRepositoryProtocol,
     SessionSummary,
     SessionSummaryFilters,
     SessionSummaryRepositoryProtocol,
@@ -357,77 +356,45 @@ class SqliteCompletedExerciseRepository(CompletedExerciseRepositoryProtocol):
         return [CompletedExercise(session_id=row["session_id"], exercise=row["exercise"]) for row in rows]
 
 
-class SqliteSessionDetailsRepository(SessionDetailsRepositoryProtocol):
-    """Counted sessions in full, for the coach."""
-
-    def __init__(self, database: Database) -> None:
-        self.database = database
-
-    @override
-    def find(self, filters: SessionDetailsFilters) -> list[dict]:
-        since, limit = filters.since, filters.latest
-        sessions = []
-        for s in self.database.execute(
-            f"SELECT * FROM sessions WHERE day >= ? AND {COUNTED} AND status != 'in_progress' ORDER BY id DESC LIMIT ?",
-            (since.isoformat(), limit),
-        ).fetchall():
-            exercises = []
-            for e in self.database.execute(
-                "SELECT * FROM session_exercises WHERE session_id = ? ORDER BY id", (s["id"],)
-            ):
-                sets = [
-                    {
-                        k: v
-                        for k, v in dict(x).items()
-                        if k in ("reps", "seconds", "load_kg", "rest_seconds") and v is not None
-                    }
-                    for x in self.database.execute(
-                        "SELECT * FROM sets WHERE session_exercise_id = ? ORDER BY set_no", (e["id"],)
-                    )
-                ]
-                exercises.append(
-                    {
-                        k: v
-                        for k, v in {
-                            "exercise": e["exercise"],
-                            "status": e["status"],
-                            "target": json.loads(e["target"]),
-                            "sets": sets,
-                            "rpe": e["rpe"],
-                            "note": e["note"],
-                            "skip_reason": e["skip_reason"],
-                        }.items()
-                        if v
-                    }
-                )
-            sessions.append(
-                {
-                    k: v
-                    for k, v in {
-                        "id": s["id"],
-                        "date": s["day"],
-                        "started": s["started_at"],
-                        "kind": s["kind"],
-                        "day_type": s["day_type"],
-                        "status": s["status"],
-                        "rpe": s["rpe"],
-                        "notes": s["notes"],
-                        "exercises": exercises,
-                    }.items()
-                    if v
-                }
-            )
-        return sessions
-
-
 class SqliteCountedSessionRepository(CountedSessionRepositoryProtocol):
-    """Counted sessions with their exercises, for the calendar and the report."""
+    """Counted, closed sessions with their exercises and sets."""
 
     def __init__(self, database: Database) -> None:
         self.database = database
 
+    def _exercises(self, session_id: int) -> tuple[RecordedExercise, ...]:
+        exercises = []
+        for row in self.database.execute(
+            "SELECT * FROM session_exercises WHERE session_id = ? ORDER BY id", (session_id,)
+        ).fetchall():
+            sets = tuple(
+                RecordedSet(
+                    reps=set_row["reps"],
+                    seconds=set_row["seconds"],
+                    load_kg=set_row["load_kg"],
+                    rest_seconds=set_row["rest_seconds"],
+                )
+                for set_row in self.database.execute(
+                    "SELECT * FROM sets WHERE session_exercise_id = ? ORDER BY set_no", (row["id"],)
+                )
+            )
+            exercises.append(
+                RecordedExercise(
+                    exercise=row["exercise"],
+                    name=row["name"],
+                    kind=row["kind"],
+                    status=row["status"],
+                    target=json.loads(row["target"]),
+                    sets=sets,
+                    rpe=row["rpe"],
+                    note=row["note"],
+                    skip_reason=row["skip_reason"],
+                )
+            )
+        return tuple(exercises)
+
     @override
-    def find(self, filters: CountedSessionFilters) -> list[dict]:
+    def find(self, filters: CountedSessionFilters) -> list[CountedSession]:
         conditions, parameters = [COUNTED, "status != 'in_progress'"], []
         if filters.first_day is not None:
             conditions.append("day >= ?")
@@ -437,36 +404,24 @@ class SqliteCountedSessionRepository(CountedSessionRepositoryProtocol):
             parameters.append(filters.last_day.isoformat())
         order = "id DESC" if filters.newest_first else "started_at"
         limit = -1 if filters.latest is None else filters.latest
-        result = []
-        for s in self.database.execute(
+        rows = self.database.execute(
             f"SELECT * FROM sessions WHERE {' AND '.join(conditions)} ORDER BY {order} LIMIT ?",
             (*parameters, limit),
-        ).fetchall():
-            exercises = []
-            for e in self.database.execute(
-                "SELECT * FROM session_exercises WHERE session_id = ? ORDER BY id", (s["id"],)
-            ):
-                if e["status"] == "swapped":
-                    continue  # its easier replacement follows
-                sets = [
-                    dict(x)
-                    for x in self.database.execute(
-                        "SELECT reps, seconds, load_kg FROM sets WHERE session_exercise_id = ? ORDER BY set_no",
-                        (e["id"],),
-                    )
-                ]
-                exercises.append(
-                    {
-                        "exercise": e["exercise"],
-                        "name": e["name"],
-                        "kind": e["kind"],
-                        "status": e["status"],
-                        "rpe": e["rpe"],
-                        "note": e["note"] or "",
-                        "skip_reason": e["skip_reason"] or "",
-                        "target": json.loads(e["target"]),
-                        "sets": sets,
-                    }
-                )
-            result.append({**dict(s), "exercises": exercises})
-        return result
+        ).fetchall()
+        return [
+            CountedSession(
+                id=row["id"],
+                day=row["day"],
+                started_at=row["started_at"],
+                finished_at=row["finished_at"],
+                kind=row["kind"],
+                status=row["status"],
+                title=row["title"],
+                day_type=row["day_type"],
+                plan_source=row["plan_source"],
+                rpe=row["rpe"],
+                notes=row["notes"],
+                exercises=self._exercises(row["id"]),
+            )
+            for row in rows
+        ]

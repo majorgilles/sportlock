@@ -263,6 +263,7 @@ CRUD_CAPABILITIES = {
     "DeleteRepositoryProtocol",
     "GetSingletonRepositoryProtocol",
     "UpdateSingletonRepositoryProtocol",
+    "DeleteSingletonRepositoryProtocol",
 }
 
 

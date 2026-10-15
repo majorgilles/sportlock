@@ -39,14 +39,18 @@ The shared standards in `~/.agents/AGENTS.md` now require both rules below for e
 | `ExerciseDetailsRepositoryProtocol` get | get_by_id |
 | `LockEventRepositoryProtocol` began/ended/outcome/ended_early/rest_days/recent/between | create, get_by_id, find, update |
 | `OverrideRepositoryProtocol` start/pending/finish | create, find, update |
-| `LockStateRepositoryProtocol` (8 methods) | `LockPlanRepositoryProtocol`: create, get_by_id, find; `ManualLockRepositoryProtocol` and `DesktopToRestoreRepositoryProtocol`: get, update (singletons); `GivenWarningRepositoryProtocol`: create, find |
+| `LockStateRepositoryProtocol` (8 methods) | `LockPlanRepositoryProtocol`: create, get_by_id, find; `ManualLockRepositoryProtocol` and `DesktopToRestoreRepositoryProtocol`: get, update, delete (singletons); `GivenWarningRepositoryProtocol`: create, find |
 | `LadderRepositoryProtocol` saved/set/reset/record_move/mark_last_overridden/moves_for | `LadderPositionRepositoryProtocol`: find, update, delete; `LadderMoveRecordRepositoryProtocol`: create, find, update |
 | `SettingsRepositoryProtocol` marker/load/save | get, update (singleton); `SettingsChangeMarkerProtocol`: marker |
 | `TrainingSessionRepositoryProtocol` active/add/save/discard_active | create, update, get (the active session) |
-| `TrainingHistoryProtocol` (10 read methods) | find-only `SessionSummary`, `ExerciseTiming`, `TransitionGap`, `CompletedExercise`, `SessionDetails` and `CountedSession` repositories, read by the `TrainingHistory` helper |
+| `TrainingHistoryProtocol` (10 read methods) | find-only `SessionSummary`, `ExerciseTiming`, `TransitionGap`, `CompletedExercise` and `CountedSession` repositories, read by the `TrainingHistory` helper |
 
-- `SessionDetailsRepositoryProtocol` and `CountedSessionRepositoryProtocol` find plain dicts. Those dicts
-  are the JSON the coach, the calendar and the report already read, so they stay in that shape.
+- `CountedSessionRepositoryProtocol` finds `CountedSession` models (`training/domain/counted_session.py`). The
+  JSON the coach, the calendar and the report read is built by `to_coach_dict` and `to_calendar_dict`. On a
+  copy of the real database, the coach context, the calendar and the report are byte-identical before
+  and after.
+- A single stored value that can be forgotten (the manual lock, the desktop to restore) uses
+  `DeleteSingletonRepositoryProtocol.delete()`, never `update(None)`.
 - The settings file's change marker is not storage. It is its own port, `SettingsChangeMarkerProtocol`.
 - No table, column, migration, stored JSON shape, socket answer or state-file field changed.
 - A dependency is named after its type: `ladder_position_repository: LadderPositionRepositoryProtocol`.

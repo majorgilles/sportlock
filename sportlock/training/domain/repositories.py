@@ -17,6 +17,7 @@ from sportlock.shared_kernel.repositories import (
     UpdateRepositoryProtocol,
 )
 from sportlock.shared_kernel.targets import Target
+from sportlock.training.domain.counted_session import CountedSession
 from sportlock.training.domain.session import TrainingSession
 
 
@@ -80,13 +81,6 @@ class CompletedExerciseFilters(ValueObject):
     excluding_session: int | None = None
 
 
-class SessionDetailsFilters(ValueObject):
-    """Which counted sessions to load in full for the coach: on or after `since`, the latest `latest`; newest first."""
-
-    since: date
-    latest: int
-
-
 class CountedSessionFilters(ValueObject):
     """Which counted sessions to load with their exercises: between two days.
 
@@ -131,9 +125,5 @@ class CompletedExerciseRepositoryProtocol(
     """Exercises done in past sessions."""
 
 
-class SessionDetailsRepositoryProtocol(FindRepositoryProtocol[dict, SessionDetailsFilters], Protocol):
-    """Counted sessions in full (exercises, sets, efforts, notes), in the JSON shape the coach reads."""
-
-
-class CountedSessionRepositoryProtocol(FindRepositoryProtocol[dict, CountedSessionFilters], Protocol):
-    """Counted sessions with their exercises, in the JSON shape the calendar and the report read."""
+class CountedSessionRepositoryProtocol(FindRepositoryProtocol[CountedSession, CountedSessionFilters], Protocol):
+    """Counted, closed sessions with their exercises and sets."""

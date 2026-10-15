@@ -17,8 +17,6 @@ from sportlock.training.domain.repositories import (
     ExerciseTiming,
     ExerciseTimingFilters,
     ExerciseTimingRepositoryProtocol,
-    SessionDetailsFilters,
-    SessionDetailsRepositoryProtocol,
     SessionSummary,
     SessionSummaryFilters,
     SessionSummaryRepositoryProtocol,
@@ -40,14 +38,12 @@ class TrainingHistory:
         exercise_timing_repository: ExerciseTimingRepositoryProtocol,
         transition_gap_repository: TransitionGapRepositoryProtocol,
         completed_exercise_repository: CompletedExerciseRepositoryProtocol,
-        session_details_repository: SessionDetailsRepositoryProtocol,
         counted_session_repository: CountedSessionRepositoryProtocol,
     ) -> None:
         self.session_summary_repository = session_summary_repository
         self.exercise_timing_repository = exercise_timing_repository
         self.transition_gap_repository = transition_gap_repository
         self.completed_exercise_repository = completed_exercise_repository
-        self.session_details_repository = session_details_repository
         self.counted_session_repository = counted_session_repository
 
     def trained_days(self) -> set[date]:
@@ -83,13 +79,15 @@ class TrainingHistory:
 
     def recent_details(self, since: date, limit: int) -> list[dict]:
         """Recent counted sessions in full (exercises, sets, efforts, notes), newest first."""
-        return self.session_details_repository.find(SessionDetailsFilters(since=since, latest=limit))
+        filters = CountedSessionFilters(first_day=since, newest_first=True, latest=limit)
+        return [session.to_coach_dict() for session in self.counted_session_repository.find(filters)]
 
     def between(self, first: date, last: date) -> list[dict]:
         """Counted sessions between two days, with their exercises, for the calendar."""
-        return self.counted_session_repository.find(CountedSessionFilters(first_day=first, last_day=last))
+        filters = CountedSessionFilters(first_day=first, last_day=last)
+        return [session.to_calendar_dict() for session in self.counted_session_repository.find(filters)]
 
     def last_counted_id(self) -> int | None:
         """Id of the latest counted, closed session."""
         latest = self.counted_session_repository.find(CountedSessionFilters(newest_first=True, latest=1))
-        return latest[0]["id"] if latest else None
+        return latest[0].id if latest else None
