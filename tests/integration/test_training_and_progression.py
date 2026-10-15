@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from sportlock.app.container import Container
 from sportlock.app.daemon import Daemon
-from sportlock.progression.domain.ladders import positions
+from sportlock.progression.domain.ladders import LadderPositionFilters, positions
 from sportlock.training.application.session_services import BeginTrainingSessionCommand
 from tests.world import World
 
@@ -10,7 +10,9 @@ HOUSE = frozenset({"chair", "table", "bench", "doorway"})
 
 
 def _ladder(world, chain):
-    return {p.chain: p for p in positions(world.container.ladder_repository.saved())}[chain]
+    return {p.chain: p for p in positions(world.container.ladder_position_repository.find(LadderPositionFilters()))}[
+        chain
+    ]
 
 
 def _do_set(world, seconds, reps=None):
@@ -26,7 +28,7 @@ def _session_with_push(world, push_reps, push_rpe):
     world.at("18:00")
     _do_set(world, 300)
     assert world.train("rate", rpe=3)["ok"]
-    for _ in range(world.container.training_session_repository.active().exercises[1].target.sets):
+    for _ in range(world.container.training_session_repository.get().exercises[1].target.sets):
         _do_set(world, 30, push_reps)
     assert world.train("rate", rpe=push_rpe)["ok"]
     return world.finish_session()
@@ -67,7 +69,7 @@ def test_test_session__finished__ladders_untouched(world):
 
 def test_close__time_runs_out_in_the_cool_down__counts_as_a_session(world):
     world.at("18:00")
-    session = world.container.training_session_repository.active()
+    session = world.container.training_session_repository.get()
     for exercise in session.exercises[:-1]:
         for _ in range(exercise.target.sets):
             _do_set(world, 20, 10 if exercise.kind == "reps" else None)
@@ -97,9 +99,9 @@ def test_snapshot__running_set__phase_timer_and_exercise_details(world):
 
 def test_snapshot__exercises_on_both_sides__sides_shown(world):
     world.at("18:00")
-    session = world.container.training_session_repository.active()
+    session = world.container.training_session_repository.get()
     session.exercises[1].target = session.exercises[1].target.with_(sides="each")
-    world.container.training_session_repository.save(session)
+    world.container.training_session_repository.update(session)
     exercises = world.at("18:01")["training"]["exercises"]
     assert exercises[1]["target"]["sides"] == "each"
 

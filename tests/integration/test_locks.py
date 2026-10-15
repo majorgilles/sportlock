@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from sportlock.locks.domain.repositories import LockEventFilters
 from tests.world import CONFIG, GOOD_PLAN, World
 
 
@@ -22,7 +23,10 @@ def test_tick__scheduled_lock__warns_locks_then_expires_and_restores(world):
 
     assert not world.at("18:30")["locked"]
     assert world.desktop.playing == ["org.mpris.MediaPlayer2.spotify"] and not world.desktop.stay_awake
-    assert world.container.lock_event_repository.recent(1)[0]["outcome"] == "expired"
+    assert (
+        world.container.lock_event_repository.find(LockEventFilters(newest_first=True, latest=1))[0].outcome
+        == "expired"
+    )
     assert world.container.database.execute("SELECT status FROM sessions").fetchone()[0] == "abandoned"
 
 
@@ -42,7 +46,10 @@ def test_finish__a_session__unlocks_counts_and_says_what_changes(world):
     assert world.finish_session()["ok"]
     assert not world.at("18:06")["locked"]
     assert world.daemon.state["trained_today"]
-    assert world.container.lock_event_repository.recent(1)[0]["outcome"] == "completed"
+    assert (
+        world.container.lock_event_repository.find(LockEventFilters(newest_first=True, latest=1))[0].outcome
+        == "completed"
+    )
     assert "Session done ✓" in world.desktop.notifications
 
 
@@ -52,7 +59,10 @@ def test_override__phrase_typed_exactly__ends_the_lock_after_the_countdown(world
     assert world.cmd(cmd="override", phrase="i am choosing  to skip my training TODAY")["ok"]
     assert world.at("18:04")["locked"]
     assert not world.at("18:05")["locked"]
-    assert world.container.lock_event_repository.recent(1)[0]["outcome"] == "override"
+    assert (
+        world.container.lock_event_repository.find(LockEventFilters(newest_first=True, latest=1))[0].outcome
+        == "override"
+    )
     assert not world.at("18:10")["locked"]  # stays ended
     assert world.container.database.execute("SELECT status FROM sessions").fetchone()[0] == "overridden"
 
@@ -158,7 +168,9 @@ def test_tick__coach_advises_rest_and_guardrails_allow__no_lock(world):
     # then
     assert "Rest day: no lock at 18:00" in world.desktop.notifications
     assert not world.at("18:00")["locked"] and not world.at("18:10")["locked"]
-    assert world.container.lock_event_repository.recent(1)[0]["outcome"] == "rest"
+    assert (
+        world.container.lock_event_repository.find(LockEventFilters(newest_first=True, latest=1))[0].outcome == "rest"
+    )
     assert "Training lock at 18:00" not in world.desktop.notifications
 
 

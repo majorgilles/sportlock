@@ -190,7 +190,7 @@ def _library_issues(catalogue: Catalogue, details: FileExerciseDetailsRepository
     """Library files."""
     issues = []
     for exercise in catalogue.all():
-        entry = details.get(exercise.id)
+        entry = details.get_by_id(exercise.id)
         if entry.built and entry.image and not Path(entry.image).exists():
             issues.append(Issue("warning", f"library: {exercise.name} picture file is missing"))
     missing = library_status["missing"]

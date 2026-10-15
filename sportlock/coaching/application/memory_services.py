@@ -23,9 +23,9 @@ class ForgetMemoryNoteService:
 
     def execute(self, command: ForgetMemoryNoteCommand) -> None:
         """Raises CoachMemoryError for an unknown note."""
-        memory = self.coach_memory_repository.load()
+        memory = self.coach_memory_repository.get()
         memory.forget(command.note_id, today=self.clock.now().date())
-        self.coach_memory_repository.save(memory)
+        self.coach_memory_repository.update(memory)
 
 
 class GetMemoryService:
@@ -36,4 +36,4 @@ class GetMemoryService:
 
     def execute(self) -> list[MemoryNote]:
         """Notes in the order they were first written."""
-        return self.coach_memory_repository.load().current()
+        return self.coach_memory_repository.get().current()

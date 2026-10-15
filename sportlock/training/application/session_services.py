@@ -12,13 +12,20 @@ from typing import Literal
 from sportlock.coaching.application.fresh_plan import CoachPlanFreshness
 from sportlock.exercises.domain.catalogue import Catalogue
 from sportlock.progression.application.apply_session_progression_service import ApplySessionProgressionService
-from sportlock.progression.domain.ladders import START, LadderMove, LadderRepositoryProtocol, positions
+from sportlock.progression.domain.ladders import (
+    START,
+    LadderMove,
+    LadderPositionFilters,
+    LadderPositionRepositoryProtocol,
+    positions,
+)
 from sportlock.progression.domain.planner import is_recovery_day, local_plan
 from sportlock.recovery.domain.policy import pace_factor, transition_seconds
 from sportlock.shared_kernel.base import ValueObject
 from sportlock.shared_kernel.plans import SessionPlan
+from sportlock.training.application.training_history import TrainingHistory
 from sportlock.training.domain.fitting import fit_plan
-from sportlock.training.domain.repositories import TrainingHistoryProtocol, TrainingSessionRepositoryProtocol
+from sportlock.training.domain.repositories import TrainingSessionRepositoryProtocol
 from sportlock.training.domain.session import SessionKind, TrainingError, TrainingSession
 
 HISTORY_FOR_PACE = 10
@@ -40,20 +47,20 @@ class BeginTrainingSessionService:
     def __init__(
         self,
         training_session_repository: TrainingSessionRepositoryProtocol,
-        training_history: TrainingHistoryProtocol,
-        ladder_repository: LadderRepositoryProtocol,
+        training_history: TrainingHistory,
+        ladder_position_repository: LadderPositionRepositoryProtocol,
         coach_plan_freshness: CoachPlanFreshness,
         catalogue: Catalogue,
     ) -> None:
         self.training_session_repository = training_session_repository
         self.training_history = training_history
-        self.ladder_repository = ladder_repository
+        self.ladder_position_repository = ladder_position_repository
         self.coach_plan_freshness = coach_plan_freshness
         self.catalogue = catalogue
 
     def execute(self, command: BeginTrainingSessionCommand, now: datetime) -> TrainingSession:
         """The active session (an already running one is kept)."""
-        if (active := self.training_session_repository.active()) is not None:
+        if (active := self.training_session_repository.get()) is not None:
             return active
         last_hard = self.training_history.last_hard()
         coach_plan = self.coach_plan_freshness.fresh_plan()
@@ -63,7 +70,7 @@ class BeginTrainingSessionService:
         else:
             hours = int((now - last_hard).total_seconds() // 3600) if last_hard else None
             plan = local_plan(
-                {p.chain: p for p in positions(self.ladder_repository.saved())},
+                {p.chain: p for p in positions(self.ladder_position_repository.find(LadderPositionFilters()))},
                 self.catalogue,
                 set(command.equipment),
                 recovery=is_recovery_day(command.mode, last_hard, now),
@@ -80,7 +87,7 @@ class BeginTrainingSessionService:
         session = TrainingSession.begin(
             plan, self.catalogue, now=now, kind=command.kind, lock_key=command.lock_key, source=source
         )
-        return self.training_session_repository.add(session)
+        return self.training_session_repository.create(session)
 
     def _with_sides(self, plan: SessionPlan) -> SessionPlan:
         """Both sides count in the time estimate."""
@@ -145,13 +152,13 @@ class RecordTrainingActionService:
 
     def execute(self, command: RecordTrainingActionCommand, now: datetime) -> tuple[TrainingSession, list[LadderMove]]:
         """The session after the action, and the ladder moves when it finished. Raises TrainingError."""
-        session = self.training_session_repository.active()
+        session = self.training_session_repository.get()
         if session is None:
             raise TrainingError("no session in progress")
         action = TRAINING_ACTIONS.get(command.action)
         if action:
             action(session, command, now, self.catalogue)
-        self.training_session_repository.save(session)
+        self.training_session_repository.update(session)
         moves = self.apply_session_progression_service.execute(session, now) if not session.active else []
         return session, moves
 
@@ -169,11 +176,11 @@ class CloseTrainingSessionService:
 
     def execute(self, status: Literal["abandoned", "overridden"], now: datetime) -> None:
         """No-op without an active session."""
-        session = self.training_session_repository.active()
+        session = self.training_session_repository.get()
         if session is None:
             return
         session.close(now, status)
-        self.training_session_repository.save(session)
+        self.training_session_repository.update(session)
         self.apply_session_progression_service.execute(session, now)
 
 

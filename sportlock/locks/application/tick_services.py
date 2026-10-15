@@ -13,12 +13,25 @@ from sportlock.athlete.application.profile_services import equipment_of
 from sportlock.athlete.domain.profile import ProfileRepositoryProtocol
 from sportlock.coaching.application.fresh_plan import CoachPlanFreshness
 from sportlock.coaching.application.replacement_services import PendingReplacementsService
-from sportlock.locks.application.lock_services import PlanScheduledLockService
-from sportlock.locks.domain.locks import ActiveLock
+from sportlock.locks.application.lock_services import PlanScheduledLockService, end_lock_event, pending_override
+from sportlock.locks.domain.locks import (
+    EARLY_OUTCOMES,
+    ActiveLock,
+    DesktopToRestore,
+    GivenWarning,
+    LockEvent,
+    LockPlan,
+    ended_early,
+)
 from sportlock.locks.domain.repositories import (
+    DesktopToRestoreRepositoryProtocol,
+    GivenWarningFilters,
+    GivenWarningRepositoryProtocol,
+    LockEventFilters,
     LockEventRepositoryProtocol,
+    LockPlanRepositoryProtocol,
     LockRuntimeProtocol,
-    LockStateRepositoryProtocol,
+    ManualLockRepositoryProtocol,
     OverrideRepositoryProtocol,
 )
 from sportlock.locks.domain.schedule import Decision, Window, decide
@@ -32,7 +45,7 @@ from sportlock.training.application.session_services import (
     BeginTrainingSessionService,
     CloseTrainingSessionService,
 )
-from sportlock.training.domain.repositories import TrainingHistoryProtocol
+from sportlock.training.application.training_history import TrainingHistory
 
 log = logging.getLogger("sportlock")
 URGENT_WARNING_MINUTES = 2
@@ -45,7 +58,7 @@ class GetScheduleDecisionService:
     def __init__(
         self,
         settings_state: SettingsState,
-        training_history: TrainingHistoryProtocol,
+        training_history: TrainingHistory,
         lock_event_repository: LockEventRepositoryProtocol,
     ) -> None:
         self.settings_state = settings_state
@@ -58,7 +71,7 @@ class GetScheduleDecisionService:
             self.settings_state.settings,
             now,
             trained_days=self.training_history.trained_days(),
-            ended=self.lock_event_repository.ended_early(),
+            ended=ended_early(self.lock_event_repository.find(LockEventFilters(outcomes=EARLY_OUTCOMES))),
         )
 
 
@@ -91,10 +104,10 @@ class SettleOverrideService:
         lock = self.lock_runtime.current
         if not lock or not lock.overridable:
             return
-        pending = self.override_repository.pending(lock.key)
+        pending = pending_override(self.override_repository, lock.key)
         if pending and now >= pending.unlock_at:
-            self.override_repository.finish(pending.id, now, cancelled=False)
-            self.lock_event_repository.ended(lock.key, "override", now)
+            self.override_repository.update(pending.finished(now, cancelled=False))
+            end_lock_event(self.lock_event_repository, lock.key, "override", now)
 
 
 class ChooseLockService:
@@ -106,27 +119,30 @@ class ChooseLockService:
     def __init__(
         self,
         lock_runtime: LockRuntimeProtocol,
-        lock_state_repository: LockStateRepositoryProtocol,
+        manual_lock_repository: ManualLockRepositoryProtocol,
         lock_event_repository: LockEventRepositoryProtocol,
         plan_scheduled_lock_service: PlanScheduledLockService,
         check_setup_complete_service: CheckSetupCompleteService,
         settings_state: SettingsState,
     ) -> None:
         self.lock_runtime = lock_runtime
-        self.lock_state_repository = lock_state_repository
+        self.manual_lock_repository = manual_lock_repository
         self.lock_event_repository = lock_event_repository
         self.plan_scheduled_lock_service = plan_scheduled_lock_service
         self.check_setup_complete_service = check_setup_complete_service
         self.settings_state = settings_state
 
+    def _ended_early(self) -> set[str]:
+        return ended_early(self.lock_event_repository.find(LockEventFilters(outcomes=EARLY_OUTCOMES)))
+
     def _manual_candidate(self, now: datetime) -> ActiveLock | None:
         """The lock started by hand, or None; a finished one is forgotten."""
-        manual = self.lock_state_repository.manual_lock()
+        manual = self.manual_lock_repository.get()
         if not manual:
             return None
-        if now < manual.window.end and manual.key not in self.lock_event_repository.ended_early():
+        if now < manual.window.end and manual.key not in self._ended_early():
             return manual
-        self.lock_state_repository.set_manual_lock(None)
+        self.manual_lock_repository.update(None)
         return None
 
     def _scheduled_candidate(self, now: datetime, decision: Decision) -> ActiveLock | None:
@@ -135,9 +151,10 @@ class ChooseLockService:
             return None
         plan = self.plan_scheduled_lock_service.execute(decision.active, self.settings_state.settings)
         if plan.mode == "rest":
-            if decision.active.key not in self.lock_event_repository.ended_early():
-                self.lock_event_repository.began(decision.active.key, decision.active.start, decision.active.end, now)
-                self.lock_event_repository.ended(decision.active.key, "rest", now)
+            if decision.active.key not in self._ended_early():
+                active = decision.active
+                self.lock_event_repository.create(LockEvent.began(active.key, active.start, active.end, now))
+                end_lock_event(self.lock_event_repository, active.key, "rest", now)
             return None
         if now >= plan.end:  # recovery locks can be shorter
             return None
@@ -170,35 +187,66 @@ class ChooseLockService:
         return candidates[0] if candidates else None
 
 
+class ShowWarningPopupService:
+    """Shows the popup in front of everything that announces the next lock: notifications are easy to miss."""
+
+    def __init__(
+        self,
+        coach_plan_freshness: CoachPlanFreshness,
+        pending_replacements_service: PendingReplacementsService,
+        desktop: DesktopProtocol,
+        warning_popup: WarningPopupProtocol,
+    ) -> None:
+        self.coach_plan_freshness = coach_plan_freshness
+        self.pending_replacements_service = pending_replacements_service
+        self.desktop = desktop
+        self.warning_popup = warning_popup
+
+    def execute(self, headline: str, upcoming: Window, minutes: int, plan: LockPlan | None) -> None:
+        """Show the popup with the coach's plan for the lock and the replaced exercises to answer."""
+        coach = self.coach_plan_freshness.fresh_plan()
+        version = getattr(coach, plan.mode) if coach and plan and plan.mode in ("hard", "recovery") else None
+        self.warning_popup.show(
+            {
+                "headline": headline,
+                "start": epoch_ms(upcoming.start),
+                "minutes": minutes,
+                "title": version.title if version else "",
+                "reason": plan.reason if plan else "",
+                "recommendations": [r.model_dump() for r in coach.recommendations] if coach else [],
+                "replacements": [r.to_dict() for r in self.pending_replacements_service.execute()],
+                "theme": self.desktop.theme(),
+            }
+        )
+
+
 class WarnOfNextLockService:
     """Notifies before the next lock, and shows the warning popup with the first notification."""
 
     def __init__(
         self,
         settings_state: SettingsState,
-        lock_state_repository: LockStateRepositoryProtocol,
-        coach_plan_freshness: CoachPlanFreshness,
-        pending_replacements_service: PendingReplacementsService,
+        given_warning_repository: GivenWarningRepositoryProtocol,
+        lock_plan_repository: LockPlanRepositoryProtocol,
         desktop: DesktopProtocol,
-        warning_popup: WarningPopupProtocol,
+        show_warning_popup_service: ShowWarningPopupService,
     ) -> None:
         self.settings_state = settings_state
-        self.lock_state_repository = lock_state_repository
-        self.coach_plan_freshness = coach_plan_freshness
-        self.pending_replacements_service = pending_replacements_service
+        self.given_warning_repository = given_warning_repository
+        self.lock_plan_repository = lock_plan_repository
         self.desktop = desktop
-        self.warning_popup = warning_popup
+        self.show_warning_popup_service = show_warning_popup_service
 
     def execute(self, decision: Decision, wanted: ActiveLock | None) -> None:
         """Send each warning of the schedule once; nothing while a lock is wanted or on a rest day."""
         upcoming = decision.next
         if wanted or upcoming is None or decision.warning is None:
             return
-        tag = f"{upcoming.key}:{decision.warning}"
-        warned = self.lock_state_repository.warned()
-        if tag in warned:
+        warning = GivenWarning(window_key=upcoming.key, minutes=decision.warning)
+        given = self.given_warning_repository.find(GivenWarningFilters(window_key=upcoming.key))
+        if warning in given:
             return
-        plan = self.lock_state_repository.plans().get(upcoming.key)
+        plan = self.lock_plan_repository.get_by_id(upcoming.key)
         if plan and plan.mode == "rest":
             return  # the rest-day notification already went out
         minutes = plan.minutes if plan else upcoming.minutes
@@ -210,23 +258,9 @@ class WarnOfNextLockService:
             + (f" {plan.reason}" if plan and plan.reason else ""),
             urgent=decision.warning <= URGENT_WARNING_MINUTES,
         )
-        # The first warning also gets a popup in front of everything: notifications are easy to miss.
-        if self.settings_state.settings.warn_popup and not any(t.startswith(f"{upcoming.key}:") for t in warned):
-            coach = self.coach_plan_freshness.fresh_plan()
-            version = getattr(coach, plan.mode) if coach and plan and plan.mode in ("hard", "recovery") else None
-            self.warning_popup.show(
-                {
-                    "headline": headline,
-                    "start": epoch_ms(upcoming.start),
-                    "minutes": minutes,
-                    "title": version.title if version else "",
-                    "reason": plan.reason if plan else "",
-                    "recommendations": [r.model_dump() for r in coach.recommendations] if coach else [],
-                    "replacements": [r.to_dict() for r in self.pending_replacements_service.execute()],
-                    "theme": self.desktop.theme(),
-                }
-            )
-        self.lock_state_repository.add_warned(tag)
+        if self.settings_state.settings.warn_popup and not given:
+            self.show_warning_popup_service.execute(headline, upcoming, minutes, plan)
+        self.given_warning_repository.create(warning)
 
 
 class PrepareDesktopForLockService:
@@ -234,12 +268,12 @@ class PrepareDesktopForLockService:
 
     def __init__(
         self,
-        lock_state_repository: LockStateRepositoryProtocol,
+        desktop_to_restore_repository: DesktopToRestoreRepositoryProtocol,
         desktop: DesktopProtocol,
         music_player: MusicPlayerProtocol,
         warning_popup: WarningPopupProtocol,
     ) -> None:
-        self.lock_state_repository = lock_state_repository
+        self.desktop_to_restore_repository = desktop_to_restore_repository
         self.desktop = desktop
         self.music_player = music_player
         self.warning_popup = warning_popup
@@ -249,15 +283,15 @@ class PrepareDesktopForLockService:
         if self.desktop.system_lock_active():
             return False
         self.warning_popup.close()
-        if self.lock_state_repository.desktop_to_restore() is None:
+        if self.desktop_to_restore_repository.get() is None:
             # Spotify plays at full volume during training; its volume is put back afterwards.
             volume = self.music_player.now_playing().volume
-            self.lock_state_repository.set_desktop_to_restore(
-                {
-                    "paused": self.desktop.pause_media(),
-                    "stay_awake": self.desktop.idle_stay_awake(),
-                    "music_volume": volume,
-                }
+            self.desktop_to_restore_repository.update(
+                DesktopToRestore(
+                    paused=self.desktop.pause_media(),
+                    stay_awake=self.desktop.idle_stay_awake(),
+                    music_volume=volume,
+                )
             )
             if volume is not None:
                 self.music_player.set_volume(FULL_VOLUME)
@@ -292,7 +326,7 @@ class EnterLockService:
             return
         log.info("lock begins: %s (%s) until %s", lock.key, lock.kind, lock.window.end.isoformat())
         if not lock.test:
-            self.lock_event_repository.began(lock.key, lock.window.start, lock.window.end, now)
+            self.lock_event_repository.create(LockEvent.began(lock.key, lock.window.start, lock.window.end, now))
         self.begin_training_session_service.execute(
             BeginTrainingSessionCommand(
                 kind=lock.kind,
@@ -307,18 +341,20 @@ class EnterLockService:
 
 
 def restore_desktop(
-    lock_state: LockStateRepositoryProtocol, desktop: DesktopProtocol, music: MusicPlayerProtocol
+    desktop_to_restore_repository: DesktopToRestoreRepositoryProtocol,
+    desktop: DesktopProtocol,
+    music_player: MusicPlayerProtocol,
 ) -> None:
     """Resume the media, Spotify's volume and the idle setting saved when the lock began (also after a crash)."""
-    saved = lock_state.desktop_to_restore()
+    saved = desktop_to_restore_repository.get()
     if saved is None:
         return
-    if saved.get("music_volume") is not None and music.now_playing().running:
-        music.set_volume(float(saved["music_volume"]))
-    desktop.resume_media(saved.get("paused") or [])
-    if saved.get("stay_awake") is not None:
-        desktop.set_idle_stay_awake(bool(saved["stay_awake"]))
-    lock_state.set_desktop_to_restore(None)
+    if saved.music_volume is not None and music_player.now_playing().running:
+        music_player.set_volume(float(saved.music_volume))
+    desktop.resume_media(saved.paused)
+    if saved.stay_awake is not None:
+        desktop.set_idle_stay_awake(bool(saved.stay_awake))
+    desktop_to_restore_repository.update(None)
 
 
 class LeaveLockService:
@@ -329,14 +365,14 @@ class LeaveLockService:
         lock_runtime: LockRuntimeProtocol,
         lock_event_repository: LockEventRepositoryProtocol,
         close_training_session_service: CloseTrainingSessionService,
-        lock_state_repository: LockStateRepositoryProtocol,
+        desktop_to_restore_repository: DesktopToRestoreRepositoryProtocol,
         desktop: DesktopProtocol,
         music_player: MusicPlayerProtocol,
     ) -> None:
         self.lock_runtime = lock_runtime
         self.lock_event_repository = lock_event_repository
         self.close_training_session_service = close_training_session_service
-        self.lock_state_repository = lock_state_repository
+        self.desktop_to_restore_repository = desktop_to_restore_repository
         self.desktop = desktop
         self.music_player = music_player
 
@@ -346,12 +382,12 @@ class LeaveLockService:
         self.lock_runtime.current = None
         if lock is None:
             return
-        outcome = self.lock_event_repository.outcome(lock.key)
+        outcome = event.outcome if (event := self.lock_event_repository.get_by_id(lock.key)) else None
         log.info("lock ends: %s (outcome %s)", lock.key, outcome or "expired")
         self.close_training_session_service.execute("overridden" if outcome == "override" else "abandoned", now)
         if not lock.test:
-            self.lock_event_repository.ended(lock.key, "expired", now)  # no-op if already ended early
-        restore_desktop(self.lock_state_repository, self.desktop, self.music_player)
+            end_lock_event(self.lock_event_repository, lock.key, "expired", now)  # no-op if already ended early
+        restore_desktop(self.desktop_to_restore_repository, self.desktop, self.music_player)
 
 
 class SwitchLockService:

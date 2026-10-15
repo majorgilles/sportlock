@@ -16,9 +16,15 @@ from sportlock.coaching.domain.plan import CoachPlan, Recommendation
 from sportlock.coaching.domain.ports import (
     CoachMemoryRepositoryProtocol,
     CoachPlanRepositoryProtocol,
+    CoachReviewFilters,
     CoachReviewRepositoryProtocol,
     CoachRun,
-    CoachRunLogProtocol,
+    CoachRunFilters,
+    CoachRunRepositoryProtocol,
+    MemoryNoteVersion,
+    MemoryNoteVersionFilters,
+    MemoryNoteVersionRepositoryProtocol,
+    ReplacementAnswerFilters,
     ReplacementAnswerRepositoryProtocol,
 )
 from sportlock.coaching.domain.replacements import ReplacementAnswer
@@ -40,29 +46,38 @@ class KvCoachPlanRepository(CoachPlanRepositoryProtocol):
         return CoachPlan.from_dict(data) if data else None
 
     @override
-    def save(self, plan: CoachPlan) -> None:
-        self.database.put(PLAN_KEY, plan.to_dict())
+    def update(self, entity: CoachPlan) -> CoachPlan:
+        self.database.put(PLAN_KEY, entity.to_dict())
+        return entity
 
 
-class SqliteCoachRunLog(CoachRunLogProtocol):
+def _latest(limit: int | None) -> int:
+    """SQLite's LIMIT for "the latest `limit`": -1 means no limit."""
+    return -1 if limit is None else limit
+
+
+class SqliteCoachRunRepository(CoachRunRepositoryProtocol):
     """coach_runs table."""
 
     def __init__(self, database: Database) -> None:
         self.database = database
 
     @override
-    def add(self, run: CoachRun) -> int:
-        return self.database.execute(
+    def create(self, entity: CoachRun) -> CoachRun:
+        identifier = self.database.execute(
             "INSERT INTO coach_runs (at, seconds, ok, error) VALUES (?, ?, ?, ?)",
-            (run.at, run.seconds, int(run.ok), run.error),
+            (entity.at, entity.seconds, int(entity.ok), entity.error),
         ).lastrowid
+        return entity.model_copy(update={"id": identifier})
 
     @override
-    def recent(self, limit: int) -> list[CoachRun]:
+    def find(self, filters: CoachRunFilters) -> list[CoachRun]:
         rows = self.database.execute(
-            "SELECT * FROM (SELECT * FROM coach_runs ORDER BY id DESC LIMIT ?) ORDER BY id", (limit,)
+            "SELECT * FROM (SELECT * FROM coach_runs ORDER BY id DESC LIMIT ?) ORDER BY id", (_latest(filters.latest),)
         ).fetchall()
-        return [CoachRun(at=r["at"], seconds=r["seconds"], ok=bool(r["ok"]), error=r["error"]) for r in rows]
+        return [
+            CoachRun(at=r["at"], seconds=r["seconds"], ok=bool(r["ok"]), error=r["error"], id=r["id"]) for r in rows
+        ]
 
 
 class SqliteCoachMemoryRepository(CoachMemoryRepositoryProtocol):
@@ -72,7 +87,7 @@ class SqliteCoachMemoryRepository(CoachMemoryRepositoryProtocol):
         self.database = database
 
     @override
-    def load(self) -> CoachMemory:
+    def get(self) -> CoachMemory:
         rows = self.database.execute("SELECT * FROM coach_memory_notes WHERE valid_to IS NULL").fetchall()
         notes = {
             r["note_id"]: MemoryNote(
@@ -84,8 +99,8 @@ class SqliteCoachMemoryRepository(CoachMemoryRepositoryProtocol):
         return CoachMemory(notes=notes, next_id=(top or 0) + 1)
 
     @override
-    def save(self, memory: CoachMemory) -> None:
-        for event in memory.pull_events():
+    def update(self, entity: CoachMemory) -> CoachMemory:
+        for event in entity.pull_events():
             match event:
                 case NoteAdded(note=note, by=by):
                     self._insert(note, by)
@@ -96,6 +111,7 @@ class SqliteCoachMemoryRepository(CoachMemoryRepositoryProtocol):
                     self._end(note_id, on.isoformat(), by, "deleted")
                 case NoteForgotten(note_id=note_id, on=on):
                     self._end(note_id, on.isoformat(), "user", "forgotten")
+        return entity
 
     def _insert(self, note: MemoryNote, by: str) -> None:
         self.database.execute(
@@ -110,23 +126,24 @@ class SqliteCoachMemoryRepository(CoachMemoryRepositoryProtocol):
             (day, by, reason, note_id),
         )
 
-    @override
-    def forgotten(self, limit: int) -> list[str]:
-        rows = self.database.execute(
-            "SELECT text FROM (SELECT id, text FROM coach_memory_notes WHERE end_reason = 'forgotten'"
-            " ORDER BY id DESC LIMIT ?) ORDER BY id",
-            (limit,),
-        )
-        return [r["text"] for r in rows]
+
+class SqliteMemoryNoteVersionRepository(MemoryNoteVersionRepositoryProtocol):
+    """coach_memory_notes, read version by version."""
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
 
     @override
-    def history(self, limit: int) -> list[dict]:
+    def find(self, filters: MemoryNoteVersionFilters) -> list[MemoryNoteVersion]:
+        reason = "end_reason = ?" if filters.end_reason is not None else "1"
+        parameters = (filters.end_reason,) if filters.end_reason is not None else ()
+        order = "DESC" if filters.newest_first else ""
         rows = self.database.execute(
-            "SELECT note_id, topic, text, valid_from, valid_to, written_by, ended_by, end_reason"
-            " FROM coach_memory_notes ORDER BY id DESC LIMIT ?",
-            (limit,),
+            "SELECT * FROM (SELECT id, note_id, topic, text, valid_from, valid_to, written_by, ended_by, end_reason"
+            f" FROM coach_memory_notes WHERE {reason} ORDER BY id DESC LIMIT ?) ORDER BY id {order}",
+            (*parameters, _latest(filters.latest)),
         )
-        return [dict(r) for r in rows]
+        return [MemoryNoteVersion(**{key: row[key] for key in MemoryNoteVersion.model_fields}) for row in rows]
 
 
 class SqliteReplacementAnswerRepository(ReplacementAnswerRepositoryProtocol):
@@ -136,7 +153,8 @@ class SqliteReplacementAnswerRepository(ReplacementAnswerRepositoryProtocol):
         self.database = database
 
     @override
-    def add(self, answer: ReplacementAnswer) -> None:
+    def create(self, entity: ReplacementAnswer) -> ReplacementAnswer:
+        answer = entity
         self.database.execute(
             "INSERT INTO replacement_answers (session_id, chain, from_exercise, to_exercise, agreed, note, answered_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -150,16 +168,15 @@ class SqliteReplacementAnswerRepository(ReplacementAnswerRepositoryProtocol):
                 answer.answered_at,
             ),
         )
+        return entity
 
     @override
-    def answered(self, session_id: int) -> set[str]:
-        rows = self.database.execute("SELECT chain FROM replacement_answers WHERE session_id = ?", (session_id,))
-        return {r["chain"] for r in rows}
-
-    @override
-    def recent(self, limit: int) -> list[ReplacementAnswer]:
+    def find(self, filters: ReplacementAnswerFilters) -> list[ReplacementAnswer]:
+        session = "session_id = ?" if filters.session_id is not None else "1"
+        parameters = (filters.session_id,) if filters.session_id is not None else ()
         rows = self.database.execute(
-            "SELECT * FROM (SELECT * FROM replacement_answers ORDER BY id DESC LIMIT ?) ORDER BY id", (limit,)
+            f"SELECT * FROM (SELECT * FROM replacement_answers WHERE {session} ORDER BY id DESC LIMIT ?) ORDER BY id",
+            (*parameters, _latest(filters.latest)),
         ).fetchall()
         return [
             ReplacementAnswer(
@@ -181,8 +198,7 @@ class SqliteCoachReviewRepository(CoachReviewRepositoryProtocol):
     def __init__(self, database: Database) -> None:
         self.database = database
 
-    @override
-    def save(self, review: CoachReview) -> None:
+    def _store(self, review: CoachReview) -> CoachReview:
         self.database.execute(
             "INSERT OR REPLACE INTO coach_reviews (session_id, written_at, dossier, last_session, improve,"
             " recommendations) VALUES (?, ?, ?, ?, ?, ?)",
@@ -195,22 +211,30 @@ class SqliteCoachReviewRepository(CoachReviewRepositoryProtocol):
                 json.dumps([r.model_dump() for r in review.recommendations]),
             ),
         )
+        return review
 
     @override
-    def get(self, session_id: int) -> CoachReview | None:
-        row = self.database.execute("SELECT * FROM coach_reviews WHERE session_id = ?", (session_id,)).fetchone()
+    def create(self, entity: CoachReview) -> CoachReview:
+        return self._store(entity)
+
+    @override
+    def update(self, entity: CoachReview) -> CoachReview:
+        return self._store(entity)
+
+    @override
+    def get_by_id(self, identifier: int) -> CoachReview | None:
+        row = self.database.execute("SELECT * FROM coach_reviews WHERE session_id = ?", (identifier,)).fetchone()
         return _review(row) if row else None
 
     @override
-    def latest(self) -> CoachReview | None:
-        row = self.database.execute(
-            "SELECT * FROM coach_reviews WHERE dossier != '' ORDER BY session_id DESC LIMIT 1"
-        ).fetchone()
-        return _review(row) if row else None
-
-    @override
-    def all(self) -> dict[int, CoachReview]:
-        return {r["session_id"]: _review(r) for r in self.database.execute("SELECT * FROM coach_reviews")}
+    def find(self, filters: CoachReviewFilters) -> list[CoachReview]:
+        dossier = "dossier != ''" if filters.with_dossier else "1"
+        rows = self.database.execute(
+            f"SELECT * FROM (SELECT * FROM coach_reviews WHERE {dossier} ORDER BY session_id DESC LIMIT ?)"
+            " ORDER BY session_id",
+            (_latest(filters.latest),),
+        )
+        return [_review(row) for row in rows]
 
 
 def _review(row: sqlite3.Row) -> CoachReview:

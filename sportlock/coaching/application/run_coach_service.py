@@ -23,17 +23,27 @@ from sportlock.coaching.domain.ports import (
     CoachProtocol,
     CoachReviewRepositoryProtocol,
     CoachRun,
-    CoachRunLogProtocol,
+    CoachRunRepositoryProtocol,
     CoachUnavailableError,
 )
 from sportlock.coaching.domain.review import CoachReview
 from sportlock.exercises.domain.catalogue import Catalogue
-from sportlock.progression.domain.ladders import START, LadderMove, LadderPosition, LadderRepositoryProtocol, positions
+from sportlock.progression.domain.ladders import (
+    START,
+    LadderMove,
+    LadderMoveRecord,
+    LadderMoveRecordFilters,
+    LadderMoveRecordRepositoryProtocol,
+    LadderPosition,
+    LadderPositionFilters,
+    LadderPositionRepositoryProtocol,
+    positions,
+)
 from sportlock.progression.domain.rules import Proposal
 from sportlock.shared_kernel.base import ValueObject
 from sportlock.shared_kernel.ports import ClockProtocol, DesktopProtocol
 from sportlock.shared_kernel.time import iso
-from sportlock.training.domain.repositories import TrainingHistoryProtocol
+from sportlock.training.application.training_history import TrainingHistory
 
 
 class CoachRequest(ValueObject):
@@ -69,50 +79,60 @@ class PrepareCoachRunService:
 class LogCoachRunService:
     """Records each coach run, successful or not, with how long it took."""
 
-    def __init__(self, coach_run_log: CoachRunLogProtocol, clock: ClockProtocol) -> None:
-        self.coach_run_log = coach_run_log
+    def __init__(self, coach_run_repository: CoachRunRepositoryProtocol, clock: ClockProtocol) -> None:
+        self.coach_run_repository = coach_run_repository
         self.clock = clock
 
     def execute(self, started: datetime, error: str | None = None) -> int:
         """The run's id."""
         seconds = round((self.clock.now() - started).total_seconds())
-        return self.coach_run_log.add(CoachRun(at=iso(started), seconds=seconds, ok=error is None, error=error))
+        run = CoachRun(at=iso(started), seconds=seconds, ok=error is None, error=error)
+        return self.coach_run_repository.create(run).id
 
 
 class ApplyLadderOverridesService:
     """Moves the ladders the coach overrode, recording each move as the coach's decision."""
 
-    def __init__(self, ladder_repository: LadderRepositoryProtocol) -> None:
-        self.ladder_repository = ladder_repository
+    def __init__(
+        self,
+        ladder_position_repository: LadderPositionRepositoryProtocol,
+        ladder_move_record_repository: LadderMoveRecordRepositoryProtocol,
+    ) -> None:
+        self.ladder_position_repository = ladder_position_repository
+        self.ladder_move_record_repository = ladder_move_record_repository
 
     def execute(self, overrides: tuple[LadderOverride, ...], last_session: int | None, now: datetime) -> None:
         """Apply the overrides in order."""
-        current = {p.chain: p for p in positions(self.ladder_repository.saved())}
+        current = {p.chain: p for p in positions(self.ladder_position_repository.find(LadderPositionFilters()))}
         for override in overrides:
             before = current[override.chain]
-            self.ladder_repository.mark_last_overridden(override.chain, override.reason)
-            self.ladder_repository.record_move(
-                last_session or 0,
-                LadderMove(
-                    chain=override.chain,
-                    session_exercise_id=0,
-                    from_exercise=before.exercise,
-                    from_target=before.target,
-                    proposal=Proposal(
-                        rule="override", exercise=override.exercise, target=override.target, reason=override.reason
+            applied = LadderMoveRecordFilters(chain=override.chain, status="applied", latest=1)
+            for record in self.ladder_move_record_repository.find(applied):
+                self.ladder_move_record_repository.update(record.overridden(override.reason))
+            self.ladder_move_record_repository.create(
+                LadderMoveRecord(
+                    session_id=last_session or 0,
+                    move=LadderMove(
+                        chain=override.chain,
+                        session_exercise_id=0,
+                        from_exercise=before.exercise,
+                        from_target=before.target,
+                        proposal=Proposal(
+                            rule="override", exercise=override.exercise, target=override.target, reason=override.reason
+                        ),
                     ),
-                ),
-                decided_by="agent",
-                now=now,
+                    decided_by="agent",
+                    decided_at=now,
+                )
             )
-            self.ladder_repository.set(
+            self.ladder_position_repository.update(
                 LadderPosition(
                     chain=override.chain,
                     exercise=override.exercise,
                     target=override.target,
                     reason=f"Coach: {override.reason}",
-                ),
-                now,
+                    updated_at=now,
+                )
             )
 
 
@@ -122,7 +142,7 @@ class StoreCoachPlanService:
     def __init__(
         self,
         apply_ladder_overrides_service: ApplyLadderOverridesService,
-        training_history: TrainingHistoryProtocol,
+        training_history: TrainingHistory,
         coach_memory_repository: CoachMemoryRepositoryProtocol,
         coach_plan_repository: CoachPlanRepositoryProtocol,
         coach_review_repository: CoachReviewRepositoryProtocol,
@@ -147,15 +167,18 @@ class StoreCoachPlanService:
         )
         now = self.clock.now()
         self.apply_ladder_overrides_service.execute(parsed.overrides, last_session, now)
-        memory = self.coach_memory_repository.load()
+        memory = self.coach_memory_repository.get()
         memory.apply(list(parsed.memory), by=f"coach-run:{run_id}", today=now.date())
-        self.coach_memory_repository.save(memory)
-        self.coach_plan_repository.save(plan)
+        self.coach_memory_repository.update(memory)
+        self.coach_plan_repository.update(plan)
         if last_session and plan.recommendations:  # the journal keeps every answer to the athlete's feedback
-            review = self.coach_review_repository.get(last_session) or CoachReview(
-                session_id=last_session, written_at=iso(now)
-            )
-            self.coach_review_repository.save(review.with_recommendations(plan.recommendations))
+            earlier = self.coach_review_repository.get_by_id(last_session)
+            review = earlier or CoachReview(session_id=last_session, written_at=iso(now))
+            answered = review.with_recommendations(plan.recommendations)
+            if earlier:
+                self.coach_review_repository.update(answered)
+            else:
+                self.coach_review_repository.create(answered)
         return plan
 
 

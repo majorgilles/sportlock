@@ -23,7 +23,7 @@ from sportlock.athlete.application.profile_services import equipment_of
 from sportlock.coaching.application.run_coach_service import RunCoachCommand
 from sportlock.coaching.domain.plan import CoachOutputError
 from sportlock.coaching.domain.ports import CoachUnavailableError
-from sportlock.locks.application.lock_services import policy_of
+from sportlock.locks.application.lock_services import pending_override, policy_of
 from sportlock.locks.application.tick_services import restore_desktop
 from sportlock.locks.domain.schedule import Decision, settings_frozen, windows_around
 from sportlock.music.application.music_account_services import ConnectMusicAccountCommand
@@ -182,7 +182,7 @@ class Daemon:
         lock = self.container.lock_runtime.current
         settings = self.container.settings_state.settings
         override = None
-        if lock and lock.overridable and (pending := self.container.override_repository.pending(lock.key)):
+        if lock and lock.overridable and (pending := pending_override(self.container.override_repository, lock.key)):
             override = {"unlock_at": epoch_ms(pending.unlock_at)}
         state = {
             "updated_at": epoch_ms(datetime.now()),
@@ -233,7 +233,7 @@ class Daemon:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         if self.container.lock_runtime.current is None:
             restore_desktop(
-                self.container.lock_state_repository, self.container.desktop, self.container.music_player
+                self.container.desktop_to_restore_repository, self.container.desktop, self.container.music_player
             )  # left over from a crash mid-lock
         server = SocketServer(self, SOCKET_PATH)
         threading.Thread(target=server.serve_forever, daemon=True).start()

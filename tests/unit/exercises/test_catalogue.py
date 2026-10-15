@@ -28,13 +28,13 @@ def test_details_repository__built_entry__read_with_an_absolute_picture_path(tmp
             {"steps": ["a", "b"], "cues": ["x"], "image": "picture.jpg", "image_source": "book: B", "built_at": "now"}
         )
     )
-    details = FileExerciseDetailsRepository(tmp_path).get("plank")
+    details = FileExerciseDetailsRepository(tmp_path).get_by_id("plank")
     assert (details.steps, details.cues, details.built) == (("a", "b"), ("x",), True)
     assert details.image == str(tmp_path / "plank" / "picture.jpg")
 
 
 def test_details_repository__unbuilt_exercise__empty_details(tmp_path):
-    details = FileExerciseDetailsRepository(tmp_path).get("plank")
+    details = FileExerciseDetailsRepository(tmp_path).get_by_id("plank")
     assert (details.steps, details.image, details.built) == ((), "", False)
 
 
@@ -49,7 +49,7 @@ def test_details_repository__downloaded_video__read_with_its_source(tmp_path):
     (tmp_path / "plank" / "video.json").write_text(
         json.dumps({"file": "video.mp4", "title": "Plank", "channel": "Gym"})
     )
-    details = FileExerciseDetailsRepository(tmp_path).get("plank")
+    details = FileExerciseDetailsRepository(tmp_path).get_by_id("plank")
     assert (details.video, details.video_title, details.video_channel) == (
         str(tmp_path / "plank" / "video.mp4"),
         "Plank",
@@ -60,4 +60,4 @@ def test_details_repository__downloaded_video__read_with_its_source(tmp_path):
 def test_details_repository__video_file_missing__no_video(tmp_path):
     (tmp_path / "plank").mkdir()
     (tmp_path / "plank" / "video.json").write_text(json.dumps({"file": "video.mp4"}))
-    assert FileExerciseDetailsRepository(tmp_path).get("plank").video == ""
+    assert FileExerciseDetailsRepository(tmp_path).get_by_id("plank").video == ""

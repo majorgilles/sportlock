@@ -3,7 +3,7 @@ import sqlite3
 from datetime import timedelta
 from pathlib import Path
 
-from sportlock.progression.domain.ladders import positions
+from sportlock.progression.domain.ladders import LadderPositionFilters, positions
 from sportlock.shared_kernel.infrastructure.database import Database
 from tests.world import GOOD_PLAN, World
 
@@ -35,14 +35,14 @@ def test_calendar__coach_feedback__under_that_session_and_the_next_lock(world):
 def test_profile_save__first_time_intermediate__ladders_start_higher_but_later_edits_keep_progress(tmp_path, catalogue):
     world = World(tmp_path, catalogue, profile=False)
     assert world.cmd(cmd="profile-save", profile={"experience": "intermediate", "goals": ["muscle"]})["ok"]
-    assert {p.chain: p.exercise for p in positions(world.container.ladder_repository.saved())}[
-        "push-horizontal"
-    ] == "push-up"
+    assert {
+        p.chain: p.exercise for p in positions(world.container.ladder_position_repository.find(LadderPositionFilters()))
+    }["push-horizontal"] == "push-up"
     world.container.database.execute("UPDATE ladders SET exercise = 'diamond-push-up' WHERE chain = 'push-horizontal'")
     world.cmd(cmd="profile-save", profile={"experience": "advanced", "goals": ["muscle"]})
-    assert {p.chain: p.exercise for p in positions(world.container.ladder_repository.saved())}[
-        "push-horizontal"
-    ] == "diamond-push-up"
+    assert {
+        p.chain: p.exercise for p in positions(world.container.ladder_position_repository.find(LadderPositionFilters()))
+    }["push-horizontal"] == "diamond-push-up"
 
 
 def test_profile_save__invalid__refused(world):

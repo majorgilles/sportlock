@@ -11,7 +11,11 @@ from pathlib import Path
 from sportlock.athlete.application.profile_services import SaveProfileService
 from sportlock.athlete.infrastructure.kv_profile_repository import KvProfileRepository
 from sportlock.calendar.application.build_calendar_service import BuildCalendarService
-from sportlock.coaching.application.coach_context_service import BuildCoachContextService, RecallCoachMemoryService
+from sportlock.coaching.application.coach_context_service import (
+    BuildCoachContextService,
+    DescribeLaddersForCoachService,
+    RecallCoachMemoryService,
+)
 from sportlock.coaching.application.fresh_plan import CoachPlanFreshness
 from sportlock.coaching.application.memory_services import ForgetMemoryNoteService, GetMemoryService
 from sportlock.coaching.application.replacement_services import (
@@ -32,7 +36,8 @@ from sportlock.coaching.infrastructure.sqlite_repositories import (
     KvCoachPlanRepository,
     SqliteCoachMemoryRepository,
     SqliteCoachReviewRepository,
-    SqliteCoachRunLog,
+    SqliteCoachRunRepository,
+    SqliteMemoryNoteVersionRepository,
     SqliteReplacementAnswerRepository,
 )
 from sportlock.exercises.domain.catalogue import Catalogue
@@ -58,13 +63,17 @@ from sportlock.locks.application.tick_services import (
     PrepareDesktopForLockService,
     RunLockTickService,
     SettleOverrideService,
+    ShowWarningPopupService,
     SwitchLockService,
     WarnOfNextLockService,
 )
 from sportlock.locks.infrastructure.in_memory_runtime import InMemoryLockRuntime
 from sportlock.locks.infrastructure.quickshell import QuickshellLockScreen, QuickshellWarningPopup
 from sportlock.locks.infrastructure.sqlite_repositories import (
-    KvLockStateRepository,
+    KvDesktopToRestoreRepository,
+    KvGivenWarningRepository,
+    KvLockPlanRepository,
+    KvManualLockRepository,
     SqliteLockEventRepository,
     SqliteOverrideRepository,
 )
@@ -78,7 +87,10 @@ from sportlock.music.domain.ports import MusicAccountProtocol, MusicLibraryProto
 from sportlock.music.infrastructure.spotify_mpris import SpotifyMprisPlayer
 from sportlock.music.infrastructure.spotify_web import SpotifyWebLibrary
 from sportlock.progression.application.apply_session_progression_service import ApplySessionProgressionService
-from sportlock.progression.infrastructure.sqlite_ladder_repository import SqliteLadderRepository
+from sportlock.progression.infrastructure.sqlite_ladder_repository import (
+    SqliteLadderMoveRecordRepository,
+    SqliteLadderPositionRepository,
+)
 from sportlock.reporting.application.report_services import (
     BuildReportService,
     TrainingRecords,
@@ -100,7 +112,16 @@ from sportlock.training.application.session_services import (
     RecordTrainingActionService,
 )
 from sportlock.training.application.snapshot import TrainingSnapshotService
-from sportlock.training.infrastructure.sqlite_repositories import SqliteTrainingHistory, SqliteTrainingSessionRepository
+from sportlock.training.application.training_history import TrainingHistory
+from sportlock.training.infrastructure.sqlite_repositories import (
+    SqliteCompletedExerciseRepository,
+    SqliteCountedSessionRepository,
+    SqliteExerciseTimingRepository,
+    SqliteSessionDetailsRepository,
+    SqliteSessionSummaryRepository,
+    SqliteTrainingSessionRepository,
+    SqliteTransitionGapRepository,
+)
 
 REPO_DIR = Path(__file__).resolve().parents[2]
 CLI = REPO_DIR / "bin" / "sportlock"
@@ -161,7 +182,7 @@ class Container:
         self.settings_state = SettingsState()
         self.settings_repository = TomlSettingsRepository(config_path)
         self.reload_settings_service = ReloadSettingsService(
-            self.settings_state, self.settings_repository, self.desktop
+            self.settings_state, self.settings_repository, self.settings_repository, self.desktop
         )
         self.reload_settings_service.execute(decision=None, now=self.clock.now(), force=True)
         self.get_settings_service = GetSettingsService(self.settings_state, self.settings_repository)
@@ -171,15 +192,27 @@ class Container:
 
     def _build_repositories(self) -> None:
         self.profile_repository = KvProfileRepository(self.database)
-        self.ladder_repository = SqliteLadderRepository(self.database)
+        self.ladder_position_repository = SqliteLadderPositionRepository(self.database)
+        self.ladder_move_record_repository = SqliteLadderMoveRecordRepository(self.database)
         self.training_session_repository = SqliteTrainingSessionRepository(self.database)
-        self.training_history = SqliteTrainingHistory(self.database)
+        self.training_history = TrainingHistory(
+            SqliteSessionSummaryRepository(self.database),
+            SqliteExerciseTimingRepository(self.database),
+            SqliteTransitionGapRepository(self.database),
+            SqliteCompletedExerciseRepository(self.database),
+            SqliteSessionDetailsRepository(self.database),
+            SqliteCountedSessionRepository(self.database),
+        )
         self.lock_event_repository = SqliteLockEventRepository(self.database)
         self.override_repository = SqliteOverrideRepository(self.database)
-        self.lock_state_repository = KvLockStateRepository(self.database)
+        self.lock_plan_repository = KvLockPlanRepository(self.database)
+        self.manual_lock_repository = KvManualLockRepository(self.database)
+        self.given_warning_repository = KvGivenWarningRepository(self.database)
+        self.desktop_to_restore_repository = KvDesktopToRestoreRepository(self.database)
         self.coach_plan_repository = KvCoachPlanRepository(self.database)
-        self.coach_run_log = SqliteCoachRunLog(self.database)
+        self.coach_run_repository = SqliteCoachRunRepository(self.database)
         self.coach_memory_repository = SqliteCoachMemoryRepository(self.database)
+        self.memory_note_version_repository = SqliteMemoryNoteVersionRepository(self.database)
         self.replacement_answer_repository = SqliteReplacementAnswerRepository(self.database)
         self.coach_review_repository = SqliteCoachReviewRepository(self.database)
         self.lock_runtime = InMemoryLockRuntime()
@@ -207,12 +240,14 @@ class Container:
         self.coach_plan_freshness = CoachPlanFreshness(
             self.coach_plan_repository, self.training_history, self.profile_repository
         )
-        self.apply_session_progression_service = ApplySessionProgressionService(self.ladder_repository, self.catalogue)
-        self.save_profile_service = SaveProfileService(self.profile_repository, self.ladder_repository)
+        self.apply_session_progression_service = ApplySessionProgressionService(
+            self.ladder_position_repository, self.ladder_move_record_repository, self.catalogue
+        )
+        self.save_profile_service = SaveProfileService(self.profile_repository, self.ladder_position_repository)
         self.begin_training_session_service = BeginTrainingSessionService(
             self.training_session_repository,
             self.training_history,
-            self.ladder_repository,
+            self.ladder_position_repository,
             self.coach_plan_freshness,
             self.catalogue,
         )
@@ -226,13 +261,18 @@ class Container:
             self.training_session_repository, self.training_history, self.catalogue, self.exercise_details_repository
         )
         self.pending_replacements_service = PendingReplacementsService(
-            self.training_history, self.ladder_repository, self.replacement_answer_repository, self.catalogue
+            self.training_history,
+            self.ladder_position_repository,
+            self.ladder_move_record_repository,
+            self.replacement_answer_repository,
+            self.catalogue,
         )
         self.answer_replacement_service = AnswerReplacementService(
             self.pending_replacements_service,
             self.replacement_answer_repository,
             KeepReplacedExerciseService(
-                self.ladder_repository,
+                self.ladder_position_repository,
+                self.ladder_move_record_repository,
                 self.coach_plan_repository,
                 self.coach_plan_freshness,
                 self.training_session_repository,
@@ -242,7 +282,7 @@ class Container:
 
     def _build_lock_services(self) -> None:
         self.plan_scheduled_lock_service = PlanScheduledLockService(
-            self.lock_state_repository,
+            self.lock_plan_repository,
             self.coach_plan_freshness,
             self.training_history,
             self.lock_event_repository,
@@ -253,7 +293,7 @@ class Container:
         )
         self.check_setup_complete_service = CheckSetupCompleteService(self.profile_repository)
         prepare_desktop = PrepareDesktopForLockService(
-            self.lock_state_repository, self.desktop, self.music_player, self.warning_popup
+            self.desktop_to_restore_repository, self.desktop, self.music_player, self.warning_popup
         )
         enter_lock = EnterLockService(
             self.lock_runtime,
@@ -267,7 +307,7 @@ class Container:
             self.lock_runtime,
             self.lock_event_repository,
             self.close_training_session_service,
-            self.lock_state_repository,
+            self.desktop_to_restore_repository,
             self.desktop,
             self.music_player,
         )
@@ -276,7 +316,7 @@ class Container:
             self.get_schedule_decision_service,
             ChooseLockService(
                 self.lock_runtime,
-                self.lock_state_repository,
+                self.manual_lock_repository,
                 self.lock_event_repository,
                 self.plan_scheduled_lock_service,
                 self.check_setup_complete_service,
@@ -284,16 +324,17 @@ class Container:
             ),
             WarnOfNextLockService(
                 self.settings_state,
-                self.lock_state_repository,
-                self.coach_plan_freshness,
-                self.pending_replacements_service,
+                self.given_warning_repository,
+                self.lock_plan_repository,
                 self.desktop,
-                self.warning_popup,
+                ShowWarningPopupService(
+                    self.coach_plan_freshness, self.pending_replacements_service, self.desktop, self.warning_popup
+                ),
             ),
             SwitchLockService(self.lock_runtime, enter_lock, self.leave_lock_service, self.lock_screen),
         )
         self.start_test_lock_service = StartTestLockService(self.lock_runtime)
-        self.start_manual_lock_service = StartManualLockService(self.lock_runtime, self.lock_state_repository)
+        self.start_manual_lock_service = StartManualLockService(self.lock_runtime, self.manual_lock_repository)
         self.request_override_service = RequestOverrideService(
             self.lock_runtime, self.override_repository, self.settings_state
         )
@@ -305,14 +346,21 @@ class Container:
     def _build_coach_services(self) -> None:
         build_context = BuildCoachContextService(
             self.profile_repository,
-            self.ladder_repository,
             self.training_history,
             self.lock_event_repository,
             self.catalogue,
-            RecallCoachMemoryService(self.coach_memory_repository, self.replacement_answer_repository, self.catalogue),
+            RecallCoachMemoryService(
+                self.coach_memory_repository,
+                self.memory_note_version_repository,
+                self.replacement_answer_repository,
+                self.catalogue,
+            ),
+            DescribeLaddersForCoachService(
+                self.ladder_position_repository, self.ladder_move_record_repository, self.catalogue
+            ),
         )
         store_plan = StoreCoachPlanService(
-            ApplyLadderOverridesService(self.ladder_repository),
+            ApplyLadderOverridesService(self.ladder_position_repository, self.ladder_move_record_repository),
             self.training_history,
             self.coach_memory_repository,
             self.coach_plan_repository,
@@ -323,12 +371,17 @@ class Container:
             self.coach,
             self.catalogue,
             PrepareCoachRunService(self.clock, self.coach_plan_freshness, build_context),
-            LogCoachRunService(self.coach_run_log, self.clock),
+            LogCoachRunService(self.coach_run_repository, self.clock),
             store_plan,
             self.desktop,
         )
         records = TrainingRecords(
-            self.training_history, self.ladder_repository, self.lock_event_repository, self.catalogue, self.clock
+            self.training_history,
+            self.ladder_position_repository,
+            self.ladder_move_record_repository,
+            self.lock_event_repository,
+            self.catalogue,
+            self.clock,
         )
         self.build_report_service = BuildReportService(
             records, self.profile_repository, self.coach_memory_repository, self.coach_review_repository, self.clock
@@ -341,7 +394,7 @@ class Container:
         self.build_calendar_service = BuildCalendarService(
             self.training_history,
             self.lock_event_repository,
-            self.lock_state_repository,
+            self.lock_plan_repository,
             self.coach_plan_freshness,
             self.catalogue,
         )

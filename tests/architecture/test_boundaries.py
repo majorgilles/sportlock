@@ -253,3 +253,39 @@ def test_dependencies__constructor_parameters_and_attributes__are_named_after_th
     problems = [problem for cls in classes.values() for problem in _naming_problems(cls, classes)]
 
     assert problems == [], "see 'Names say the type' in ~/.agents/AGENTS.md"
+
+
+CRUD_CAPABILITIES = {
+    "CreateRepositoryProtocol",
+    "GetRepositoryProtocol",
+    "FindRepositoryProtocol",
+    "UpdateRepositoryProtocol",
+    "DeleteRepositoryProtocol",
+    "GetSingletonRepositoryProtocol",
+    "UpdateSingletonRepositoryProtocol",
+}
+
+
+def _crud_problems(cls: ast.ClassDef) -> list[str]:
+    bases = {ast.unparse(base).split("[")[0] for base in cls.bases} - {"Protocol"}
+    problems = [f"{cls.name} extends {sorted(bases - CRUD_CAPABILITIES)}"] if bases - CRUD_CAPABILITIES else []
+    if not bases:
+        problems.append(f"{cls.name} extends no CRUD capability")
+    methods = [node.name for node in cls.body if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)]
+    if methods:
+        problems.append(f"{cls.name} declares its own methods {methods}")
+    return problems
+
+
+def test_repositories__every_repository_protocol__is_made_only_of_crud_capabilities():
+    repositories = [
+        node
+        for module, path in _modules()
+        if not module.endswith("shared_kernel.repositories")
+        for node in ast.walk(ast.parse(path.read_text()))
+        if isinstance(node, ast.ClassDef) and node.name.endswith("RepositoryProtocol")
+    ]
+
+    problems = [problem for cls in repositories for problem in _crud_problems(cls)]
+
+    assert problems == [], "see 'Repositories are CRUD' in ~/.agents/AGENTS.md"

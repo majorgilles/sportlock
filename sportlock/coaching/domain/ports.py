@@ -9,6 +9,14 @@ from sportlock.coaching.domain.plan import CoachPlan
 from sportlock.coaching.domain.replacements import ReplacementAnswer
 from sportlock.coaching.domain.review import CoachReview
 from sportlock.shared_kernel.base import ValueObject
+from sportlock.shared_kernel.repositories import (
+    CreateRepositoryProtocol,
+    FindRepositoryProtocol,
+    GetRepositoryProtocol,
+    GetSingletonRepositoryProtocol,
+    UpdateRepositoryProtocol,
+    UpdateSingletonRepositoryProtocol,
+)
 
 
 class CoachProtocol(Protocol):
@@ -28,92 +36,99 @@ class CoachUnavailableError(RuntimeError):
 
 
 class CoachRun(ValueObject):
-    """One attempt to plan, for diagnostics."""
+    """One attempt to plan, for diagnostics. `id` is set once stored."""
 
     at: str
     seconds: int
     ok: bool
     error: str | None = None
+    id: int | None = None
 
 
-class CoachPlanRepositoryProtocol(Protocol):
-    """The latest plan."""
+class CoachRunFilters(ValueObject):
+    """Which runs to load: the latest `latest` of them (all when None), oldest first."""
 
-    def get(self) -> CoachPlan | None:
-        """The stored plan (it may be stale: compare its basis)."""
-        ...
-
-    def save(self, plan: CoachPlan) -> None:
-        """Replace the plan."""
-        ...
+    latest: int | None = None
 
 
-class CoachRunLogProtocol(Protocol):
-    """Recent coach runs."""
+class MemoryNoteVersion(ValueObject):
+    """One version of a memory note, from when it was written to when it changed or ended."""
 
-    def add(self, run: CoachRun) -> int:
-        """Record a run; returns its id."""
-        ...
-
-    def recent(self, limit: int) -> list[CoachRun]:
-        """The latest runs, oldest first."""
-        ...
-
-
-class CoachMemoryRepositoryProtocol(Protocol):
-    """The memory aggregate, persisted as versioned notes."""
-
-    def load(self) -> CoachMemory:
-        """The current notes."""
-        ...
-
-    def save(self, memory: CoachMemory) -> None:
-        """Persist the events the aggregate recorded since it was loaded."""
-        ...
-
-    def forgotten(self, limit: int) -> list[str]:
-        """Texts of notes the athlete removed, newest last."""
-        ...
-
-    def history(self, limit: int) -> list[dict]:
-        """Every version of every note, newest first.
-
-        Each is {note_id, topic, text, valid_from, valid_to, written_by, ended_by, end_reason}.
-        """
-        ...
+    note_id: int
+    topic: str
+    text: str
+    valid_from: str
+    valid_to: str | None
+    written_by: str | None
+    ended_by: str | None
+    end_reason: str | None
 
 
-class ReplacementAnswerRepositoryProtocol(Protocol):
+class MemoryNoteVersionFilters(ValueObject):
+    """Which versions to load: by end reason, and the latest `latest` of them (all when None).
+
+    Oldest first, unless `newest_first`.
+    """
+
+    end_reason: str | None = None
+    latest: int | None = None
+    newest_first: bool = False
+
+
+class ReplacementAnswerFilters(ValueObject):
+    """Which answers to load: those about one session, and the latest `latest` of them; oldest first."""
+
+    session_id: int | None = None
+    latest: int | None = None
+
+
+class CoachReviewFilters(ValueObject):
+    """Which reviews to load: those with a dossier only, and the latest `latest` of them; by session."""
+
+    with_dossier: bool = False
+    latest: int | None = None
+
+
+class CoachPlanRepositoryProtocol(
+    GetSingletonRepositoryProtocol[CoachPlan], UpdateSingletonRepositoryProtocol[CoachPlan], Protocol
+):
+    """The latest plan; it may be stale, so compare its basis."""
+
+
+class CoachRunRepositoryProtocol(
+    CreateRepositoryProtocol[CoachRun], FindRepositoryProtocol[CoachRun, CoachRunFilters], Protocol
+):
+    """Every coach run; `create` returns the run with its id."""
+
+
+class CoachMemoryRepositoryProtocol(
+    GetSingletonRepositoryProtocol[CoachMemory], UpdateSingletonRepositoryProtocol[CoachMemory], Protocol
+):
+    """The memory aggregate, persisted as versioned notes.
+
+    `get` never returns None; `update` persists the events the aggregate recorded since it was loaded.
+    """
+
+
+class MemoryNoteVersionRepositoryProtocol(
+    FindRepositoryProtocol[MemoryNoteVersion, MemoryNoteVersionFilters], Protocol
+):
+    """Every version of every memory note."""
+
+
+class ReplacementAnswerRepositoryProtocol(
+    CreateRepositoryProtocol[ReplacementAnswer],
+    FindRepositoryProtocol[ReplacementAnswer, ReplacementAnswerFilters],
+    Protocol,
+):
     """The athlete's answers to replaced exercises."""
 
-    def add(self, answer: ReplacementAnswer) -> None:
-        """Keep an answer."""
-        ...
 
-    def answered(self, session_id: int) -> set[str]:
-        """The chains already answered for the replacements after that session."""
-        ...
-
-    def recent(self, limit: int) -> list[ReplacementAnswer]:
-        """The latest answers, oldest first."""
-        ...
-
-
-class CoachReviewRepositoryProtocol(Protocol):
-    """The coach's reviews, one per session."""
-
-    def save(self, review: CoachReview) -> None:
-        """Keep a review (replacing an earlier one about the same session)."""
-        ...
-
-    def get(self, session_id: int) -> CoachReview | None:
-        """The review about a session."""
-        ...
-
-    def latest(self) -> CoachReview | None:
-        """The most recent review with a dossier."""
-        ...
-
-    def all(self) -> dict[int, CoachReview]:
-        """Every review, by session."""
-        ...
+class CoachReviewRepositoryProtocol(
+    GetRepositoryProtocol[CoachReview, int],
+    FindRepositoryProtocol[CoachReview, CoachReviewFilters],
+    CreateRepositoryProtocol[CoachReview],
+    UpdateRepositoryProtocol[CoachReview],
+    Protocol,
+):
+    """The coach's reviews, one per session, by session id."""

@@ -8,12 +8,18 @@ from sportlock.coaching.application.fresh_plan import CoachPlanFreshness
 from sportlock.coaching.domain.plan import CoachPlan
 from sportlock.exercises.domain.catalogue import Catalogue
 from sportlock.locks.application.lock_services import policy_of
-from sportlock.locks.domain.repositories import LockEventRepositoryProtocol, LockStateRepositoryProtocol
+from sportlock.locks.domain.locks import EARLY_OUTCOMES, ended_early, rest_days
+from sportlock.locks.domain.repositories import (
+    LockEventFilters,
+    LockEventRepositoryProtocol,
+    LockPlanFilters,
+    LockPlanRepositoryProtocol,
+)
 from sportlock.locks.domain.schedule import Window, windows_for_day
 from sportlock.recovery.domain.policy import CoachAdvice, RecoveryState, decide_lock, load_summary, rest_days_in_a_row
 from sportlock.settings.domain.settings import Settings
 from sportlock.shared_kernel.plans import PlannedExercise, SessionPlan
-from sportlock.training.domain.repositories import TrainingHistoryProtocol
+from sportlock.training.application.training_history import TrainingHistory
 
 
 def _empty_days(first: date, last: date, today: date) -> dict[str, dict]:
@@ -37,15 +43,15 @@ class BuildCalendarService:
 
     def __init__(
         self,
-        training_history: TrainingHistoryProtocol,
+        training_history: TrainingHistory,
         lock_event_repository: LockEventRepositoryProtocol,
-        lock_state_repository: LockStateRepositoryProtocol,
+        lock_plan_repository: LockPlanRepositoryProtocol,
         coach_plan_freshness: CoachPlanFreshness,
         catalogue: Catalogue,
     ) -> None:
         self.training_history = training_history
         self.lock_event_repository = lock_event_repository
-        self.lock_state_repository = lock_state_repository
+        self.lock_plan_repository = lock_plan_repository
         self.coach_plan_freshness = coach_plan_freshness
         self.catalogue = catalogue
 
@@ -59,7 +65,7 @@ class BuildCalendarService:
         days = _empty_days(first, last, today)
 
         coach = self.coach_plan_freshness.fresh_plan()
-        plans = self.lock_state_repository.plans()
+        plans = {plan.key: plan for plan in self.lock_plan_repository.find(LockPlanFilters())}
         self._add_sessions(days, first, last, coach)
         self._add_lock_outcomes(days, first, last, plans)
         self._add_upcoming_locks(days, settings, now, coach, plans)
@@ -68,7 +74,13 @@ class BuildCalendarService:
         return {
             "today": today.isoformat(),
             "days": list(days.values()),
-            "load": load_summary(week, rest_days_in_a_row(self.lock_event_repository.rest_days(), today), now),
+            "load": load_summary(
+                week,
+                rest_days_in_a_row(
+                    rest_days(self.lock_event_repository.find(LockEventFilters(outcomes=("rest",)))), today
+                ),
+                now,
+            ),
         }
 
     def _add_sessions(self, days: dict[str, dict], first: date, last: date, coach: CoachPlan | None) -> None:
@@ -95,19 +107,22 @@ class BuildCalendarService:
             )
 
     def _add_lock_outcomes(self, days: dict[str, dict], first: date, last: date, plans: dict) -> None:
-        for event in self.lock_event_repository.between(first, last):
-            key_day = event["start"][:10]
-            if key_day in days and event["outcome"] in ("rest", "override", "expired"):
-                plan = plans.get(event["key"])
+        for event in self.lock_event_repository.find(LockEventFilters(first_day=first, last_day=last)):
+            key_day = event.start[:10]
+            if key_day in days and event.outcome in ("rest", "override", "expired"):
+                plan = plans.get(event.key)
                 days[key_day]["locks"].append(
-                    {"time": event["start"][11:16], "outcome": event["outcome"], "reason": plan.reason if plan else ""}
+                    {"time": event.start[11:16], "outcome": event.outcome, "reason": plan.reason if plan else ""}
                 )
 
     def _add_upcoming_locks(
         self, days: dict[str, dict], settings: Settings, now: datetime, coach: CoachPlan | None, plans: dict
     ) -> None:
         last = date.fromisoformat(next(reversed(days)))
-        trained, ended = self.training_history.trained_days(), self.lock_event_repository.ended_early()
+        trained, ended = (
+            self.training_history.trained_days(),
+            ended_early(self.lock_event_repository.find(LockEventFilters(outcomes=EARLY_OUTCOMES))),
+        )
         advice = CoachAdvice(**coach.next_lock.model_dump()) if coach else None
         next_done = False
         day = now.date()
@@ -160,7 +175,9 @@ class BuildCalendarService:
             last_credited=self.training_history.last_credited(),
             last_hard=self.training_history.last_hard(),
             sessions_last_7_days=len(self.training_history.credited_since(at - timedelta(days=7))),
-            rest_days_in_a_row=rest_days_in_a_row(self.lock_event_repository.rest_days(), at.date()),
+            rest_days_in_a_row=rest_days_in_a_row(
+                rest_days(self.lock_event_repository.find(LockEventFilters(outcomes=("rest",)))), at.date()
+            ),
         )
 
     def _planned(self, item: PlannedExercise) -> dict:

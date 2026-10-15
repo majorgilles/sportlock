@@ -19,9 +19,11 @@ from pydantic import ValidationError
 from sportlock.athlete.domain.profile import EQUIPMENT, EXPERIENCE, GOALS, LOCATIONS
 from sportlock.coaching.application.memory_services import ForgetMemoryNoteCommand
 from sportlock.coaching.application.replacement_services import AnswerReplacementCommand
+from sportlock.coaching.domain.ports import CoachRunFilters, MemoryNoteVersionFilters
 from sportlock.diagnostics.infrastructure import doctor, report
 from sportlock.exercises.infrastructure.notebooklm_library import NotebookLMLibraryBuilder
 from sportlock.locks.application.lock_services import RequestOverrideCommand, StartManualLockCommand
+from sportlock.locks.domain.repositories import LockEventFilters
 from sportlock.music.application.music_services import ControlMusicCommand
 from sportlock.shared_kernel.errors import DomainError
 from sportlock.training.application.session_services import RecordTrainingActionCommand
@@ -197,7 +199,7 @@ def _agent_status(daemon: Daemon, request: dict, now: datetime) -> dict:
         "ok": True,
         "plan": fresh.to_dict() if fresh else None,
         "stale_plan": stored.to_dict() if stored else None,
-        "runs": [r.model_dump() for r in container.coach_run_log.recent(20)],
+        "runs": [r.model_dump(exclude={"id"}) for r in container.coach_run_repository.find(CoachRunFilters(latest=20))],
         "running": daemon.coach_running(),
     }
 
@@ -211,7 +213,10 @@ def _memory_get(daemon: Daemon, request: dict, now: datetime) -> dict:
 
 
 def _memory_history(daemon: Daemon, request: dict, now: datetime) -> dict:
-    return {"ok": True, "history": daemon.container.coach_memory_repository.history(int(request.get("limit", 100)))}
+    versions = daemon.container.memory_note_version_repository.find(
+        MemoryNoteVersionFilters(latest=int(request.get("limit", 100)), newest_first=True)
+    )
+    return {"ok": True, "history": [version.model_dump() for version in versions]}
 
 
 def _memory_forget(daemon: Daemon, request: dict, now: datetime) -> dict:
@@ -251,7 +256,10 @@ def _report(daemon: Daemon, request: dict, now: datetime) -> dict:
 
 
 def _log(daemon: Daemon, request: dict, now: datetime) -> dict:
-    return {"ok": True, "locks": daemon.container.lock_event_repository.recent(int(request.get("limit", 20)))}
+    events = daemon.container.lock_event_repository.find(
+        LockEventFilters(newest_first=True, latest=int(request.get("limit", 20)))
+    )
+    return {"ok": True, "locks": [event.to_dict() for event in events]}
 
 
 def _reload(daemon: Daemon, request: dict, now: datetime) -> dict:

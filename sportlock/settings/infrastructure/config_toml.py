@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import override
 
-from sportlock.settings.domain.repositories import SettingsRepositoryProtocol
+from sportlock.settings.domain.repositories import SettingsChangeMarkerProtocol, SettingsRepositoryProtocol
 from sportlock.settings.domain.settings import DAYS, Settings, SettingsError
 
 CONFIG_PATH = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "sportlock" / "config.toml"
@@ -58,7 +58,7 @@ minutes = 30
 """
 
 
-class TomlSettingsRepository(SettingsRepositoryProtocol):
+class TomlSettingsRepository(SettingsRepositoryProtocol, SettingsChangeMarkerProtocol):
     """Reads and writes config.toml; a missing file is created from DEFAULT_CONFIG."""
 
     def __init__(self, path: Path = CONFIG_PATH) -> None:
@@ -71,7 +71,7 @@ class TomlSettingsRepository(SettingsRepositoryProtocol):
             return 0.0
 
     @override
-    def load(self) -> Settings:
+    def get(self) -> Settings:
         if not self.path.exists():
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.write_text(DEFAULT_CONFIG)
@@ -81,10 +81,11 @@ class TomlSettingsRepository(SettingsRepositoryProtocol):
             raise SettingsError(f"{self.path}: {error}") from None
 
     @override
-    def save(self, settings: Settings) -> None:
+    def update(self, entity: Settings) -> Settings:
         tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(dump(settings))
+        tmp.write_text(dump(entity))
         tmp.replace(self.path)
+        return entity
 
     @override
     def marker(self) -> float:

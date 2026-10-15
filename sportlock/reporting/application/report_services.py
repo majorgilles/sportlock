@@ -11,11 +11,23 @@ from sportlock.athlete.domain.profile import ProfileRepositoryProtocol
 from sportlock.coaching.application.coach_context_service import BuildCoachContextService
 from sportlock.coaching.application.run_coach_command import RunCoachCommand
 from sportlock.coaching.domain.memory import TOPICS
-from sportlock.coaching.domain.ports import CoachMemoryRepositoryProtocol, CoachProtocol, CoachReviewRepositoryProtocol
+from sportlock.coaching.domain.ports import (
+    CoachMemoryRepositoryProtocol,
+    CoachProtocol,
+    CoachReviewFilters,
+    CoachReviewRepositoryProtocol,
+)
 from sportlock.coaching.domain.review import CoachReview, parse_review
 from sportlock.exercises.domain.catalogue import Catalogue
-from sportlock.locks.domain.repositories import LockEventRepositoryProtocol
-from sportlock.progression.domain.ladders import START, LadderRepositoryProtocol, positions
+from sportlock.locks.domain.repositories import LockEventFilters, LockEventRepositoryProtocol
+from sportlock.progression.domain.ladders import (
+    START,
+    LadderMoveRecordFilters,
+    LadderMoveRecordRepositoryProtocol,
+    LadderPositionFilters,
+    LadderPositionRepositoryProtocol,
+    positions,
+)
 from sportlock.reporting.domain.report import (
     ExerciseRecord,
     LadderLevel,
@@ -29,7 +41,7 @@ from sportlock.reporting.domain.report import (
 from sportlock.shared_kernel.errors import DomainError
 from sportlock.shared_kernel.ports import ClockProtocol
 from sportlock.shared_kernel.time import iso
-from sportlock.training.domain.repositories import TrainingHistoryProtocol
+from sportlock.training.application.training_history import TrainingHistory
 
 FIRST_DAY = date(2000, 1, 1)
 LOCKS_LOOKED_AT = 500
@@ -80,14 +92,16 @@ class TrainingRecords:
 
     def __init__(
         self,
-        training_history: TrainingHistoryProtocol,
-        ladder_repository: LadderRepositoryProtocol,
+        training_history: TrainingHistory,
+        ladder_position_repository: LadderPositionRepositoryProtocol,
+        ladder_move_record_repository: LadderMoveRecordRepositoryProtocol,
         lock_event_repository: LockEventRepositoryProtocol,
         catalogue: Catalogue,
         clock: ClockProtocol,
     ) -> None:
         self.training_history = training_history
-        self.ladder_repository = ladder_repository
+        self.ladder_position_repository = ladder_position_repository
+        self.ladder_move_record_repository = ladder_move_record_repository
         self.lock_event_repository = lock_event_repository
         self.catalogue = catalogue
         self.clock = clock
@@ -101,7 +115,7 @@ class TrainingRecords:
         found = [self.catalogue.find(e.exercise) for s in sessions for e in s.exercises]
         trained = {exercise.chain for exercise in found if exercise}
         levels = []
-        for position in positions(self.ladder_repository.saved()):
+        for position in positions(self.ladder_position_repository.find(LadderPositionFilters())):
             if position.chain not in trained:
                 continue
             exercise = self.catalogue.get(position.exercise)
@@ -120,7 +134,11 @@ class TrainingRecords:
     def stats(self, sessions: list[SessionRecord]) -> TrainingStats:
         """The headline numbers."""
         locks = sorted(
-            (lock for lock in self.lock_event_repository.recent(LOCKS_LOOKED_AT) if lock["key"][:1].isdigit()),
+            (
+                lock.to_dict()
+                for lock in self.lock_event_repository.find(LockEventFilters(newest_first=True, latest=LOCKS_LOOKED_AT))
+                if lock.key[:1].isdigit()
+            ),
             key=lambda lock: lock["start"],
         )
         return training_stats(sessions, [lock["outcome"] for lock in locks], self.clock.now().date())
@@ -140,7 +158,10 @@ class TrainingRecords:
                 "reason": m["reason"],
                 "by": {"agent": "coach", "athlete": "you"}.get(m.get("decided_by", ""), "rules"),
             }
-            for m in self.ladder_repository.moves_for(session.id)
+            for m in [
+                record.to_dict()
+                for record in self.ladder_move_record_repository.find(LadderMoveRecordFilters(session_id=session.id))
+            ]
             if m["rule"] != "hold"
         ]
         return {
@@ -186,11 +207,11 @@ class BuildReportService:
         stats = self.training_records.stats(sessions)
         levels = self.training_records.levels(sessions)
         laddered = self.training_records.laddered_exercises()
-        reviews = self.coach_review_repository.all()
-        latest = self.coach_review_repository.latest()
+        reviews = {review.session_id: review for review in self.coach_review_repository.find(CoachReviewFilters())}
+        latest = next(iter(self.coach_review_repository.find(CoachReviewFilters(with_dossier=True, latest=1))), None)
         profile = self.profile_repository.get()
         journal = [self.training_records.journal_entry(s, reviews.get(s.id)) for s in reversed(sessions)]
-        memory = self.coach_memory_repository.load().current()
+        memory = self.coach_memory_repository.get().current()
         return {
             "generated_at": iso(self.clock.now()),
             "profile": profile.to_dict() if profile else None,
@@ -221,7 +242,7 @@ class WriteCoachReviewService:
         build_coach_context_service: BuildCoachContextService,
         training_records: TrainingRecords,
         coach_review_repository: CoachReviewRepositoryProtocol,
-        training_history: TrainingHistoryProtocol,
+        training_history: TrainingHistory,
         clock: ClockProtocol,
     ) -> None:
         self.coach = coach
@@ -247,8 +268,11 @@ class WriteCoachReviewService:
             ],
         }
         review = parse_review(self.coach.write_review(context), session_id=session_id, written_at=iso(now))
-        earlier = self.coach_review_repository.get(session_id)
+        earlier = self.coach_review_repository.get_by_id(session_id)
         if earlier is not None:
             review = review.with_recommendations(earlier.recommendations)
-        self.coach_review_repository.save(review)
+        if earlier is not None:
+            self.coach_review_repository.update(review)
+        else:
+            self.coach_review_repository.create(review)
         return review

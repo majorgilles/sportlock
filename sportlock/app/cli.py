@@ -22,8 +22,8 @@ from sportlock.app.daemon import main as service_main
 from sportlock.exercises.infrastructure.details_repository import LIBRARY_DIR, load_catalogue
 from sportlock.exercises.infrastructure.notebooklm_library import NotebookLMLibraryBuilder
 from sportlock.exercises.infrastructure.youtube_videos import YouTubeVideoLibrary
-from sportlock.progression.domain.ladders import positions
-from sportlock.progression.infrastructure.sqlite_ladder_repository import SqliteLadderRepository
+from sportlock.progression.domain.ladders import LadderPositionFilters, positions
+from sportlock.progression.infrastructure.sqlite_ladder_repository import SqliteLadderPositionRepository
 from sportlock.settings.domain.settings import DEFAULT_NOTEBOOK, SettingsError
 from sportlock.settings.infrastructure.config_toml import TomlSettingsRepository
 from sportlock.shared_kernel.infrastructure.database import Database
@@ -190,7 +190,7 @@ def _target_text(target: dict) -> str:
 def cmd_ladders(args: argparse.Namespace) -> None:
     """`sportlock ladders`: the position on every chain."""
     catalogue = load_catalogue()
-    for position in positions(SqliteLadderRepository(Database()).saved()):
+    for position in positions(SqliteLadderPositionRepository(Database()).find(LadderPositionFilters())):
         exercise = catalogue.find(position.exercise)
         step = f"{exercise.step}/{len(exercise.chain_ids)}" if exercise else "?"
         print(

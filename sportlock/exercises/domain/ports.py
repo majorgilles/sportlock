@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Protocol
 
 from sportlock.exercises.domain.catalogue import ExerciseDetails
+from sportlock.shared_kernel.repositories import GetRepositoryProtocol
 
 
-class ExerciseDetailsRepositoryProtocol(Protocol):
-    """Built instructions and pictures, per exercise."""
+class ExerciseDetailsRepositoryProtocol(GetRepositoryProtocol[ExerciseDetails, str], Protocol):
+    """Built instructions and pictures, per exercise id.
 
-    def get(self, exercise_id: str) -> ExerciseDetails:
-        """The built details, or empty details when the exercise isn't built yet."""
-        ...
+    `get_by_id` gives empty details for an exercise that is not built yet.
+    """

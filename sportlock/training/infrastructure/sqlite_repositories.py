@@ -14,10 +14,23 @@ from sportlock.shared_kernel.infrastructure.database import Database
 from sportlock.shared_kernel.targets import Target
 from sportlock.shared_kernel.time import iso
 from sportlock.training.domain.repositories import (
+    CompletedExercise,
+    CompletedExerciseFilters,
+    CompletedExerciseRepositoryProtocol,
+    CountedSessionFilters,
+    CountedSessionRepositoryProtocol,
     ExerciseTiming,
+    ExerciseTimingFilters,
+    ExerciseTimingRepositoryProtocol,
+    SessionDetailsFilters,
+    SessionDetailsRepositoryProtocol,
     SessionSummary,
-    TrainingHistoryProtocol,
+    SessionSummaryFilters,
+    SessionSummaryRepositoryProtocol,
     TrainingSessionRepositoryProtocol,
+    TransitionGap,
+    TransitionGapFilters,
+    TransitionGapRepositoryProtocol,
 )
 from sportlock.training.domain.session import LoggedSet, SessionExercise, TrainingSession
 
@@ -41,7 +54,7 @@ class SqliteTrainingSessionRepository(TrainingSessionRepositoryProtocol):
         self.database = database
 
     @override
-    def active(self) -> TrainingSession | None:
+    def get(self) -> TrainingSession | None:
         run = self.database.get(RUN_KEY)
         if not run:
             return None
@@ -112,7 +125,8 @@ class SqliteTrainingSessionRepository(TrainingSessionRepositoryProtocol):
         )
 
     @override
-    def add(self, session: TrainingSession) -> TrainingSession:
+    def create(self, entity: TrainingSession) -> TrainingSession:
+        session = entity
         # finished_at is NOT NULL since the first schema; it is rewritten when the session closes.
         cursor = self.database.execute(
             "INSERT INTO sessions (day, started_at, finished_at, kind, lock_key, status, title, day_type, plan_source,"
@@ -129,12 +143,12 @@ class SqliteTrainingSessionRepository(TrainingSessionRepositoryProtocol):
             ),
         )
         session.id = cursor.lastrowid
-        self.save(session)
-        return session
+        return self.update(session)
 
     @override
-    def save(self, session: TrainingSession) -> None:
-        assert session.id is not None, "add the session first"
+    def update(self, entity: TrainingSession) -> TrainingSession:
+        session = entity
+        assert session.id is not None, "create the session first"
         for exercise in session.exercises:
             if exercise.id is None:
                 exercise.id = self.database.execute(
@@ -221,38 +235,36 @@ class SqliteTrainingSessionRepository(TrainingSessionRepositoryProtocol):
             )
         else:
             self.database.delete(RUN_KEY)
-
-    @override
-    def discard_active(self) -> None:
-        self.database.delete(RUN_KEY)
+        return session
 
 
-class SqliteTrainingHistory(TrainingHistoryProtocol):
-    """Read models over the sessions tables."""
+class SqliteSessionSummaryRepository(SessionSummaryRepositoryProtocol):
+    """Credited sessions from the sessions table, with the average exercise effort when the session has none."""
 
     def __init__(self, database: Database) -> None:
         self.database = database
 
     @override
-    def trained_days(self) -> set[date]:
-        rows = self.database.execute(f"SELECT DISTINCT day FROM sessions WHERE {CREDITED}")
-        return {date.fromisoformat(row["day"]) for row in rows}
-
-    @override
-    def credited_since(self, since: datetime) -> list[SessionSummary]:
+    def find(self, filters: SessionSummaryFilters) -> list[SessionSummary]:
+        conditions, parameters = [CREDITED], []
+        if filters.finished_since is not None:
+            conditions.append("finished_at >= ?")
+            parameters.append(iso(filters.finished_since))
+        if filters.day_type is not None:
+            conditions.append("day_type = ?")
+            parameters.append(filters.day_type)
+        rows = self.database.execute(
+            "SELECT id, day, started_at, finished_at, day_type, rpe, title,"
+            " (SELECT AVG(e.rpe) FROM session_exercises e WHERE e.session_id = sessions.id AND e.rpe IS NOT NULL)"
+            f" AS exercise_rpe FROM sessions WHERE {' AND '.join(conditions)} ORDER BY finished_at",
+            parameters,
+        )
         result = []
-        for row in self.database.execute(
-            f"SELECT id, day, started_at, finished_at, day_type, rpe, title FROM sessions WHERE {CREDITED}"
-            " AND finished_at >= ? ORDER BY finished_at",
-            (iso(since),),
-        ):
+        for row in rows:
             started, finished = _dt(row["started_at"]), datetime.fromisoformat(row["finished_at"])
             rpe = row["rpe"]
             if rpe is None:  # ran out of time before the summary: average the exercises
-                value = self.database.execute(
-                    "SELECT AVG(rpe) FROM session_exercises WHERE session_id = ? AND rpe IS NOT NULL", (row["id"],)
-                ).fetchone()[0]
-                rpe = round(value) if value else None
+                rpe = round(row["exercise_rpe"]) if row["exercise_rpe"] else None
             result.append(
                 SessionSummary(
                     id=row["id"],
@@ -266,20 +278,15 @@ class SqliteTrainingHistory(TrainingHistoryProtocol):
             )
         return result
 
-    @override
-    def last_credited(self) -> datetime | None:
-        row = self.database.execute(f"SELECT MAX(finished_at) FROM sessions WHERE {CREDITED}").fetchone()
-        return _dt(row[0]) if row else None
+
+class SqliteExerciseTimingRepository(ExerciseTimingRepositoryProtocol):
+    """Done exercises with their start and end, from the session_exercises table."""
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
 
     @override
-    def last_hard(self) -> datetime | None:
-        row = self.database.execute(
-            f"SELECT MAX(finished_at) FROM sessions WHERE {CREDITED} AND day_type = 'hard'"
-        ).fetchone()
-        return _dt(row[0]) if row else None
-
-    @override
-    def exercise_timings(self, sessions: int) -> list[ExerciseTiming]:
+    def find(self, filters: ExerciseTimingFilters) -> list[ExerciseTiming]:
         rows = self.database.execute(
             "SELECT e.target, e.started_at, e.ended_at,"
             " (SELECT COUNT(*) FROM sets s WHERE s.session_exercise_id = e.id) AS n"
@@ -287,7 +294,7 @@ class SqliteTrainingHistory(TrainingHistoryProtocol):
             " WHERE e.status = 'done' AND e.started_at IS NOT NULL AND e.ended_at IS NOT NULL"
             " AND x.kind NOT IN ('test', 'placeholder')"
             " AND e.session_id IN (SELECT id FROM sessions ORDER BY id DESC LIMIT ?)",
-            (sessions,),
+            (filters.last_sessions,),
         ).fetchall()
         return [
             ExerciseTiming(
@@ -299,12 +306,19 @@ class SqliteTrainingHistory(TrainingHistoryProtocol):
             for r in rows
         ]
 
+
+class SqliteTransitionGapRepository(TransitionGapRepositoryProtocol):
+    """Gaps from a session's start to its first exercise, and between its exercises."""
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
     @override
-    def transition_gaps(self, sessions: int) -> list[float]:
+    def find(self, filters: TransitionGapFilters) -> list[TransitionGap]:
         gaps = []
         for session in self.database.execute(
             f"SELECT id, started_at FROM sessions WHERE {COUNTED} AND started_at IS NOT NULL ORDER BY id DESC LIMIT ?",
-            (sessions,),
+            (filters.last_sessions,),
         ).fetchall():
             previous_end = session["started_at"]
             for row in self.database.execute(
@@ -313,23 +327,45 @@ class SqliteTrainingHistory(TrainingHistoryProtocol):
                 (session["id"],),
             ).fetchall():
                 if previous_end:
-                    gaps.append(
-                        (
-                            datetime.fromisoformat(row["started_at"]) - datetime.fromisoformat(previous_end)
-                        ).total_seconds()
-                    )
+                    seconds = (
+                        datetime.fromisoformat(row["started_at"]) - datetime.fromisoformat(previous_end)
+                    ).total_seconds()
+                    gaps.append(TransitionGap(seconds=seconds))
                 previous_end = row["ended_at"]
         return gaps
 
-    @override
-    def times_done(self, exercise: str, excluding_session: int | None) -> int:
-        return self.database.execute(
-            "SELECT COUNT(*) FROM session_exercises WHERE exercise = ? AND status = 'done' AND session_id != ?",
-            (exercise, excluding_session or 0),
-        ).fetchone()[0]
+
+class SqliteCompletedExerciseRepository(CompletedExerciseRepositoryProtocol):
+    """Done exercises from the session_exercises table."""
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
 
     @override
-    def recent_details(self, since: date, limit: int) -> list[dict]:
+    def find(self, filters: CompletedExerciseFilters) -> list[CompletedExercise]:
+        conditions, parameters = ["status = 'done'"], []
+        if filters.exercise is not None:
+            conditions.append("exercise = ?")
+            parameters.append(filters.exercise)
+        if filters.excluding_session is not None:
+            conditions.append("session_id != ?")
+            parameters.append(filters.excluding_session)
+        rows = self.database.execute(
+            f"SELECT session_id, exercise FROM session_exercises WHERE {' AND '.join(conditions)} ORDER BY id",
+            parameters,
+        )
+        return [CompletedExercise(session_id=row["session_id"], exercise=row["exercise"]) for row in rows]
+
+
+class SqliteSessionDetailsRepository(SessionDetailsRepositoryProtocol):
+    """Counted sessions in full, for the coach."""
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    @override
+    def find(self, filters: SessionDetailsFilters) -> list[dict]:
+        since, limit = filters.since, filters.latest
         sessions = []
         for s in self.database.execute(
             f"SELECT * FROM sessions WHERE day >= ? AND {COUNTED} AND status != 'in_progress' ORDER BY id DESC LIMIT ?",
@@ -383,14 +419,29 @@ class SqliteTrainingHistory(TrainingHistoryProtocol):
             )
         return sessions
 
+
+class SqliteCountedSessionRepository(CountedSessionRepositoryProtocol):
+    """Counted sessions with their exercises, for the calendar and the report."""
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
     @override
-    def between(self, first: date, last: date) -> list[dict]:
+    def find(self, filters: CountedSessionFilters) -> list[dict]:
+        conditions, parameters = [COUNTED, "status != 'in_progress'"], []
+        if filters.first_day is not None:
+            conditions.append("day >= ?")
+            parameters.append(filters.first_day.isoformat())
+        if filters.last_day is not None:
+            conditions.append("day <= ?")
+            parameters.append(filters.last_day.isoformat())
+        order = "id DESC" if filters.newest_first else "started_at"
+        limit = -1 if filters.latest is None else filters.latest
         result = []
         for s in self.database.execute(
-            f"SELECT * FROM sessions WHERE day BETWEEN ? AND ? AND {COUNTED}"
-            " AND status != 'in_progress' ORDER BY started_at",
-            (first.isoformat(), last.isoformat()),
-        ):
+            f"SELECT * FROM sessions WHERE {' AND '.join(conditions)} ORDER BY {order} LIMIT ?",
+            (*parameters, limit),
+        ).fetchall():
             exercises = []
             for e in self.database.execute(
                 "SELECT * FROM session_exercises WHERE session_id = ? ORDER BY id", (s["id"],)
@@ -419,10 +470,3 @@ class SqliteTrainingHistory(TrainingHistoryProtocol):
                 )
             result.append({**dict(s), "exercises": exercises})
         return result
-
-    @override
-    def last_counted_id(self) -> int | None:
-        row = self.database.execute(
-            f"SELECT MAX(id) FROM sessions WHERE status != 'in_progress' AND {COUNTED}"
-        ).fetchone()
-        return row[0] if row else None

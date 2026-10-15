@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 
 from sportlock.locks.domain.schedule import Decision, settings_frozen
-from sportlock.settings.domain.repositories import SettingsRepositoryProtocol
+from sportlock.settings.domain.repositories import SettingsChangeMarkerProtocol, SettingsRepositoryProtocol
 from sportlock.settings.domain.settings import Settings, SettingsError
 from sportlock.shared_kernel.ports import DesktopProtocol
 
@@ -30,28 +30,33 @@ class ReloadSettingsService:
     """Applies a changed config file, unless a lock freezes the settings."""
 
     def __init__(
-        self, settings_state: SettingsState, settings_repository: SettingsRepositoryProtocol, desktop: DesktopProtocol
+        self,
+        settings_state: SettingsState,
+        settings_repository: SettingsRepositoryProtocol,
+        settings_change_marker: SettingsChangeMarkerProtocol,
+        desktop: DesktopProtocol,
     ) -> None:
         self.settings_state = settings_state
         self.settings_repository = settings_repository
+        self.settings_change_marker = settings_change_marker
         self.desktop = desktop
 
     def execute(self, *, decision: Decision | None, now: datetime, force: bool = False) -> None:
         """`decision`: what the schedule says now (None skips the freeze check)."""
-        changed = self.settings_repository.marker() != self.settings_state.marker
+        changed = self.settings_change_marker.marker() != self.settings_state.marker
         if not force and not changed and not self.settings_state.pending:
             return
         if not force and decision is not None and settings_frozen(decision, now):
             self.settings_state.pending = True
             return
         try:
-            self.settings_state.settings = self.settings_repository.load()
+            self.settings_state.settings = self.settings_repository.get()
             self.settings_state.error = None
         except SettingsError as error:
             if self.settings_state.error != str(error):
                 self.desktop.notify("sportlock config error", str(error), urgent=True)
             self.settings_state.error = str(error)
-        self.settings_state.marker = self.settings_repository.marker()
+        self.settings_state.marker = self.settings_change_marker.marker()
         self.settings_state.pending = False
 
 
@@ -73,7 +78,7 @@ class SaveSettingsService:
 
         Returns whether applying it waits for the current lock. Raises SettingsError.
         """
-        self.settings_repository.save(self.settings_state.settings.with_form(form))
+        self.settings_repository.update(self.settings_state.settings.with_form(form))
         self.reload_settings_service.execute(decision=decision, now=now)
         log.info(
             "settings saved from the app (%s)",
@@ -92,6 +97,6 @@ class GetSettingsService:
     def execute(self) -> Settings:
         """The file's settings, or the ones in force when the file is invalid."""
         try:
-            return self.settings_repository.load()
+            return self.settings_repository.get()
         except SettingsError:
             return self.settings_state.settings

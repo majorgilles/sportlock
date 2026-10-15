@@ -8,8 +8,10 @@ from sportlock.exercises.domain.catalogue import Catalogue
 from sportlock.progression.domain.ladders import (
     ExerciseResult,
     LadderMove,
+    LadderMoveRecord,
+    LadderMoveRecordRepositoryProtocol,
     LadderPosition,
-    LadderRepositoryProtocol,
+    LadderPositionRepositoryProtocol,
     moves_for_session,
 )
 from sportlock.progression.domain.rules import SetResult
@@ -19,8 +21,14 @@ from sportlock.training.domain.session import TrainingSession
 class ApplySessionProgressionService:
     """Runs the rules over the session and moves the chains."""
 
-    def __init__(self, ladder_repository: LadderRepositoryProtocol, catalogue: Catalogue) -> None:
-        self.ladder_repository = ladder_repository
+    def __init__(
+        self,
+        ladder_position_repository: LadderPositionRepositoryProtocol,
+        ladder_move_record_repository: LadderMoveRecordRepositoryProtocol,
+        catalogue: Catalogue,
+    ) -> None:
+        self.ladder_position_repository = ladder_position_repository
+        self.ladder_move_record_repository = ladder_move_record_repository
         self.catalogue = catalogue
 
     def execute(self, session: TrainingSession, now: datetime) -> list[LadderMove]:
@@ -43,14 +51,16 @@ class ApplySessionProgressionService:
         ]
         moves = moves_for_session(results, self.catalogue)
         for move in moves:
-            self.ladder_repository.record_move(session.id, move, decided_by="rules", now=now)
-            self.ladder_repository.set(
+            self.ladder_move_record_repository.create(
+                LadderMoveRecord(session_id=session.id, move=move, decided_by="rules", decided_at=now)
+            )
+            self.ladder_position_repository.update(
                 LadderPosition(
                     chain=move.chain,
                     exercise=move.proposal.exercise,
                     target=move.proposal.target,
                     reason=move.proposal.reason,
-                ),
-                now,
+                    updated_at=now,
+                )
             )
         return moves

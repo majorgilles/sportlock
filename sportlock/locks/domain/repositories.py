@@ -2,94 +2,107 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from typing import Protocol
 
-from sportlock.locks.domain.locks import ActiveLock, LockOutcome, LockPlan, PendingOverride
+from sportlock.locks.domain.locks import (
+    ActiveLock,
+    DesktopToRestore,
+    GivenWarning,
+    LockEvent,
+    LockOutcome,
+    LockPlan,
+    Override,
+)
+from sportlock.shared_kernel.base import ValueObject
+from sportlock.shared_kernel.repositories import (
+    CreateRepositoryProtocol,
+    FindRepositoryProtocol,
+    GetRepositoryProtocol,
+    GetSingletonRepositoryProtocol,
+    UpdateRepositoryProtocol,
+    UpdateSingletonRepositoryProtocol,
+)
 
 
-class LockEventRepositoryProtocol(Protocol):
-    """When each lock began and how it ended."""
+class LockEventFilters(ValueObject):
+    """Which lock events to load: by outcome and by the day their window starts.
 
-    def began(self, key: str, start: datetime, end: datetime, now: datetime) -> None:
-        """Record a lock starting (no-op if already recorded)."""
-        ...
+    In insertion order, or newest first (by when they began) with `newest_first`; `latest` keeps the first
+    `latest` of that order.
+    """
 
-    def ended(self, key: str, outcome: LockOutcome, now: datetime) -> None:
-        """Record how a lock ended (no-op if it already ended)."""
-        ...
-
-    def outcome(self, key: str) -> str | None:
-        """How the lock ended so far, or None."""
-        ...
-
-    def ended_early(self) -> set[str]:
-        """Keys of locks ended by a finished session, an override or a rest day."""
-        ...
-
-    def rest_days(self) -> set[date]:
-        """Days whose scheduled lock became a rest day."""
-        ...
-
-    def recent(self, limit: int) -> list[dict]:
-        """The latest locks, newest first, as {key, start, end, began_at, ended_at, outcome}."""
-        ...
-
-    def between(self, first: date, last: date) -> list[dict]:
-        """Locks starting between the two days (inclusive)."""
-        ...
+    outcomes: tuple[LockOutcome, ...] | None = None
+    first_day: date | None = None
+    last_day: date | None = None
+    newest_first: bool = False
+    latest: int | None = None
 
 
-class OverrideRepositoryProtocol(Protocol):
+class OverrideFilters(ValueObject):
+    """Which override countdowns to load: for one lock, still running only, the latest `latest`; newest first."""
+
+    lock_key: str | None = None
+    pending: bool = False
+    latest: int | None = None
+
+
+class LockPlanFilters(ValueObject):
+    """Which lock plans to load: all the kept ones (the latest 40)."""
+
+
+class GivenWarningFilters(ValueObject):
+    """Which given warnings to load: those about one window, or all the kept ones (the latest 50)."""
+
+    window_key: str | None = None
+
+
+class LockEventRepositoryProtocol(
+    CreateRepositoryProtocol[LockEvent],
+    GetRepositoryProtocol[LockEvent, str],
+    FindRepositoryProtocol[LockEvent, LockEventFilters],
+    UpdateRepositoryProtocol[LockEvent],
+    Protocol,
+):
+    """When each lock began and how it ended, by key; creating a lock that already began is a no-op."""
+
+
+class OverrideRepositoryProtocol(
+    CreateRepositoryProtocol[Override],
+    FindRepositoryProtocol[Override, OverrideFilters],
+    UpdateRepositoryProtocol[Override],
+    Protocol,
+):
     """Override countdowns."""
 
-    def start(self, lock_key: str, now: datetime, unlock_at: datetime) -> None:
-        """Start a countdown."""
-        ...
 
-    def pending(self, lock_key: str) -> PendingOverride | None:
-        """The running countdown for this lock, if any."""
-        ...
-
-    def finish(self, override_id: int, now: datetime, *, cancelled: bool) -> None:
-        """End a countdown: completed (the lock ends) or cancelled."""
-        ...
+class LockPlanRepositoryProtocol(
+    CreateRepositoryProtocol[LockPlan],
+    GetRepositoryProtocol[LockPlan, str],
+    FindRepositoryProtocol[LockPlan, LockPlanFilters],
+    Protocol,
+):
+    """Plans decided for scheduled locks, by window key; only the latest 40 are kept."""
 
 
-class LockStateRepositoryProtocol(Protocol):
-    """Small persisted lock state that must survive a restart."""
+class ManualLockRepositoryProtocol(
+    GetSingletonRepositoryProtocol[ActiveLock], UpdateSingletonRepositoryProtocol[ActiveLock | None], Protocol
+):
+    """The lock started with `sportlock start`; `update(None)` forgets it."""
 
-    def plans(self) -> dict[str, LockPlan]:
-        """Plans decided for scheduled locks, by window key."""
-        ...
 
-    def save_plan(self, key: str, plan: LockPlan) -> None:
-        """Store a decided plan (the latest 40 are kept)."""
-        ...
+class GivenWarningRepositoryProtocol(
+    CreateRepositoryProtocol[GivenWarning], FindRepositoryProtocol[GivenWarning, GivenWarningFilters], Protocol
+):
+    """Warnings already given; only the latest 50 are kept."""
 
-    def manual_lock(self) -> ActiveLock | None:
-        """The lock started with `sportlock start`, if any."""
-        ...
 
-    def set_manual_lock(self, lock: ActiveLock | None) -> None:
-        """Store or clear the manual lock."""
-        ...
-
-    def warned(self) -> list[str]:
-        """Warnings already given, as "<window key>:<minutes>"."""
-        ...
-
-    def add_warned(self, tag: str) -> None:
-        """Remember a warning (the latest 50 are kept)."""
-        ...
-
-    def desktop_to_restore(self) -> dict | None:
-        """Media and idle state saved when the lock began, to restore when it ends."""
-        ...
-
-    def set_desktop_to_restore(self, saved: dict | None) -> None:
-        """Save or clear the state to restore."""
-        ...
+class DesktopToRestoreRepositoryProtocol(
+    GetSingletonRepositoryProtocol[DesktopToRestore],
+    UpdateSingletonRepositoryProtocol[DesktopToRestore | None],
+    Protocol,
+):
+    """The desktop state to restore when the lock ends; `update(None)` forgets it once restored."""
 
 
 class LockRuntimeProtocol(Protocol):

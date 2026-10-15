@@ -8,6 +8,12 @@ from typing import Protocol
 from sportlock.exercises.domain.catalogue import Catalogue
 from sportlock.progression.domain.rules import DoneExercise, Proposal, SetResult, propose, too_hard
 from sportlock.shared_kernel.base import ValueObject
+from sportlock.shared_kernel.repositories import (
+    CreateRepositoryProtocol,
+    DeleteRepositoryProtocol,
+    FindRepositoryProtocol,
+    UpdateRepositoryProtocol,
+)
 from sportlock.shared_kernel.targets import Target
 
 
@@ -74,6 +80,7 @@ class LadderPosition(ValueObject):
     exercise: str
     target: Target
     reason: str | None = None
+    updated_at: datetime | None = None
 
     @classmethod
     def start(cls, chain: str) -> LadderPosition:
@@ -143,37 +150,70 @@ def moves_for_session(results: list[ExerciseResult], catalogue: Catalogue) -> li
     return moves
 
 
-class LadderRepositoryProtocol(Protocol):
-    """Ladder positions and the history of moves."""
+class LadderMoveRecord(ValueObject):
+    """A ladder move as it was kept: the session it followed, who decided it, and whether the coach overrode it.
 
-    def saved(self) -> dict[str, LadderPosition]:
-        """Positions moved away from their start, by chain."""
-        ...
+    `id` is set once stored.
+    """
 
-    def set(self, position: LadderPosition, now: datetime) -> None:
-        """Move a chain."""
-        ...
+    session_id: int
+    move: LadderMove
+    decided_by: str  # rules | agent | athlete
+    decided_at: datetime
+    status: str = "applied"  # applied | overridden
+    override_reason: str | None = None
+    id: int | None = None
 
-    def reset(self, chain: str) -> None:
-        """Back to the starting point."""
-        ...
+    def overridden(self, reason: str) -> LadderMoveRecord:
+        """The same move, marked as one the coach disagreed with."""
+        return self.model_copy(update={"status": "overridden", "override_reason": reason})
 
-    def record_move(self, session_id: int, move: LadderMove, *, decided_by: str, now: datetime) -> None:
-        """Keep the proposal that moved a chain (decided_by: rules | agent | athlete)."""
-        ...
-
-    def mark_last_overridden(self, chain: str, reason: str) -> None:
-        """The coach disagreed with the rules' last move on this chain."""
-        ...
-
-    def moves_for(self, session_id: int) -> list[dict]:
-        """Moves recorded for a session, in order.
-
-        Each is {chain, rule, from, from_target, to, target, reason, decided_by}.
-        """
-        ...
+    def to_dict(self) -> dict:
+        """The shape the coach and the report read: {chain, rule, from, from_target, to, target, reason, decided_by}."""
+        return {
+            "chain": self.move.chain,
+            "rule": self.move.proposal.rule,
+            "from": self.move.from_exercise,
+            "from_target": self.move.from_target.to_dict(),
+            "to": self.move.proposal.exercise,
+            "target": self.move.proposal.target.to_dict(),
+            "reason": self.move.proposal.reason,
+            "decided_by": self.decided_by,
+        }
 
 
-def positions(saved: dict[str, LadderPosition]) -> list[LadderPosition]:
+class LadderPositionFilters(ValueObject):
+    """Which saved positions to load: every chain moved away from its start."""
+
+
+class LadderMoveRecordFilters(ValueObject):
+    """Which kept moves to load: by session, chain and status, and the latest `latest` of them; oldest first."""
+
+    session_id: int | None = None
+    chain: str | None = None
+    status: str | None = None
+    latest: int | None = None
+
+
+class LadderPositionRepositoryProtocol(
+    FindRepositoryProtocol[LadderPosition, LadderPositionFilters],
+    UpdateRepositoryProtocol[LadderPosition],
+    DeleteRepositoryProtocol[str],
+    Protocol,
+):
+    """Ladder positions moved away from their start, by chain; `delete` puts a chain back at its start."""
+
+
+class LadderMoveRecordRepositoryProtocol(
+    CreateRepositoryProtocol[LadderMoveRecord],
+    FindRepositoryProtocol[LadderMoveRecord, LadderMoveRecordFilters],
+    UpdateRepositoryProtocol[LadderMoveRecord],
+    Protocol,
+):
+    """Every ladder move kept, in order."""
+
+
+def positions(saved: list[LadderPosition]) -> list[LadderPosition]:
     """Every laddered chain's position, falling back to its start."""
-    return [saved.get(chain) or LadderPosition.start(chain) for chain in START]
+    by_chain = {position.chain: position for position in saved}
+    return [by_chain.get(chain) or LadderPosition.start(chain) for chain in START]

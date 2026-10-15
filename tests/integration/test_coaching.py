@@ -5,8 +5,8 @@ from datetime import timedelta
 import pytest
 
 from sportlock.coaching.domain.plan import CoachOutputError
-from sportlock.coaching.domain.ports import CoachUnavailableError
-from sportlock.progression.domain.ladders import START, positions
+from sportlock.coaching.domain.ports import CoachRunFilters, CoachUnavailableError
+from sportlock.progression.domain.ladders import START, LadderPositionFilters, positions
 from tests.world import GOOD_PLAN, item
 
 
@@ -21,7 +21,7 @@ def test_run_coach__good_answer__plan_stored_fresh_and_announced(world):
     assert not world.container.coach_plan_freshness.needs_run()
     assert world.container.coach_plan_freshness.fresh_plan().rationale == GOOD_PLAN["rationale"]
     assert plan.hard.items[3].target.seconds == 40
-    assert world.container.coach_run_log.recent(1)[0].ok
+    assert world.container.coach_run_repository.find(CoachRunFilters(latest=1))[0].ok
     assert "Next session planned" in world.desktop.notifications
 
 
@@ -31,14 +31,14 @@ def test_run_coach__bad_answer__rejected_and_logged(world):
     with pytest.raises(CoachOutputError):
         _run(world, output)
     assert world.container.coach_plan_freshness.fresh_plan() is None
-    assert not world.container.coach_run_log.recent(1)[0].ok
+    assert not world.container.coach_run_repository.find(CoachRunFilters(latest=1))[0].ok
 
 
 def test_run_coach__coach_unavailable__logged(world):
     world.coach.output = None
     with pytest.raises(CoachUnavailableError):
         world.container.run_coach_service.execute(world.daemon.coach_command(world.clock.time))
-    assert world.container.coach_run_log.recent(1)[0].error == "no answer prepared"
+    assert world.container.coach_run_repository.find(CoachRunFilters(latest=1))[0].error == "no answer prepared"
 
 
 def test_run_coach__recommendations__answer_the_last_session_and_are_notified(world):
@@ -62,8 +62,9 @@ def test_run_coach__override__moves_the_ladder_and_marks_the_rule_move(world):
     # given: the rules moved the squat up after the last session
     world.container.database.execute(
         "INSERT INTO proposals (session_id, chain, rule, from_exercise, from_target, to_exercise, to_target, reason,"
-        " status, decided_by, created_at) VALUES (1, 'squat', 'up', 'bodyweight-squat', '{}', 'split-squat', '{}',"
-        " 'top of range', 'applied', 'rules', '2026-10-05T17:00:00')"
+        " status, decided_by, created_at) VALUES (1, 'squat', 'up', 'bodyweight-squat', ?, 'split-squat', ?,"
+        " 'top of range', 'applied', 'rules', '2026-10-05T17:00:00')",
+        ('{"sets": 3, "rest": 60, "reps": [12, 15]}', '{"sets": 3, "rest": 60, "reps": [8, 12]}'),
     )
     output = copy.deepcopy(GOOD_PLAN)
     output["ladder_overrides"] = [
@@ -72,7 +73,9 @@ def test_run_coach__override__moves_the_ladder_and_marks_the_rule_move(world):
     # when
     _run(world, output)
     # then
-    squat = {p.chain: p for p in positions(world.container.ladder_repository.saved())}["squat"]
+    squat = {p.chain: p for p in positions(world.container.ladder_position_repository.find(LadderPositionFilters()))}[
+        "squat"
+    ]
     assert (squat.exercise, squat.reason) == ("bodyweight-squat", "Coach: Knee pain in notes")
     rows = world.container.database.execute(
         "SELECT status, decided_by, override_reason FROM proposals ORDER BY id"

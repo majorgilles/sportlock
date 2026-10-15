@@ -30,9 +30,9 @@ class FileExerciseDetailsRepository(ExerciseDetailsRepositoryProtocol):
         self.root = root
 
     @override
-    def get(self, exercise_id: str) -> ExerciseDetails:
-        path = self.root / exercise_id / "exercise.json"
-        video = _video(self.root / exercise_id)
+    def get_by_id(self, identifier: str) -> ExerciseDetails:
+        path = self.root / identifier / "exercise.json"
+        video = _video(self.root / identifier)
         try:
             data = json.loads(path.read_text())
         except OSError, ValueError:
@@ -44,7 +44,7 @@ class FileExerciseDetailsRepository(ExerciseDetailsRepositoryProtocol):
             mistakes=data.get("mistakes") or (),
             breathing=data.get("breathing") or "",
             sources=data.get("sources") or (),
-            image=str(self.root / exercise_id / image) if image else "",
+            image=str(self.root / identifier / image) if image else "",
             image_source=data.get("image_source") or "",
             built=bool(data.get("built_at")),
             video=video.get("path", ""),

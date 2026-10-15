@@ -59,6 +59,16 @@ Warm-up, mobility and conditioning are menus, not ladders. *Feature:* progressio
 **Rule / proposal / move**: after a session the rules propose up, add, hold, down or too-hard for
 each done exercise. The applied proposal is a move. *Feature:* progression · `progression/domain/rules.py`
 
+**Ladder move record**: a move as it was kept, with the session it followed, who decided it (rules, coach
+or athlete) and whether the coach overrode it. *Feature:* progression ·
+`progression/domain/ladders.py:LadderMoveRecord`
+
+**Lock event**: when a lock began and how it ended (completed, override, expired or rest).
+*Feature:* locks · `locks/domain/locks.py:LockEvent`
+
+**Given warning**: a warning already sent before a lock, so it is not sent twice.
+*Feature:* locks · `locks/domain/locks.py:GivenWarning`
+
 **Starting points**: ladder positions above beginner, set once when an experienced athlete first saves
 the profile.
 

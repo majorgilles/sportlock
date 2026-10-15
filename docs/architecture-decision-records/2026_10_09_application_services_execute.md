@@ -28,6 +28,8 @@ of state. Tests had to build the whole service and patch around it.
 
 - `CoachPlanFreshness` is a small query helper with three methods (`basis`, `fresh_plan`,
   `needs_run`). Several use cases ask it the same questions.
+- `TrainingHistory` is a query helper too (`trained_days`, `credited_since`, `last_hard`, ...). It reads
+  the training read-model repositories and computes the aggregates from what they find.
 - `TrainingRecords` is a query helper too (`sessions`, `levels`, `stats`, `laddered_exercises`,
   `journal_entry`). The report and the coach's review both read them.
 - `SettingsState` and `LockRuntime` are in-memory runtime state shared by services. The settings in
@@ -47,6 +49,8 @@ is doing several jobs, so it becomes one service per job and an orchestrator tha
   `RecallCoachMemoryService`), `LogCoachRunService` and `StoreCoachPlanService` (with
   `ApplyLadderOverridesService`).
 - `AnswerReplacementService` runs `KeepReplacedExerciseService` when the athlete keeps an exercise.
+- `WarnOfNextLockService` runs `ShowWarningPopupService`, and `BuildCoachContextService` runs
+  `DescribeLaddersForCoachService`, since the CRUD repositories gave them more dependencies.
 
 ## Consequences
 

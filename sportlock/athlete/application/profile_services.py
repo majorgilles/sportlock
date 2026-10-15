@@ -5,7 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 
 from sportlock.athlete.domain.profile import Profile, ProfileRepositoryProtocol
-from sportlock.progression.domain.ladders import STARTING_POINTS, LadderPosition, LadderRepositoryProtocol
+from sportlock.progression.domain.ladders import (
+    STARTING_POINTS,
+    LadderPosition,
+    LadderPositionFilters,
+    LadderPositionRepositoryProtocol,
+)
 from sportlock.settings.domain.settings import Settings
 
 
@@ -16,27 +21,29 @@ class SaveProfileService:
     """
 
     def __init__(
-        self, profile_repository: ProfileRepositoryProtocol, ladder_repository: LadderRepositoryProtocol
+        self,
+        profile_repository: ProfileRepositoryProtocol,
+        ladder_position_repository: LadderPositionRepositoryProtocol,
     ) -> None:
         self.profile_repository = profile_repository
-        self.ladder_repository = ladder_repository
+        self.ladder_position_repository = ladder_position_repository
 
     def execute(self, form: dict, now: datetime) -> Profile:
         """Raises ProfileError."""
         profile = Profile.from_form(form, now)
         first_time = self.profile_repository.get() is None
-        self.profile_repository.save(profile)
+        self.profile_repository.update(profile)
         starting_points = STARTING_POINTS.get(profile.experience)
-        if first_time and starting_points and not self.ladder_repository.saved():
+        if first_time and starting_points and not self.ladder_position_repository.find(LadderPositionFilters()):
             for chain, (exercise, target) in starting_points.items():
-                self.ladder_repository.set(
+                self.ladder_position_repository.update(
                     LadderPosition(
                         chain=chain,
                         exercise=exercise,
                         target=target,
                         reason=f"Starting point for {profile.experience} level",
-                    ),
-                    now,
+                        updated_at=now,
+                    )
                 )
         return profile
 

@@ -30,6 +30,13 @@ systemctl --user restart sportlock   # load code changes into the running servic
   infrastructure or `app`.
 - **Infrastructure**: adapters subclass their port and mark methods `@override`. They never import
   application or `app`.
+- **Repositories are CRUD**: every `*RepositoryProtocol` extends the capabilities in
+  `shared_kernel/repositories.py` (`create`, `get_by_id`, `find(filters)`, `update`, `delete`, and
+  `get`/`update` for a single stored value) and declares no method of its own. A lookup is a field on a
+  `*Filters` value object; a state change is an entity method followed by `update`
+  (`2026_10_15_crud_repositories.md`).
+- **Names say the type**: `ladder_position_repository: LadderPositionRepositoryProtocol`,
+  `run_lock_tick_service: RunLockTickService`, `container: Container`.
 - **Only `app/container.py` builds concrete classes.**
 - Absolute imports (`from sportlock.locks.domain.schedule import ...`), never relative.
 - Contracts: the state file, the socket API and stored JSON shapes are read by the QML screens and
@@ -40,7 +47,7 @@ systemctl --user restart sportlock   # load code changes into the running servic
 
 - `pyproject.toml` carries the shared ruff configuration: McCabe complexity 10, at most 6 arguments,
   Google-style docstrings, type annotations, no magic numbers outside tests. Fix a finding rather than
-  silencing it; a `# noqa` names the rule and the reason (e.g. one injected port per dependency).
+  silencing it; a `# noqa` names the rule and the reason (e.g. the composition root's one keyword per adapter).
 
 ## Tests
 

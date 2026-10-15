@@ -287,7 +287,7 @@ class World:
 
     def finish_session(self) -> dict:
         """Skip what's left and finish."""
-        while self.daemon.container.training_session_repository.active().phase != "summary":
+        while self.daemon.container.training_session_repository.get().phase != "summary":
             assert self.train("skip", reason="testing")["ok"]
         return self.train("finish", rpe=5)
 

@@ -7,6 +7,7 @@ from typing import Protocol
 
 from sportlock.shared_kernel.base import ValueObject
 from sportlock.shared_kernel.errors import DomainError
+from sportlock.shared_kernel.repositories import GetSingletonRepositoryProtocol, UpdateSingletonRepositoryProtocol
 from sportlock.shared_kernel.time import iso
 
 EXPERIENCE = ("beginner", "intermediate", "advanced")
@@ -89,13 +90,7 @@ class Profile(ValueObject):
         return self.model_dump(mode="json")
 
 
-class ProfileRepositoryProtocol(Protocol):
-    """The one profile."""
-
-    def get(self) -> Profile | None:
-        """The saved profile, or None before onboarding."""
-        ...
-
-    def save(self, profile: Profile) -> None:
-        """Replace the profile."""
-        ...
+class ProfileRepositoryProtocol(
+    GetSingletonRepositoryProtocol[Profile], UpdateSingletonRepositoryProtocol[Profile], Protocol
+):
+    """The one profile; `get` returns None before onboarding."""

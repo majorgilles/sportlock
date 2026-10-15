@@ -1,7 +1,13 @@
 import copy
 from datetime import timedelta
 
-from sportlock.progression.domain.ladders import LadderMove, LadderPosition, positions
+from sportlock.progression.domain.ladders import (
+    LadderMove,
+    LadderMoveRecord,
+    LadderPosition,
+    LadderPositionFilters,
+    positions,
+)
 from sportlock.progression.domain.rules import Proposal
 from sportlock.shared_kernel.targets import Target
 from tests.world import GOOD_PLAN, item
@@ -15,20 +21,22 @@ def _squats_became_step_ups(world):
     world.add_session(world.clock.time - timedelta(hours=50), rpe=4)
     session_id = world.container.training_history.last_counted_id()
     proposal = Proposal(rule="up", exercise="step-up", target=STEP_UPS, reason="15 / 15 reps: top of the range")
-    world.container.ladder_repository.record_move(
-        session_id,
-        LadderMove(
-            chain="squat",
-            session_exercise_id=0,
-            from_exercise="bodyweight-squat",
-            from_target=SQUATS,
-            proposal=proposal,
-        ),
-        decided_by="rules",
-        now=world.clock.time,
+    world.container.ladder_move_record_repository.create(
+        LadderMoveRecord(
+            session_id=session_id,
+            move=LadderMove(
+                chain="squat",
+                session_exercise_id=0,
+                from_exercise="bodyweight-squat",
+                from_target=SQUATS,
+                proposal=proposal,
+            ),
+            decided_by="rules",
+            decided_at=world.clock.time,
+        )
     )
-    world.container.ladder_repository.set(
-        LadderPosition(chain="squat", exercise="step-up", target=STEP_UPS), world.clock.time
+    world.container.ladder_position_repository.update(
+        LadderPosition(chain="squat", exercise="step-up", target=STEP_UPS, updated_at=world.clock.time)
     )
 
 
@@ -40,7 +48,9 @@ def _plan_with_step_ups(world):
 
 
 def _squat(world):
-    return {p.chain: p for p in positions(world.container.ladder_repository.saved())}["squat"]
+    return {p.chain: p for p in positions(world.container.ladder_position_repository.find(LadderPositionFilters()))}[
+        "squat"
+    ]
 
 
 def test_warning_popup__exercise_replaced_after_the_last_session__asks_about_it(world):

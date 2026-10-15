@@ -22,5 +22,6 @@ class KvProfileRepository(ProfileRepositoryProtocol):
         return Profile.from_dict(data) if data else None
 
     @override
-    def save(self, profile: Profile) -> None:
-        self.database.put(PROFILE_KEY, profile.to_dict())
+    def update(self, entity: Profile) -> Profile:
+        self.database.put(PROFILE_KEY, entity.to_dict())
+        return entity

@@ -8,7 +8,7 @@ from __future__ import annotations
 from sportlock.athlete.domain.profile import ProfileRepositoryProtocol
 from sportlock.coaching.domain.plan import CoachPlan
 from sportlock.coaching.domain.ports import CoachPlanRepositoryProtocol
-from sportlock.training.domain.repositories import TrainingHistoryProtocol
+from sportlock.training.application.training_history import TrainingHistory
 
 
 class CoachPlanFreshness:
@@ -17,7 +17,7 @@ class CoachPlanFreshness:
     def __init__(
         self,
         coach_plan_repository: CoachPlanRepositoryProtocol,
-        training_history: TrainingHistoryProtocol,
+        training_history: TrainingHistory,
         profile_repository: ProfileRepositoryProtocol,
     ) -> None:
         self.coach_plan_repository = coach_plan_repository

@@ -10,11 +10,14 @@ from datetime import datetime, timedelta
 
 from sportlock.coaching.application.fresh_plan import CoachPlanFreshness
 from sportlock.exercises.domain.catalogue import Catalogue
-from sportlock.locks.domain.locks import ActiveLock, LockPlan
+from sportlock.locks.domain.locks import ActiveLock, LockOutcome, LockPlan, Override, rest_days
 from sportlock.locks.domain.repositories import (
+    LockEventFilters,
     LockEventRepositoryProtocol,
+    LockPlanRepositoryProtocol,
     LockRuntimeProtocol,
-    LockStateRepositoryProtocol,
+    ManualLockRepositoryProtocol,
+    OverrideFilters,
     OverrideRepositoryProtocol,
 )
 from sportlock.locks.domain.schedule import Window
@@ -25,11 +28,26 @@ from sportlock.settings.domain.settings import Settings
 from sportlock.shared_kernel.base import ValueObject
 from sportlock.shared_kernel.errors import DomainError
 from sportlock.shared_kernel.ports import DesktopProtocol
-from sportlock.training.domain.repositories import TrainingHistoryProtocol
+from sportlock.training.application.training_history import TrainingHistory
 
 log = logging.getLogger("sportlock")
 TEST_SECONDS = 60
 MANUAL_MINUTES = (10, 90)
+
+
+def end_lock_event(
+    lock_event_repository: LockEventRepositoryProtocol, key: str, outcome: LockOutcome, now: datetime
+) -> None:
+    """Record how a lock ended; a lock never recorded, or already ended, is left as it is."""
+    event = lock_event_repository.get_by_id(key)
+    if event is not None:
+        lock_event_repository.update(event.ended(outcome, now))
+
+
+def pending_override(override_repository: OverrideRepositoryProtocol, lock_key: str) -> Override | None:
+    """The countdown still running for this lock, if any."""
+    running = override_repository.find(OverrideFilters(lock_key=lock_key, pending=True, latest=1))
+    return running[0] if running else None
 
 
 class LockError(DomainError):
@@ -54,13 +72,13 @@ class PlanScheduledLockService:
 
     def __init__(
         self,
-        lock_state_repository: LockStateRepositoryProtocol,
+        lock_plan_repository: LockPlanRepositoryProtocol,
         coach_plan_freshness: CoachPlanFreshness,
-        training_history: TrainingHistoryProtocol,
+        training_history: TrainingHistory,
         lock_event_repository: LockEventRepositoryProtocol,
         desktop: DesktopProtocol,
     ) -> None:
-        self.lock_state_repository = lock_state_repository
+        self.lock_plan_repository = lock_plan_repository
         self.coach_plan_freshness = coach_plan_freshness
         self.training_history = training_history
         self.lock_event_repository = lock_event_repository
@@ -68,7 +86,7 @@ class PlanScheduledLockService:
 
     def execute(self, window: Window, settings: Settings) -> LockPlan:
         """The stored plan, or a new decision."""
-        if (plan := self.lock_state_repository.plans().get(window.key)) is not None:
+        if (plan := self.lock_plan_repository.get_by_id(window.key)) is not None:
             return plan
         coach = self.coach_plan_freshness.fresh_plan()
         advice = CoachAdvice(**coach.next_lock.model_dump()) if coach else None
@@ -76,18 +94,21 @@ class PlanScheduledLockService:
             last_credited=self.training_history.last_credited(),
             last_hard=self.training_history.last_hard(),
             sessions_last_7_days=len(self.training_history.credited_since(window.start - timedelta(days=7))),
-            rest_days_in_a_row=rest_days_in_a_row(self.lock_event_repository.rest_days(), window.day),
+            rest_days_in_a_row=rest_days_in_a_row(
+                rest_days(self.lock_event_repository.find(LockEventFilters(outcomes=("rest",)))), window.day
+            ),
         )
         decided = decide_lock(
             state, policy_of(settings), now=window.start, window_minutes=window.minutes, advice=advice
         )
         plan = LockPlan(
+            key=window.key,
             mode=decided.mode,
             minutes=decided.minutes,
             reason=decided.reason,
             end=window.start + timedelta(minutes=decided.minutes),
         )
-        self.lock_state_repository.save_plan(window.key, plan)
+        self.lock_plan_repository.create(plan)
         log.info("lock %s planned as %s (%s min): %s", window.key, plan.mode, plan.minutes, plan.reason)
         if plan.mode == "rest":
             self.desktop.notify(f"Rest day: no lock at {window.start.strftime('%H:%M')}", plan.reason)
@@ -120,9 +141,9 @@ class StartManualLockCommand(ValueObject):
 class StartManualLockService:
     """A full lock started on request; it counts like a scheduled one."""
 
-    def __init__(self, lock_runtime: LockRuntimeProtocol, lock_state_repository: LockStateRepositoryProtocol) -> None:
+    def __init__(self, lock_runtime: LockRuntimeProtocol, manual_lock_repository: ManualLockRepositoryProtocol) -> None:
         self.lock_runtime = lock_runtime
-        self.lock_state_repository = lock_state_repository
+        self.manual_lock_repository = manual_lock_repository
 
     def execute(self, command: StartManualLockCommand, now: datetime) -> None:
         """Raises LockError."""
@@ -130,7 +151,7 @@ class StartManualLockService:
             raise LockError("a lock is already active")
         if not MANUAL_MINUTES[0] <= command.minutes <= MANUAL_MINUTES[1]:
             raise LockError(f"minutes must be between {MANUAL_MINUTES[0]} and {MANUAL_MINUTES[1]}")
-        self.lock_state_repository.set_manual_lock(
+        self.manual_lock_repository.update(
             ActiveLock(
                 key=f"manual-{now.isoformat()}",
                 kind="manual",
@@ -167,10 +188,9 @@ class RequestOverrideService:
             raise LockError("this lock can't be overridden")
         if " ".join(command.phrase.split()).lower() != self.settings_state.settings.override_phrase.lower():
             raise LockError("phrase doesn't match")
-        if not self.override_repository.pending(lock.key):
-            self.override_repository.start(
-                lock.key, now, now + timedelta(seconds=self.settings_state.settings.override_wait_seconds)
-            )
+        if not pending_override(self.override_repository, lock.key):
+            unlock_at = now + timedelta(seconds=self.settings_state.settings.override_wait_seconds)
+            self.override_repository.create(Override(lock_key=lock.key, requested_at=now, unlock_at=unlock_at))
 
 
 class CancelOverrideService:
@@ -182,8 +202,9 @@ class CancelOverrideService:
 
     def execute(self, now: datetime) -> None:
         """No-op without a running countdown."""
-        if self.lock_runtime.current and (pending := self.override_repository.pending(self.lock_runtime.current.key)):
-            self.override_repository.finish(pending.id, now, cancelled=True)
+        current = self.lock_runtime.current
+        if current and (pending := pending_override(self.override_repository, current.key)):
+            self.override_repository.update(pending.finished(now, cancelled=True))
 
 
 class EndLockOnSessionFinishedService:
@@ -209,7 +230,7 @@ class EndLockOnSessionFinishedService:
         if lock.test:
             self.lock_runtime.test_lock = None
             return
-        self.lock_event_repository.ended(lock.key, "completed", now)
+        end_lock_event(self.lock_event_repository, lock.key, "completed", now)
         arrows = {"up": "↑", "add": "+", "down": "↓", "too-hard": "↓"}
         lines = [
             f"{arrows.get(m.proposal.rule, '·')} {self.catalogue.name(m.proposal.exercise)}"

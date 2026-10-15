@@ -11,7 +11,8 @@ from sportlock.exercises.domain.catalogue import Catalogue
 from sportlock.exercises.domain.ports import ExerciseDetailsRepositoryProtocol
 from sportlock.progression.domain.ladders import laddered
 from sportlock.shared_kernel.time import epoch_ms
-from sportlock.training.domain.repositories import TrainingHistoryProtocol, TrainingSessionRepositoryProtocol
+from sportlock.training.application.training_history import TrainingHistory
+from sportlock.training.domain.repositories import TrainingSessionRepositoryProtocol
 
 
 def _ms(moment: datetime | None) -> int | None:
@@ -24,7 +25,7 @@ class TrainingSnapshotService:
     def __init__(
         self,
         training_session_repository: TrainingSessionRepositoryProtocol,
-        training_history: TrainingHistoryProtocol,
+        training_history: TrainingHistory,
         catalogue: Catalogue,
         exercise_details_repository: ExerciseDetailsRepositoryProtocol,
     ) -> None:
@@ -35,13 +36,13 @@ class TrainingSnapshotService:
 
     def execute(self) -> dict | None:
         """None without an active session."""
-        session = self.training_session_repository.active()
+        session = self.training_session_repository.get()
         if session is None:
             return None
         exercises = []
         for e in session.exercises:
             spec = self.catalogue.find(e.exercise)
-            details = self.exercise_details_repository.get(e.exercise)
+            details = self.exercise_details_repository.get_by_id(e.exercise)
             exercises.append(
                 {
                     "name": e.name,
