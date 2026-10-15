@@ -247,13 +247,13 @@ class World:
         self.music = FakeMusicPlayer()
         self.music_library = FakeMusicLibrary()
         self.music_account = FakeMusicAccount()
-        self.c = Container(
+        self.container = Container(
             db_path=tmp / "db.sqlite",
             config_path=self.config_path,
             library_dir=tmp / "library",
             desktop=self.desktop,
             lock_screen=self.lock_screen,
-            popup=self.popup,
+            warning_popup=self.popup,
             coach=self.coach,
             clock=self.clock,
             catalogue=catalogue,
@@ -261,7 +261,7 @@ class World:
             music_library=self.music_library,
             music_account=self.music_account,
         )
-        self.daemon = Daemon(self.c, state_path=tmp / "state.json")
+        self.daemon = Daemon(self.container, state_path=tmp / "state.json")
         self.daemon.running = False  # no background ticks
         self.daemon.coach_enabled = False  # the coach only runs when a test asks
         if profile:
@@ -287,7 +287,7 @@ class World:
 
     def finish_session(self) -> dict:
         """Skip what's left and finish."""
-        while self.daemon.c.sessions.active().phase != "summary":
+        while self.daemon.container.training_session_repository.active().phase != "summary":
             assert self.train("skip", reason="testing")["ok"]
         return self.train("finish", rpe=5)
 
@@ -303,7 +303,7 @@ class World:
     ) -> None:
         """A past session, written straight into the database."""
         started = finished - timedelta(minutes=minutes)
-        self.c.database.execute(
+        self.container.database.execute(
             "INSERT INTO sessions (day, started_at, finished_at, kind, status, day_type, rpe)"
             " VALUES (?, ?, ?, ?, ?, ?, ?)",
             (finished.date().isoformat(), iso(started), iso(finished), kind, status, day_type, rpe),
@@ -312,7 +312,7 @@ class World:
     def rest_day(self, day) -> None:
         """A past scheduled lock that became a rest day."""
         key = f"{day.isoformat()}T18:00"
-        self.c.database.execute(
+        self.container.database.execute(
             "INSERT INTO lock_events (key, start, end, began_at, ended_at, outcome) VALUES (?, ?, ?, ?, ?, 'rest')",
             (key, key, key, key, key),
         )

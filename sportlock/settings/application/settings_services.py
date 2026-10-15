@@ -29,63 +29,69 @@ class SettingsState:
 class ReloadSettingsService:
     """Applies a changed config file, unless a lock freezes the settings."""
 
-    def __init__(self, state: SettingsState, repository: SettingsRepositoryProtocol, desktop: DesktopProtocol) -> None:
-        self.state = state
-        self.repository = repository
+    def __init__(
+        self, settings_state: SettingsState, settings_repository: SettingsRepositoryProtocol, desktop: DesktopProtocol
+    ) -> None:
+        self.settings_state = settings_state
+        self.settings_repository = settings_repository
         self.desktop = desktop
 
     def execute(self, *, decision: Decision | None, now: datetime, force: bool = False) -> None:
         """`decision`: what the schedule says now (None skips the freeze check)."""
-        changed = self.repository.marker() != self.state.marker
-        if not force and not changed and not self.state.pending:
+        changed = self.settings_repository.marker() != self.settings_state.marker
+        if not force and not changed and not self.settings_state.pending:
             return
         if not force and decision is not None and settings_frozen(decision, now):
-            self.state.pending = True
+            self.settings_state.pending = True
             return
         try:
-            self.state.settings = self.repository.load()
-            self.state.error = None
+            self.settings_state.settings = self.settings_repository.load()
+            self.settings_state.error = None
         except SettingsError as error:
-            if self.state.error != str(error):
+            if self.settings_state.error != str(error):
                 self.desktop.notify("sportlock config error", str(error), urgent=True)
-            self.state.error = str(error)
-        self.state.marker = self.repository.marker()
-        self.state.pending = False
+            self.settings_state.error = str(error)
+        self.settings_state.marker = self.settings_repository.marker()
+        self.settings_state.pending = False
 
 
 class SaveSettingsService:
     """The settings form was saved."""
 
     def __init__(
-        self, state: SettingsState, repository: SettingsRepositoryProtocol, reload: ReloadSettingsService
+        self,
+        settings_state: SettingsState,
+        settings_repository: SettingsRepositoryProtocol,
+        reload_settings_service: ReloadSettingsService,
     ) -> None:
-        self.state = state
-        self.repository = repository
-        self.reload = reload
+        self.settings_state = settings_state
+        self.settings_repository = settings_repository
+        self.reload_settings_service = reload_settings_service
 
     def execute(self, form: dict, *, decision: Decision, now: datetime) -> bool:
         """Validates and writes the file.
 
         Returns whether applying it waits for the current lock. Raises SettingsError.
         """
-        self.repository.save(self.state.settings.with_form(form))
-        self.reload.execute(decision=decision, now=now)
+        self.settings_repository.save(self.settings_state.settings.with_form(form))
+        self.reload_settings_service.execute(decision=decision, now=now)
         log.info(
-            "settings saved from the app (%s)", "pending until the lock is over" if self.state.pending else "applied"
+            "settings saved from the app (%s)",
+            "pending until the lock is over" if self.settings_state.pending else "applied",
         )
-        return self.state.pending
+        return self.settings_state.pending
 
 
 class GetSettingsService:
     """What the settings form shows: the file, which may be newer than what applies while frozen."""
 
-    def __init__(self, state: SettingsState, repository: SettingsRepositoryProtocol) -> None:
-        self.state = state
-        self.repository = repository
+    def __init__(self, settings_state: SettingsState, settings_repository: SettingsRepositoryProtocol) -> None:
+        self.settings_state = settings_state
+        self.settings_repository = settings_repository
 
     def execute(self) -> Settings:
         """The file's settings, or the ones in force when the file is invalid."""
         try:
-            return self.repository.load()
+            return self.settings_repository.load()
         except SettingsError:
-            return self.state.settings
+            return self.settings_state.settings

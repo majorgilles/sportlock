@@ -39,31 +39,31 @@ class BeginTrainingSessionService:
 
     def __init__(
         self,
-        sessions: TrainingSessionRepositoryProtocol,
-        history: TrainingHistoryProtocol,
-        ladders: LadderRepositoryProtocol,
-        freshness: CoachPlanFreshness,
+        training_session_repository: TrainingSessionRepositoryProtocol,
+        training_history: TrainingHistoryProtocol,
+        ladder_repository: LadderRepositoryProtocol,
+        coach_plan_freshness: CoachPlanFreshness,
         catalogue: Catalogue,
     ) -> None:
-        self.sessions = sessions
-        self.history = history
-        self.ladders = ladders
-        self.freshness = freshness
+        self.training_session_repository = training_session_repository
+        self.training_history = training_history
+        self.ladder_repository = ladder_repository
+        self.coach_plan_freshness = coach_plan_freshness
         self.catalogue = catalogue
 
     def execute(self, command: BeginTrainingSessionCommand, now: datetime) -> TrainingSession:
         """The active session (an already running one is kept)."""
-        if (active := self.sessions.active()) is not None:
+        if (active := self.training_session_repository.active()) is not None:
             return active
-        last_hard = self.history.last_hard()
-        coach_plan = self.freshness.fresh_plan()
+        last_hard = self.training_history.last_hard()
+        coach_plan = self.coach_plan_freshness.fresh_plan()
         if coach_plan:
             plan = coach_plan.version_for(command.mode, last_hard=last_hard, now=now).with_note(coach_plan.rationale)
             source = "generated"
         else:
             hours = int((now - last_hard).total_seconds() // 3600) if last_hard else None
             plan = local_plan(
-                {p.chain: p for p in positions(self.ladders.saved())},
+                {p.chain: p for p in positions(self.ladder_repository.saved())},
                 self.catalogue,
                 set(command.equipment),
                 recovery=is_recovery_day(command.mode, last_hard, now),
@@ -74,13 +74,13 @@ class BeginTrainingSessionService:
         plan = fit_plan(
             plan,
             command.minutes,
-            pace=pace_factor(self.history.exercise_timings(HISTORY_FOR_PACE)),
-            transition=transition_seconds(self.history.transition_gaps(HISTORY_FOR_PACE)),
+            pace=pace_factor(self.training_history.exercise_timings(HISTORY_FOR_PACE)),
+            transition=transition_seconds(self.training_history.transition_gaps(HISTORY_FOR_PACE)),
         )
         session = TrainingSession.begin(
             plan, self.catalogue, now=now, kind=command.kind, lock_key=command.lock_key, source=source
         )
-        return self.sessions.add(session)
+        return self.training_session_repository.add(session)
 
     def _with_sides(self, plan: SessionPlan) -> SessionPlan:
         """Both sides count in the time estimate."""
@@ -135,24 +135,24 @@ class RecordTrainingActionService:
 
     def __init__(
         self,
-        sessions: TrainingSessionRepositoryProtocol,
+        training_session_repository: TrainingSessionRepositoryProtocol,
         catalogue: Catalogue,
-        progression: ApplySessionProgressionService,
+        apply_session_progression_service: ApplySessionProgressionService,
     ) -> None:
-        self.sessions = sessions
+        self.training_session_repository = training_session_repository
         self.catalogue = catalogue
-        self.progression = progression
+        self.apply_session_progression_service = apply_session_progression_service
 
     def execute(self, command: RecordTrainingActionCommand, now: datetime) -> tuple[TrainingSession, list[LadderMove]]:
         """The session after the action, and the ladder moves when it finished. Raises TrainingError."""
-        session = self.sessions.active()
+        session = self.training_session_repository.active()
         if session is None:
             raise TrainingError("no session in progress")
         action = TRAINING_ACTIONS.get(command.action)
         if action:
             action(session, command, now, self.catalogue)
-        self.sessions.save(session)
-        moves = self.progression.execute(session, now) if not session.active else []
+        self.training_session_repository.save(session)
+        moves = self.apply_session_progression_service.execute(session, now) if not session.active else []
         return session, moves
 
 
@@ -160,19 +160,21 @@ class CloseTrainingSessionService:
     """The lock ended before the session did: abandoned (time ran out) or overridden."""
 
     def __init__(
-        self, sessions: TrainingSessionRepositoryProtocol, progression: ApplySessionProgressionService
+        self,
+        training_session_repository: TrainingSessionRepositoryProtocol,
+        apply_session_progression_service: ApplySessionProgressionService,
     ) -> None:
-        self.sessions = sessions
-        self.progression = progression
+        self.training_session_repository = training_session_repository
+        self.apply_session_progression_service = apply_session_progression_service
 
     def execute(self, status: Literal["abandoned", "overridden"], now: datetime) -> None:
         """No-op without an active session."""
-        session = self.sessions.active()
+        session = self.training_session_repository.active()
         if session is None:
             return
         session.close(now, status)
-        self.sessions.save(session)
-        self.progression.execute(session, now)
+        self.training_session_repository.save(session)
+        self.apply_session_progression_service.execute(session, now)
 
 
 def _required(rpe: int | None) -> int:

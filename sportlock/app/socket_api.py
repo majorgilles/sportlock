@@ -52,25 +52,29 @@ def _status(daemon: Daemon, request: dict, now: datetime) -> dict:
 
 
 def _test(daemon: Daemon, request: dict, now: datetime) -> dict:
-    daemon.c.start_test_lock.execute(now)
+    daemon.container.start_test_lock_service.execute(now)
     daemon.schedule_tick()
     return {"ok": True}
 
 
 def _start(daemon: Daemon, request: dict, now: datetime) -> dict:
-    daemon.c.start_manual_lock.execute(StartManualLockCommand(minutes=int(request.get("minutes", 30))), now)
+    daemon.container.start_manual_lock_service.execute(
+        StartManualLockCommand(minutes=int(request.get("minutes", 30))), now
+    )
     daemon.schedule_tick()
     return {"ok": True}
 
 
 def _override(daemon: Daemon, request: dict, now: datetime) -> dict:
-    daemon.c.request_override.execute(RequestOverrideCommand(phrase=str(request.get("phrase", ""))), now)
+    daemon.container.request_override_service.execute(
+        RequestOverrideCommand(phrase=str(request.get("phrase", ""))), now
+    )
     daemon.schedule_tick()
     return {"ok": True}
 
 
 def _cancel_override(daemon: Daemon, request: dict, now: datetime) -> dict:
-    daemon.c.cancel_override.execute(now)
+    daemon.container.cancel_override_service.execute(now)
     daemon.schedule_tick()
     return {"ok": True}
 
@@ -78,7 +82,7 @@ def _cancel_override(daemon: Daemon, request: dict, now: datetime) -> dict:
 def _trainee_report(daemon: Daemon, request: dict, now: datetime) -> dict:
     return {
         "ok": True,
-        "report": daemon.c.report.execute(),
+        "report": daemon.container.build_report_service.execute(),
         "writing": daemon.review_running() or daemon.coach_running(),
         "error": daemon.review_error,
     }
@@ -90,7 +94,7 @@ def _trainee_report_write(daemon: Daemon, request: dict, now: datetime) -> dict:
 
 
 def _replacement_answer(daemon: Daemon, request: dict, now: datetime) -> dict:
-    daemon.c.answer_replacement.execute(
+    daemon.container.answer_replacement_service.execute(
         AnswerReplacementCommand(
             chain=str(request.get("chain", "")),
             agree=bool(request.get("agree")),
@@ -109,7 +113,7 @@ def _music(daemon: Daemon, request: dict, now: datetime) -> dict:
         )
     except ValidationError:
         return {"ok": False, "error": f"invalid music request: {request.get('action')!r}"}
-    daemon.c.control_music.execute(command)
+    daemon.container.control_music_service.execute(command)
     daemon.schedule_tick()
     return {"ok": True}
 
@@ -117,7 +121,7 @@ def _music(daemon: Daemon, request: dict, now: datetime) -> dict:
 def _music_account(daemon: Daemon, request: dict, now: datetime) -> dict:
     return {
         "ok": True,
-        "account": daemon.c.get_music_account.execute().model_dump(),
+        "account": daemon.container.get_music_account_service.execute().model_dump(),
         "connecting": daemon.music_login_running(),
         "error": daemon.music_login_error,
     }
@@ -129,16 +133,16 @@ def _music_login(daemon: Daemon, request: dict, now: datetime) -> dict:
 
 
 def _music_logout(daemon: Daemon, request: dict, now: datetime) -> dict:
-    daemon.c.disconnect_music_account.execute()
+    daemon.container.disconnect_music_account_service.execute()
     return {"ok": True}
 
 
 def _music_status(daemon: Daemon, request: dict, now: datetime) -> dict:
-    return {"ok": True, "music": daemon.c.music_snapshot.execute()}
+    return {"ok": True, "music": daemon.container.music_snapshot_service.execute()}
 
 
 def _profile_get(daemon: Daemon, request: dict, now: datetime) -> dict:
-    profile = daemon.c.profiles.get()
+    profile = daemon.container.profile_repository.get()
     return {
         "ok": True,
         "profile": profile.to_dict() if profile else None,
@@ -147,18 +151,18 @@ def _profile_get(daemon: Daemon, request: dict, now: datetime) -> dict:
 
 
 def _profile_save(daemon: Daemon, request: dict, now: datetime) -> dict:
-    profile = daemon.c.save_profile.execute(request.get("profile") or {}, now)
+    profile = daemon.container.save_profile_service.execute(request.get("profile") or {}, now)
     daemon.coach_retry_at = None
     daemon.schedule_tick()
     return {"ok": True, "profile": profile.to_dict()}
 
 
 def _calendar(daemon: Daemon, request: dict, now: datetime) -> dict:
-    c = daemon.c
+    container = daemon.container
     return {
         "ok": True,
-        "calendar": c.calendar.execute(
-            c.settings.settings,
+        "calendar": container.build_calendar_service.execute(
+            container.settings_state.settings,
             now,
             days_back=int(request.get("days_back", 14)),
             days_ahead=int(request.get("days_ahead", 14)),
@@ -167,37 +171,39 @@ def _calendar(daemon: Daemon, request: dict, now: datetime) -> dict:
 
 
 def _settings_get(daemon: Daemon, request: dict, now: datetime) -> dict:
-    c = daemon.c
+    container = daemon.container
     return {
         "ok": True,
-        "settings": c.get_settings.execute().to_form(),
-        "pending": c.settings.pending,
+        "settings": container.get_settings_service.execute().to_form(),
+        "pending": container.settings_state.pending,
         "frozen": daemon.frozen(now),
     }
 
 
 def _settings_save(daemon: Daemon, request: dict, now: datetime) -> dict:
-    c = daemon.c
-    pending = c.save_settings.execute(request.get("settings") or {}, decision=c.schedule_decision.execute(now), now=now)
+    container = daemon.container
+    pending = container.save_settings_service.execute(
+        request.get("settings") or {}, decision=container.get_schedule_decision_service.execute(now), now=now
+    )
     daemon.schedule_tick()
     return {"ok": True, "pending": pending}
 
 
 def _agent_status(daemon: Daemon, request: dict, now: datetime) -> dict:
-    c = daemon.c
-    stored = c.coach_plans.get()
-    fresh = c.freshness.fresh_plan()
+    container = daemon.container
+    stored = container.coach_plan_repository.get()
+    fresh = container.coach_plan_freshness.fresh_plan()
     return {
         "ok": True,
         "plan": fresh.to_dict() if fresh else None,
         "stale_plan": stored.to_dict() if stored else None,
-        "runs": [r.model_dump() for r in c.coach_runs.recent(20)],
+        "runs": [r.model_dump() for r in container.coach_run_log.recent(20)],
         "running": daemon.coach_running(),
     }
 
 
 def _memory_get(daemon: Daemon, request: dict, now: datetime) -> dict:
-    notes = daemon.c.get_memory.execute()
+    notes = daemon.container.get_memory_service.execute()
     return {
         "ok": True,
         "notes": [{"id": n.id, "topic": n.topic, "note": n.text, "since": n.since.isoformat()} for n in notes],
@@ -205,19 +211,25 @@ def _memory_get(daemon: Daemon, request: dict, now: datetime) -> dict:
 
 
 def _memory_history(daemon: Daemon, request: dict, now: datetime) -> dict:
-    return {"ok": True, "history": daemon.c.memory.history(int(request.get("limit", 100)))}
+    return {"ok": True, "history": daemon.container.coach_memory_repository.history(int(request.get("limit", 100)))}
 
 
 def _memory_forget(daemon: Daemon, request: dict, now: datetime) -> dict:
-    daemon.c.forget_memory_note.execute(ForgetMemoryNoteCommand(note_id=int(request.get("id", 0))))
+    daemon.container.forget_memory_note_service.execute(ForgetMemoryNoteCommand(note_id=int(request.get("id", 0))))
     log.info("coach memory: note %s forgotten at the user's request", request.get("id"))
     return {"ok": True}
 
 
 def _library_status_and_issues(daemon: Daemon) -> tuple[dict, list]:
-    c = daemon.c
-    status = NotebookLMLibraryBuilder(c.catalogue, c.details.root).status()
-    issues = doctor.check(c.database, c.catalogue, c.details, status, lock_active=c.runtime.current is not None)
+    container = daemon.container
+    status = NotebookLMLibraryBuilder(container.catalogue, container.exercise_details_repository.root).status()
+    issues = doctor.check(
+        container.database,
+        container.catalogue,
+        container.exercise_details_repository,
+        status,
+        lock_active=container.lock_runtime.current is not None,
+    )
     return status, issues
 
 
@@ -232,24 +244,28 @@ def _doctor(daemon: Daemon, request: dict, now: datetime) -> dict:
 def _report(daemon: Daemon, request: dict, now: datetime) -> dict:
     status, issues = _library_status_and_issues(daemon)
     path = report.build_report(
-        daemon.c.database, status, state=daemon.state, issues=issues, note=str(request.get("note", ""))
+        daemon.container.database, status, state=daemon.state, issues=issues, note=str(request.get("note", ""))
     )
     log.info("problem report written: %s", path)
     return {"ok": True, "path": str(path)}
 
 
 def _log(daemon: Daemon, request: dict, now: datetime) -> dict:
-    return {"ok": True, "locks": daemon.c.lock_events.recent(int(request.get("limit", 20)))}
+    return {"ok": True, "locks": daemon.container.lock_event_repository.recent(int(request.get("limit", 20)))}
 
 
 def _reload(daemon: Daemon, request: dict, now: datetime) -> dict:
-    c = daemon.c
-    c.reload_settings.execute(decision=c.schedule_decision.execute(now), now=now, force=not c.settings.pending)
-    return {"ok": True, "pending": c.settings.pending, "error": c.settings.error}
+    container = daemon.container
+    container.reload_settings_service.execute(
+        decision=container.get_schedule_decision_service.execute(now),
+        now=now,
+        force=not container.settings_state.pending,
+    )
+    return {"ok": True, "pending": container.settings_state.pending, "error": container.settings_state.error}
 
 
 def _dispatch(daemon: Daemon, request: dict) -> dict:
-    now = daemon.c.clock.now()
+    now = daemon.container.clock.now()
     cmd = request.get("cmd")
     handler = HANDLERS.get(cmd) if isinstance(cmd, str) else None
     if handler is None:
@@ -258,11 +274,11 @@ def _dispatch(daemon: Daemon, request: dict) -> dict:
 
 
 def _train(daemon: Daemon, request: dict, now: datetime) -> dict:
-    c = daemon.c
+    container = daemon.container
     action = request.get("action")
     args = {name: request[name] for name in TRAIN_ARGS.get(str(action), ()) if request.get(name) not in (None, "")}
     if action == "start_set":
-        args["lead_in"] = c.settings.settings.lead_in_seconds
+        args["lead_in"] = container.settings_state.settings.lead_in_seconds
     try:
         command = RecordTrainingActionCommand(action=action, **args)
     except ValidationError:
@@ -273,12 +289,12 @@ def _train(daemon: Daemon, request: dict, now: datetime) -> dict:
             else f"invalid values for {action}",
         }
     try:
-        session, moves = c.record_training_action.execute(command, now)
+        session, moves = container.record_training_action_service.execute(command, now)
     except DomainError as error:
         log.warning("training action %s %s refused: %s", action, args, error)
         return {"ok": False, "error": str(error)}
     if action == "finish":
-        c.end_lock_on_finish.execute(moves, now)
+        container.end_lock_on_session_finished_service.execute(moves, now)
     daemon.schedule_tick()
     return {"ok": True}
 

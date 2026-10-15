@@ -19,8 +19,8 @@ from sportlock.training.domain.session import TrainingSession
 class ApplySessionProgressionService:
     """Runs the rules over the session and moves the chains."""
 
-    def __init__(self, ladders: LadderRepositoryProtocol, catalogue: Catalogue) -> None:
-        self.ladders = ladders
+    def __init__(self, ladder_repository: LadderRepositoryProtocol, catalogue: Catalogue) -> None:
+        self.ladder_repository = ladder_repository
         self.catalogue = catalogue
 
     def execute(self, session: TrainingSession, now: datetime) -> list[LadderMove]:
@@ -43,8 +43,8 @@ class ApplySessionProgressionService:
         ]
         moves = moves_for_session(results, self.catalogue)
         for move in moves:
-            self.ladders.record_move(session.id, move, decided_by="rules", now=now)
-            self.ladders.set(
+            self.ladder_repository.record_move(session.id, move, decided_by="rules", now=now)
+            self.ladder_repository.set(
                 LadderPosition(
                     chain=move.chain,
                     exercise=move.proposal.exercise,

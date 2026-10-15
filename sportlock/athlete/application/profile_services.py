@@ -15,19 +15,21 @@ class SaveProfileService:
     The first time only, an experienced athlete's ladders start above the beginner positions.
     """
 
-    def __init__(self, profiles: ProfileRepositoryProtocol, ladders: LadderRepositoryProtocol) -> None:
-        self.profiles = profiles
-        self.ladders = ladders
+    def __init__(
+        self, profile_repository: ProfileRepositoryProtocol, ladder_repository: LadderRepositoryProtocol
+    ) -> None:
+        self.profile_repository = profile_repository
+        self.ladder_repository = ladder_repository
 
     def execute(self, form: dict, now: datetime) -> Profile:
         """Raises ProfileError."""
         profile = Profile.from_form(form, now)
-        first_time = self.profiles.get() is None
-        self.profiles.save(profile)
+        first_time = self.profile_repository.get() is None
+        self.profile_repository.save(profile)
         starting_points = STARTING_POINTS.get(profile.experience)
-        if first_time and starting_points and not self.ladders.saved():
+        if first_time and starting_points and not self.ladder_repository.saved():
             for chain, (exercise, target) in starting_points.items():
-                self.ladders.set(
+                self.ladder_repository.set(
                     LadderPosition(
                         chain=chain,
                         exercise=exercise,

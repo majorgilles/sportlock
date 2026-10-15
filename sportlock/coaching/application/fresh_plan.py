@@ -15,22 +15,27 @@ class CoachPlanFreshness:
     """Computes the basis a plan must have been written from, and returns the plan only if it was."""
 
     def __init__(
-        self, plans: CoachPlanRepositoryProtocol, history: TrainingHistoryProtocol, profiles: ProfileRepositoryProtocol
+        self,
+        coach_plan_repository: CoachPlanRepositoryProtocol,
+        training_history: TrainingHistoryProtocol,
+        profile_repository: ProfileRepositoryProtocol,
     ) -> None:
-        self.plans = plans
-        self.history = history
-        self.profiles = profiles
+        self.coach_plan_repository = coach_plan_repository
+        self.training_history = training_history
+        self.profile_repository = profile_repository
 
     def basis(self) -> str:
         """Identifies the data a plan is written from: the latest counted session and the profile."""
-        profile = self.profiles.get()
-        return f"session:{self.history.last_counted_id() or 0}/profile:{profile.updated_at if profile else '-'}"
+        profile = self.profile_repository.get()
+        return (
+            f"session:{self.training_history.last_counted_id() or 0}/profile:{profile.updated_at if profile else '-'}"
+        )
 
     def fresh_plan(self) -> CoachPlan | None:
         """The stored plan if it is up to date, else None."""
-        plan = self.plans.get()
+        plan = self.coach_plan_repository.get()
         return plan if plan and plan.basis == self.basis() else None
 
     def needs_run(self) -> bool:
         """A profile exists and there is no up-to-date plan."""
-        return self.profiles.get() is not None and self.fresh_plan() is None
+        return self.profile_repository.get() is not None and self.fresh_plan() is None

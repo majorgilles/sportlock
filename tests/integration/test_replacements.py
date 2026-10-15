@@ -13,9 +13,9 @@ STEP_UPS = Target(sets=3, rest=60, reps=(8, 12))
 def _squats_became_step_ups(world):
     """The last session, two days ago, moved the squat ladder up to step-ups."""
     world.add_session(world.clock.time - timedelta(hours=50), rpe=4)
-    session_id = world.c.history.last_counted_id()
+    session_id = world.container.training_history.last_counted_id()
     proposal = Proposal(rule="up", exercise="step-up", target=STEP_UPS, reason="15 / 15 reps: top of the range")
-    world.c.ladders.record_move(
+    world.container.ladder_repository.record_move(
         session_id,
         LadderMove(
             chain="squat",
@@ -27,18 +27,20 @@ def _squats_became_step_ups(world):
         decided_by="rules",
         now=world.clock.time,
     )
-    world.c.ladders.set(LadderPosition(chain="squat", exercise="step-up", target=STEP_UPS), world.clock.time)
+    world.container.ladder_repository.set(
+        LadderPosition(chain="squat", exercise="step-up", target=STEP_UPS), world.clock.time
+    )
 
 
 def _plan_with_step_ups(world):
     output = copy.deepcopy(GOOD_PLAN)
     output["hard"]["exercises"][2] = item("step-up", 3, (8, 12), note="Your first step-ups")
     world.coach.output = output
-    world.c.run_coach.execute(world.daemon.coach_command(world.clock.time))
+    world.container.run_coach_service.execute(world.daemon.coach_command(world.clock.time))
 
 
 def _squat(world):
-    return {p.chain: p for p in positions(world.c.ladders.saved())}["squat"]
+    return {p.chain: p for p in positions(world.container.ladder_repository.saved())}["squat"]
 
 
 def test_warning_popup__exercise_replaced_after_the_last_session__asks_about_it(world):
@@ -46,7 +48,7 @@ def test_warning_popup__exercise_replaced_after_the_last_session__asks_about_it(
     world.at("17:50")
     [replacement] = world.popup.shown[0]["replacements"]
     assert replacement == {
-        "session": world.c.history.last_counted_id(),
+        "session": world.container.training_history.last_counted_id(),
         "chain": "squat",
         "from": "bodyweight-squat",
         "from_name": "Bodyweight squat",
@@ -60,7 +62,7 @@ def test_warning_popup__exercise_replaced_after_the_last_session__asks_about_it(
 def test_replacement_answer__agree__nothing_changes_and_no_longer_asked(world):
     _squats_became_step_ups(world)
     assert world.cmd(cmd="replacement-answer", chain="squat", agree=True)["ok"]
-    assert world.c.pending_replacements.execute() == []
+    assert world.container.pending_replacements_service.execute() == []
     assert _squat(world).exercise == "step-up"
 
 
@@ -74,9 +76,9 @@ def test_replacement_answer__keep__ladder_and_coach_plan_go_back_to_the_old_exer
     squat = _squat(world)
     assert (squat.exercise, squat.target.reps) == ("bodyweight-squat", (12, 15))
     assert squat.reason == "You kept Bodyweight squat instead of Step-up: My knee likes squats"
-    plan = world.c.freshness.fresh_plan()
+    plan = world.container.coach_plan_freshness.fresh_plan()
     assert [i.exercise for i in plan.hard.items][2] == "bodyweight-squat"
-    assert world.c.pending_replacements.execute() == []
+    assert world.container.pending_replacements_service.execute() == []
 
 
 def test_replacement_answer__keep_during_the_lock__session_serves_the_old_exercise(world):

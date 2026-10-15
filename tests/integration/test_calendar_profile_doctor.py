@@ -25,7 +25,7 @@ def test_calendar__coach_feedback__under_that_session_and_the_next_lock(world):
     world.add_session(world.clock.time - timedelta(hours=50))
     tips = [{"about": "Push-ups too easy", "advice": "Lower the hand height."}]
     world.coach.output = {**GOOD_PLAN, "recommendations": tips}
-    world.c.run_coach.execute(world.daemon.coach_command(world.clock.time))
+    world.container.run_coach_service.execute(world.daemon.coach_command(world.clock.time))
     days = {d["date"]: d for d in world.cmd(cmd="calendar")["calendar"]["days"]}
     session_day = (world.clock.time - timedelta(hours=50)).date().isoformat()
     assert days[session_day]["sessions"][0]["recommendations"] == tips
@@ -35,10 +35,14 @@ def test_calendar__coach_feedback__under_that_session_and_the_next_lock(world):
 def test_profile_save__first_time_intermediate__ladders_start_higher_but_later_edits_keep_progress(tmp_path, catalogue):
     world = World(tmp_path, catalogue, profile=False)
     assert world.cmd(cmd="profile-save", profile={"experience": "intermediate", "goals": ["muscle"]})["ok"]
-    assert {p.chain: p.exercise for p in positions(world.c.ladders.saved())}["push-horizontal"] == "push-up"
-    world.c.database.execute("UPDATE ladders SET exercise = 'diamond-push-up' WHERE chain = 'push-horizontal'")
+    assert {p.chain: p.exercise for p in positions(world.container.ladder_repository.saved())}[
+        "push-horizontal"
+    ] == "push-up"
+    world.container.database.execute("UPDATE ladders SET exercise = 'diamond-push-up' WHERE chain = 'push-horizontal'")
     world.cmd(cmd="profile-save", profile={"experience": "advanced", "goals": ["muscle"]})
-    assert {p.chain: p.exercise for p in positions(world.c.ladders.saved())}["push-horizontal"] == "diamond-push-up"
+    assert {p.chain: p.exercise for p in positions(world.container.ladder_repository.saved())}[
+        "push-horizontal"
+    ] == "diamond-push-up"
 
 
 def test_profile_save__invalid__refused(world):
@@ -50,34 +54,34 @@ def test_doctor__clean_data__no_errors(world):
 
 
 def test_doctor__timed_exercise_with_a_rep_target__found_and_repaired(world):
-    world.c.database.execute(
+    world.container.database.execute(
         "INSERT INTO sessions (id, day, finished_at, kind, status) VALUES (1, '2026-10-05', 'x', 'test', 'abandoned')"
     )
-    world.c.database.execute(
+    world.container.database.execute(
         "INSERT INTO session_exercises (session_id, exercise, name, pattern, kind, target, status)"
         " VALUES (1, 'static-stretch', 'Cool-down stretching', 'mobility', 'timed', ?, 'done')",
         (json.dumps({"sets": 2, "rest": 15, "reps": [8, 10]}),),
     )
     assert world.cmd(cmd="doctor", fix=True)["fixed"] == 1
-    target = json.loads(world.c.database.execute("SELECT target FROM session_exercises").fetchone()[0])
+    target = json.loads(world.container.database.execute("SELECT target FROM session_exercises").fetchone()[0])
     assert target == {"sets": 2, "rest": 15, "seconds": 120}
 
 
 def test_doctor__stuck_session_and_leftover_run__repaired_outside_a_lock(world):
-    world.c.database.execute(
+    world.container.database.execute(
         "INSERT INTO sessions (id, day, finished_at, kind, status)"
         " VALUES (2, '2026-10-05', 'x', 'scheduled', 'in_progress')"
     )
-    world.c.database.put("training", {"session_id": 99})
+    world.container.database.put("training", {"session_id": 99})
     world.cmd(cmd="doctor", fix=True)
-    assert world.c.database.execute("SELECT status FROM sessions WHERE id = 2").fetchone()[0] == "abandoned"
-    assert world.c.database.get("training") is None
+    assert world.container.database.execute("SELECT status FROM sessions WHERE id = 2").fetchone()[0] == "abandoned"
+    assert world.container.database.get("training") is None
 
 
 def test_doctor__ladder_on_the_wrong_chain__reset(world):
-    world.c.database.execute("INSERT INTO ladders VALUES ('squat', 'plank', '{}', NULL, 'x')")
+    world.container.database.execute("INSERT INTO ladders VALUES ('squat', 'plank', '{}', NULL, 'x')")
     world.cmd(cmd="doctor", fix=True)
-    assert world.c.database.execute("SELECT COUNT(*) FROM ladders").fetchone()[0] == 0
+    assert world.container.database.execute("SELECT COUNT(*) FROM ladders").fetchone()[0] == 0
 
 
 def test_report__with_a_note__includes_the_note_and_the_doctor(world):

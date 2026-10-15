@@ -80,28 +80,28 @@ class TrainingRecords:
 
     def __init__(
         self,
-        history: TrainingHistoryProtocol,
-        ladders: LadderRepositoryProtocol,
-        lock_events: LockEventRepositoryProtocol,
+        training_history: TrainingHistoryProtocol,
+        ladder_repository: LadderRepositoryProtocol,
+        lock_event_repository: LockEventRepositoryProtocol,
         catalogue: Catalogue,
         clock: ClockProtocol,
     ) -> None:
-        self.history = history
-        self.ladders = ladders
-        self.lock_events = lock_events
+        self.training_history = training_history
+        self.ladder_repository = ladder_repository
+        self.lock_event_repository = lock_event_repository
         self.catalogue = catalogue
         self.clock = clock
 
     def sessions(self) -> list[SessionRecord]:
         """Every counted session, oldest first."""
-        return [_record(r) for r in self.history.between(FIRST_DAY, self.clock.now().date())]
+        return [_record(r) for r in self.training_history.between(FIRST_DAY, self.clock.now().date())]
 
     def levels(self, sessions: list[SessionRecord]) -> list[LadderLevel]:
         """The ladder position of every chain trained at least once."""
         found = [self.catalogue.find(e.exercise) for s in sessions for e in s.exercises]
         trained = {exercise.chain for exercise in found if exercise}
         levels = []
-        for position in positions(self.ladders.saved()):
+        for position in positions(self.ladder_repository.saved()):
             if position.chain not in trained:
                 continue
             exercise = self.catalogue.get(position.exercise)
@@ -120,7 +120,7 @@ class TrainingRecords:
     def stats(self, sessions: list[SessionRecord]) -> TrainingStats:
         """The headline numbers."""
         locks = sorted(
-            (lock for lock in self.lock_events.recent(LOCKS_LOOKED_AT) if lock["key"][:1].isdigit()),
+            (lock for lock in self.lock_event_repository.recent(LOCKS_LOOKED_AT) if lock["key"][:1].isdigit()),
             key=lambda lock: lock["start"],
         )
         return training_stats(sessions, [lock["outcome"] for lock in locks], self.clock.now().date())
@@ -140,7 +140,7 @@ class TrainingRecords:
                 "reason": m["reason"],
                 "by": {"agent": "coach", "athlete": "you"}.get(m.get("decided_by", ""), "rules"),
             }
-            for m in self.ladders.moves_for(session.id)
+            for m in self.ladder_repository.moves_for(session.id)
             if m["rule"] != "hold"
         ]
         return {
@@ -168,29 +168,29 @@ class BuildReportService:
 
     def __init__(
         self,
-        records: TrainingRecords,
-        profiles: ProfileRepositoryProtocol,
-        memory: CoachMemoryRepositoryProtocol,
-        reviews: CoachReviewRepositoryProtocol,
+        training_records: TrainingRecords,
+        profile_repository: ProfileRepositoryProtocol,
+        coach_memory_repository: CoachMemoryRepositoryProtocol,
+        coach_review_repository: CoachReviewRepositoryProtocol,
         clock: ClockProtocol,
     ) -> None:
-        self.records = records
-        self.profiles = profiles
-        self.memory = memory
-        self.reviews = reviews
+        self.training_records = training_records
+        self.profile_repository = profile_repository
+        self.coach_memory_repository = coach_memory_repository
+        self.coach_review_repository = coach_review_repository
         self.clock = clock
 
     def execute(self) -> dict:
         """The report (part of the socket API's contract with the app window)."""
-        sessions = self.records.sessions()
-        stats = self.records.stats(sessions)
-        levels = self.records.levels(sessions)
-        laddered = self.records.laddered_exercises()
-        reviews = self.reviews.all()
-        latest = self.reviews.latest()
-        profile = self.profiles.get()
-        journal = [self.records.journal_entry(s, reviews.get(s.id)) for s in reversed(sessions)]
-        memory = self.memory.load().current()
+        sessions = self.training_records.sessions()
+        stats = self.training_records.stats(sessions)
+        levels = self.training_records.levels(sessions)
+        laddered = self.training_records.laddered_exercises()
+        reviews = self.coach_review_repository.all()
+        latest = self.coach_review_repository.latest()
+        profile = self.profile_repository.get()
+        journal = [self.training_records.journal_entry(s, reviews.get(s.id)) for s in reversed(sessions)]
+        memory = self.coach_memory_repository.load().current()
         return {
             "generated_at": iso(self.clock.now()),
             "profile": profile.to_dict() if profile else None,
@@ -218,36 +218,37 @@ class WriteCoachReviewService:
     def __init__(
         self,
         coach: CoachProtocol,
-        build_context: BuildCoachContextService,
-        records: TrainingRecords,
-        reviews: CoachReviewRepositoryProtocol,
-        history: TrainingHistoryProtocol,
+        build_coach_context_service: BuildCoachContextService,
+        training_records: TrainingRecords,
+        coach_review_repository: CoachReviewRepositoryProtocol,
+        training_history: TrainingHistoryProtocol,
         clock: ClockProtocol,
     ) -> None:
         self.coach = coach
-        self.build_context = build_context
-        self.records = records
-        self.reviews = reviews
-        self.history = history
+        self.build_coach_context_service = build_coach_context_service
+        self.training_records = training_records
+        self.coach_review_repository = coach_review_repository
+        self.training_history = training_history
         self.clock = clock
 
     def execute(self, command: RunCoachCommand) -> CoachReview:
         """Raises ReviewError before the first session, CoachUnavailableError or CoachOutputError."""
-        session_id = self.history.last_counted_id()
+        session_id = self.training_history.last_counted_id()
         if session_id is None:
             raise ReviewError("train once first: the coach reviews your sessions")
         now = self.clock.now()
-        sessions = self.records.sessions()
+        sessions = self.training_records.sessions()
         context = {
-            **self.build_context.execute(now, command),
-            "stats": self.records.stats(sessions).model_dump(mode="json"),
+            **self.build_coach_context_service.execute(now, command),
+            "stats": self.training_records.stats(sessions).model_dump(mode="json"),
             "ladder_levels": [
-                {**level.model_dump(), "moved_since_start": level.moved} for level in self.records.levels(sessions)
+                {**level.model_dump(), "moved_since_start": level.moved}
+                for level in self.training_records.levels(sessions)
             ],
         }
         review = parse_review(self.coach.write_review(context), session_id=session_id, written_at=iso(now))
-        earlier = self.reviews.get(session_id)
+        earlier = self.coach_review_repository.get(session_id)
         if earlier is not None:
             review = review.with_recommendations(earlier.recommendations)
-        self.reviews.save(review)
+        self.coach_review_repository.save(review)
         return review

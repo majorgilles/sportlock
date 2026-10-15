@@ -23,25 +23,25 @@ class TrainingSnapshotService:
 
     def __init__(
         self,
-        sessions: TrainingSessionRepositoryProtocol,
-        history: TrainingHistoryProtocol,
+        training_session_repository: TrainingSessionRepositoryProtocol,
+        training_history: TrainingHistoryProtocol,
         catalogue: Catalogue,
-        details: ExerciseDetailsRepositoryProtocol,
+        exercise_details_repository: ExerciseDetailsRepositoryProtocol,
     ) -> None:
-        self.sessions = sessions
-        self.history = history
+        self.training_session_repository = training_session_repository
+        self.training_history = training_history
         self.catalogue = catalogue
-        self.details = details
+        self.exercise_details_repository = exercise_details_repository
 
     def execute(self) -> dict | None:
         """None without an active session."""
-        session = self.sessions.active()
+        session = self.training_session_repository.active()
         if session is None:
             return None
         exercises = []
         for e in session.exercises:
             spec = self.catalogue.find(e.exercise)
-            details = self.details.get(e.exercise)
+            details = self.exercise_details_repository.get(e.exercise)
             exercises.append(
                 {
                     "name": e.name,
@@ -63,7 +63,7 @@ class TrainingSnapshotService:
                     "status": e.status,
                     "rpe": e.rpe,
                     "sides": spec.sides or "" if spec else "",
-                    "times_done": self.history.times_done(e.exercise, session.id),
+                    "times_done": self.training_history.times_done(e.exercise, session.id),
                     "sets": [{"reps": s.reps, "seconds": s.seconds, "load_kg": s.load_kg} for s in e.sets],
                 }
             )

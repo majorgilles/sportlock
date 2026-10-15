@@ -17,23 +17,23 @@ class ForgetMemoryNoteCommand(ValueObject):
 class ForgetMemoryNoteService:
     """Removes a note; the coach is told not to bring it back without new evidence."""
 
-    def __init__(self, memory: CoachMemoryRepositoryProtocol, clock: ClockProtocol) -> None:
-        self.memory = memory
+    def __init__(self, coach_memory_repository: CoachMemoryRepositoryProtocol, clock: ClockProtocol) -> None:
+        self.coach_memory_repository = coach_memory_repository
         self.clock = clock
 
     def execute(self, command: ForgetMemoryNoteCommand) -> None:
         """Raises CoachMemoryError for an unknown note."""
-        memory = self.memory.load()
+        memory = self.coach_memory_repository.load()
         memory.forget(command.note_id, today=self.clock.now().date())
-        self.memory.save(memory)
+        self.coach_memory_repository.save(memory)
 
 
 class GetMemoryService:
     """The current notes, for the app."""
 
-    def __init__(self, memory: CoachMemoryRepositoryProtocol) -> None:
-        self.memory = memory
+    def __init__(self, coach_memory_repository: CoachMemoryRepositoryProtocol) -> None:
+        self.coach_memory_repository = coach_memory_repository
 
     def execute(self) -> list[MemoryNote]:
         """Notes in the order they were first written."""
-        return self.memory.load().current()
+        return self.coach_memory_repository.load().current()

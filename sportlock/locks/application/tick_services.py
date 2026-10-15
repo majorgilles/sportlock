@@ -43,28 +43,34 @@ class GetScheduleDecisionService:
     """What the schedule says now: the active lock, the next one, and whether to warn."""
 
     def __init__(
-        self, settings: SettingsState, history: TrainingHistoryProtocol, lock_events: LockEventRepositoryProtocol
+        self,
+        settings_state: SettingsState,
+        training_history: TrainingHistoryProtocol,
+        lock_event_repository: LockEventRepositoryProtocol,
     ) -> None:
-        self.settings = settings
-        self.history = history
-        self.lock_events = lock_events
+        self.settings_state = settings_state
+        self.training_history = training_history
+        self.lock_event_repository = lock_event_repository
 
     def execute(self, now: datetime) -> Decision:
         """The schedule's decision at this time."""
         return decide(
-            self.settings.settings, now, trained_days=self.history.trained_days(), ended=self.lock_events.ended_early()
+            self.settings_state.settings,
+            now,
+            trained_days=self.training_history.trained_days(),
+            ended=self.lock_event_repository.ended_early(),
         )
 
 
 class CheckSetupCompleteService:
     """Scheduled locks wait until the athlete has filled in the profile."""
 
-    def __init__(self, profiles: ProfileRepositoryProtocol) -> None:
-        self.profiles = profiles
+    def __init__(self, profile_repository: ProfileRepositoryProtocol) -> None:
+        self.profile_repository = profile_repository
 
     def execute(self) -> bool:
         """Whether the profile exists."""
-        return self.profiles.get() is not None
+        return self.profile_repository.get() is not None
 
 
 class SettleOverrideService:
@@ -72,23 +78,23 @@ class SettleOverrideService:
 
     def __init__(
         self,
-        runtime: LockRuntimeProtocol,
-        overrides: OverrideRepositoryProtocol,
-        lock_events: LockEventRepositoryProtocol,
+        lock_runtime: LockRuntimeProtocol,
+        override_repository: OverrideRepositoryProtocol,
+        lock_event_repository: LockEventRepositoryProtocol,
     ) -> None:
-        self.runtime = runtime
-        self.overrides = overrides
-        self.lock_events = lock_events
+        self.lock_runtime = lock_runtime
+        self.override_repository = override_repository
+        self.lock_event_repository = lock_event_repository
 
     def execute(self, now: datetime) -> None:
         """Finish a pending override that is due, and record the lock as ended by it."""
-        lock = self.runtime.current
+        lock = self.lock_runtime.current
         if not lock or not lock.overridable:
             return
-        pending = self.overrides.pending(lock.key)
+        pending = self.override_repository.pending(lock.key)
         if pending and now >= pending.unlock_at:
-            self.overrides.finish(pending.id, now, cancelled=False)
-            self.lock_events.ended(lock.key, "override", now)
+            self.override_repository.finish(pending.id, now, cancelled=False)
+            self.lock_event_repository.ended(lock.key, "override", now)
 
 
 class ChooseLockService:
@@ -99,39 +105,39 @@ class ChooseLockService:
 
     def __init__(
         self,
-        runtime: LockRuntimeProtocol,
-        lock_state: LockStateRepositoryProtocol,
-        lock_events: LockEventRepositoryProtocol,
-        planner: PlanScheduledLockService,
-        setup: CheckSetupCompleteService,
-        settings: SettingsState,
+        lock_runtime: LockRuntimeProtocol,
+        lock_state_repository: LockStateRepositoryProtocol,
+        lock_event_repository: LockEventRepositoryProtocol,
+        plan_scheduled_lock_service: PlanScheduledLockService,
+        check_setup_complete_service: CheckSetupCompleteService,
+        settings_state: SettingsState,
     ) -> None:
-        self.runtime = runtime
-        self.lock_state = lock_state
-        self.lock_events = lock_events
-        self.planner = planner
-        self.setup = setup
-        self.settings = settings
+        self.lock_runtime = lock_runtime
+        self.lock_state_repository = lock_state_repository
+        self.lock_event_repository = lock_event_repository
+        self.plan_scheduled_lock_service = plan_scheduled_lock_service
+        self.check_setup_complete_service = check_setup_complete_service
+        self.settings_state = settings_state
 
     def _manual_candidate(self, now: datetime) -> ActiveLock | None:
         """The lock started by hand, or None; a finished one is forgotten."""
-        manual = self.lock_state.manual_lock()
+        manual = self.lock_state_repository.manual_lock()
         if not manual:
             return None
-        if now < manual.window.end and manual.key not in self.lock_events.ended_early():
+        if now < manual.window.end and manual.key not in self.lock_event_repository.ended_early():
             return manual
-        self.lock_state.set_manual_lock(None)
+        self.lock_state_repository.set_manual_lock(None)
         return None
 
     def _scheduled_candidate(self, now: datetime, decision: Decision) -> ActiveLock | None:
         """The scheduled lock due now, or None; a rest day is recorded as a lock that ended at once."""
-        if not decision.active or not self.setup.execute():
+        if not decision.active or not self.check_setup_complete_service.execute():
             return None
-        plan = self.planner.execute(decision.active, self.settings.settings)
+        plan = self.plan_scheduled_lock_service.execute(decision.active, self.settings_state.settings)
         if plan.mode == "rest":
-            if decision.active.key not in self.lock_events.ended_early():
-                self.lock_events.began(decision.active.key, decision.active.start, decision.active.end, now)
-                self.lock_events.ended(decision.active.key, "rest", now)
+            if decision.active.key not in self.lock_event_repository.ended_early():
+                self.lock_event_repository.began(decision.active.key, decision.active.start, decision.active.end, now)
+                self.lock_event_repository.ended(decision.active.key, "rest", now)
             return None
         if now >= plan.end:  # recovery locks can be shorter
             return None
@@ -144,14 +150,14 @@ class ChooseLockService:
 
     def execute(self, now: datetime, decision: Decision) -> ActiveLock | None:
         """The lock that should be on screen now, or None."""
-        if decision.next and self.setup.execute() and decision.next.start - PLAN_AHEAD <= now:
-            self.planner.execute(decision.next, self.settings.settings)
-        if self.runtime.test_lock and now >= self.runtime.test_lock.window.end:
-            self.runtime.test_lock = None
+        if decision.next and self.check_setup_complete_service.execute() and decision.next.start - PLAN_AHEAD <= now:
+            self.plan_scheduled_lock_service.execute(decision.next, self.settings_state.settings)
+        if self.lock_runtime.test_lock and now >= self.lock_runtime.test_lock.window.end:
+            self.lock_runtime.test_lock = None
         candidates = [
             lock
             for lock in (
-                self.runtime.test_lock,
+                self.lock_runtime.test_lock,
                 self._manual_candidate(now),
                 self._scheduled_candidate(now, decision),
             )
@@ -159,7 +165,7 @@ class ChooseLockService:
         ]
         # Stay under the lock already on screen while it is still due; overlaps don't swap sessions.
         for lock in candidates:
-            if self.runtime.current and lock.key == self.runtime.current.key:
+            if self.lock_runtime.current and lock.key == self.lock_runtime.current.key:
                 return lock
         return candidates[0] if candidates else None
 
@@ -169,19 +175,19 @@ class WarnOfNextLockService:
 
     def __init__(
         self,
-        settings: SettingsState,
-        lock_state: LockStateRepositoryProtocol,
-        freshness: CoachPlanFreshness,
-        replacements: PendingReplacementsService,
+        settings_state: SettingsState,
+        lock_state_repository: LockStateRepositoryProtocol,
+        coach_plan_freshness: CoachPlanFreshness,
+        pending_replacements_service: PendingReplacementsService,
         desktop: DesktopProtocol,
-        popup: WarningPopupProtocol,
+        warning_popup: WarningPopupProtocol,
     ) -> None:
-        self.settings = settings
-        self.lock_state = lock_state
-        self.freshness = freshness
-        self.replacements = replacements
+        self.settings_state = settings_state
+        self.lock_state_repository = lock_state_repository
+        self.coach_plan_freshness = coach_plan_freshness
+        self.pending_replacements_service = pending_replacements_service
         self.desktop = desktop
-        self.popup = popup
+        self.warning_popup = warning_popup
 
     def execute(self, decision: Decision, wanted: ActiveLock | None) -> None:
         """Send each warning of the schedule once; nothing while a lock is wanted or on a rest day."""
@@ -189,10 +195,10 @@ class WarnOfNextLockService:
         if wanted or upcoming is None or decision.warning is None:
             return
         tag = f"{upcoming.key}:{decision.warning}"
-        warned = self.lock_state.warned()
+        warned = self.lock_state_repository.warned()
         if tag in warned:
             return
-        plan = self.lock_state.plans().get(upcoming.key)
+        plan = self.lock_state_repository.plans().get(upcoming.key)
         if plan and plan.mode == "rest":
             return  # the rest-day notification already went out
         minutes = plan.minutes if plan else upcoming.minutes
@@ -205,10 +211,10 @@ class WarnOfNextLockService:
             urgent=decision.warning <= URGENT_WARNING_MINUTES,
         )
         # The first warning also gets a popup in front of everything: notifications are easy to miss.
-        if self.settings.settings.warn_popup and not any(t.startswith(f"{upcoming.key}:") for t in warned):
-            coach = self.freshness.fresh_plan()
+        if self.settings_state.settings.warn_popup and not any(t.startswith(f"{upcoming.key}:") for t in warned):
+            coach = self.coach_plan_freshness.fresh_plan()
             version = getattr(coach, plan.mode) if coach and plan and plan.mode in ("hard", "recovery") else None
-            self.popup.show(
+            self.warning_popup.show(
                 {
                     "headline": headline,
                     "start": epoch_ms(upcoming.start),
@@ -216,11 +222,11 @@ class WarnOfNextLockService:
                     "title": version.title if version else "",
                     "reason": plan.reason if plan else "",
                     "recommendations": [r.model_dump() for r in coach.recommendations] if coach else [],
-                    "replacements": [r.to_dict() for r in self.replacements.execute()],
+                    "replacements": [r.to_dict() for r in self.pending_replacements_service.execute()],
                     "theme": self.desktop.theme(),
                 }
             )
-        self.lock_state.add_warned(tag)
+        self.lock_state_repository.add_warned(tag)
 
 
 class PrepareDesktopForLockService:
@@ -228,25 +234,25 @@ class PrepareDesktopForLockService:
 
     def __init__(
         self,
-        lock_state: LockStateRepositoryProtocol,
+        lock_state_repository: LockStateRepositoryProtocol,
         desktop: DesktopProtocol,
-        music: MusicPlayerProtocol,
-        popup: WarningPopupProtocol,
+        music_player: MusicPlayerProtocol,
+        warning_popup: WarningPopupProtocol,
     ) -> None:
-        self.lock_state = lock_state
+        self.lock_state_repository = lock_state_repository
         self.desktop = desktop
-        self.music = music
-        self.popup = popup
+        self.music_player = music_player
+        self.warning_popup = warning_popup
 
     def execute(self) -> bool:
         """Whether the desktop is ready; False while Omarchy's own lock screen is up."""
         if self.desktop.system_lock_active():
             return False
-        self.popup.close()
-        if self.lock_state.desktop_to_restore() is None:
+        self.warning_popup.close()
+        if self.lock_state_repository.desktop_to_restore() is None:
             # Spotify plays at full volume during training; its volume is put back afterwards.
-            volume = self.music.now_playing().volume
-            self.lock_state.set_desktop_to_restore(
+            volume = self.music_player.now_playing().volume
+            self.lock_state_repository.set_desktop_to_restore(
                 {
                     "paused": self.desktop.pause_media(),
                     "stay_awake": self.desktop.idle_stay_awake(),
@@ -254,7 +260,7 @@ class PrepareDesktopForLockService:
                 }
             )
             if volume is not None:
-                self.music.set_volume(FULL_VOLUME)
+                self.music_player.set_volume(FULL_VOLUME)
         self.desktop.set_idle_stay_awake(True)
         return True
 
@@ -264,40 +270,40 @@ class EnterLockService:
 
     def __init__(
         self,
-        runtime: LockRuntimeProtocol,
-        prepare_desktop: PrepareDesktopForLockService,
-        lock_events: LockEventRepositoryProtocol,
-        begin_session: BeginTrainingSessionService,
-        profiles: ProfileRepositoryProtocol,
-        settings: SettingsState,
+        lock_runtime: LockRuntimeProtocol,
+        prepare_desktop_for_lock_service: PrepareDesktopForLockService,
+        lock_event_repository: LockEventRepositoryProtocol,
+        begin_training_session_service: BeginTrainingSessionService,
+        profile_repository: ProfileRepositoryProtocol,
+        settings_state: SettingsState,
     ) -> None:
-        self.runtime = runtime
-        self.prepare_desktop = prepare_desktop
-        self.lock_events = lock_events
-        self.begin_session = begin_session
-        self.profiles = profiles
-        self.settings = settings
+        self.lock_runtime = lock_runtime
+        self.prepare_desktop_for_lock_service = prepare_desktop_for_lock_service
+        self.lock_event_repository = lock_event_repository
+        self.begin_training_session_service = begin_training_session_service
+        self.profile_repository = profile_repository
+        self.settings_state = settings_state
 
     def execute(self, lock: ActiveLock, now: datetime) -> None:
         """Enter the lock, or wait for Omarchy's lock screen to go away; the countdown keeps running."""
-        ready = self.prepare_desktop.execute()
-        self.runtime.waiting_for_omarchy = not ready
+        ready = self.prepare_desktop_for_lock_service.execute()
+        self.lock_runtime.waiting_for_omarchy = not ready
         if not ready:
             return
         log.info("lock begins: %s (%s) until %s", lock.key, lock.kind, lock.window.end.isoformat())
         if not lock.test:
-            self.lock_events.began(lock.key, lock.window.start, lock.window.end, now)
-        self.begin_session.execute(
+            self.lock_event_repository.began(lock.key, lock.window.start, lock.window.end, now)
+        self.begin_training_session_service.execute(
             BeginTrainingSessionCommand(
                 kind=lock.kind,
                 lock_key=lock.key,
                 minutes=(lock.window.end - now).total_seconds() / 60,
-                equipment=equipment_of(self.profiles, self.settings.settings),
+                equipment=equipment_of(self.profile_repository, self.settings_state.settings),
                 mode=lock.mode if lock.mode in ("hard", "recovery") else None,
             ),
             now,
         )  # type: ignore[arg-type]
-        self.runtime.current = lock
+        self.lock_runtime.current = lock
 
 
 def restore_desktop(
@@ -320,32 +326,32 @@ class LeaveLockService:
 
     def __init__(
         self,
-        runtime: LockRuntimeProtocol,
-        lock_events: LockEventRepositoryProtocol,
-        close_session: CloseTrainingSessionService,
-        lock_state: LockStateRepositoryProtocol,
+        lock_runtime: LockRuntimeProtocol,
+        lock_event_repository: LockEventRepositoryProtocol,
+        close_training_session_service: CloseTrainingSessionService,
+        lock_state_repository: LockStateRepositoryProtocol,
         desktop: DesktopProtocol,
-        music: MusicPlayerProtocol,
+        music_player: MusicPlayerProtocol,
     ) -> None:
-        self.runtime = runtime
-        self.lock_events = lock_events
-        self.close_session = close_session
-        self.lock_state = lock_state
+        self.lock_runtime = lock_runtime
+        self.lock_event_repository = lock_event_repository
+        self.close_training_session_service = close_training_session_service
+        self.lock_state_repository = lock_state_repository
         self.desktop = desktop
-        self.music = music
+        self.music_player = music_player
 
     def execute(self, now: datetime) -> None:
         """Leave the lock on screen, if any."""
-        lock = self.runtime.current
-        self.runtime.current = None
+        lock = self.lock_runtime.current
+        self.lock_runtime.current = None
         if lock is None:
             return
-        outcome = self.lock_events.outcome(lock.key)
+        outcome = self.lock_event_repository.outcome(lock.key)
         log.info("lock ends: %s (outcome %s)", lock.key, outcome or "expired")
-        self.close_session.execute("overridden" if outcome == "override" else "abandoned", now)
+        self.close_training_session_service.execute("overridden" if outcome == "override" else "abandoned", now)
         if not lock.test:
-            self.lock_events.ended(lock.key, "expired", now)  # no-op if already ended early
-        restore_desktop(self.lock_state, self.desktop, self.music)
+            self.lock_event_repository.ended(lock.key, "expired", now)  # no-op if already ended early
+        restore_desktop(self.lock_state_repository, self.desktop, self.music_player)
 
 
 class SwitchLockService:
@@ -353,24 +359,24 @@ class SwitchLockService:
 
     def __init__(
         self,
-        runtime: LockRuntimeProtocol,
-        enter: EnterLockService,
-        leave: LeaveLockService,
+        lock_runtime: LockRuntimeProtocol,
+        enter_lock_service: EnterLockService,
+        leave_lock_service: LeaveLockService,
         lock_screen: LockScreenProtocol,
     ) -> None:
-        self.runtime = runtime
-        self.enter = enter
-        self.leave = leave
+        self.lock_runtime = lock_runtime
+        self.enter_lock_service = enter_lock_service
+        self.leave_lock_service = leave_lock_service
         self.lock_screen = lock_screen
 
     def execute(self, wanted: ActiveLock | None, now: datetime) -> None:
         """Switch locks, and show the lock screen again if it closed while a lock is on."""
-        current = self.runtime.current
+        current = self.lock_runtime.current
         if current and (wanted is None or wanted.key != current.key):
-            self.leave.execute(now)
-        if wanted and self.runtime.current is None:
-            self.enter.execute(wanted, now)
-        if self.runtime.current:
+            self.leave_lock_service.execute(now)
+        if wanted and self.lock_runtime.current is None:
+            self.enter_lock_service.execute(wanted, now)
+        if self.lock_runtime.current:
             self.lock_screen.ensure_shown()
 
 
@@ -379,23 +385,23 @@ class RunLockTickService:
 
     def __init__(
         self,
-        settle_override: SettleOverrideService,
-        schedule: GetScheduleDecisionService,
-        choose_lock: ChooseLockService,
-        warn: WarnOfNextLockService,
-        switch_lock: SwitchLockService,
+        settle_override_service: SettleOverrideService,
+        get_schedule_decision_service: GetScheduleDecisionService,
+        choose_lock_service: ChooseLockService,
+        warn_of_next_lock_service: WarnOfNextLockService,
+        switch_lock_service: SwitchLockService,
     ) -> None:
-        self.settle_override = settle_override
-        self.schedule = schedule
-        self.choose_lock = choose_lock
-        self.warn = warn
-        self.switch_lock = switch_lock
+        self.settle_override_service = settle_override_service
+        self.get_schedule_decision_service = get_schedule_decision_service
+        self.choose_lock_service = choose_lock_service
+        self.warn_of_next_lock_service = warn_of_next_lock_service
+        self.switch_lock_service = switch_lock_service
 
     def execute(self, now: datetime) -> Decision:
         """Run one tick; returns the schedule's decision, for the state file."""
-        self.settle_override.execute(now)
-        decision = self.schedule.execute(now)
-        wanted = self.choose_lock.execute(now, decision)
-        self.warn.execute(decision, wanted)
-        self.switch_lock.execute(wanted, now)
+        self.settle_override_service.execute(now)
+        decision = self.get_schedule_decision_service.execute(now)
+        wanted = self.choose_lock_service.execute(now, decision)
+        self.warn_of_next_lock_service.execute(decision, wanted)
+        self.switch_lock_service.execute(wanted, now)
         return decision

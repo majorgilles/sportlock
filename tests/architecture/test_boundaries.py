@@ -4,6 +4,7 @@ checked on every module's imports (AST, so nothing is executed)."""
 from __future__ import annotations
 
 import ast
+import re
 import sys
 from pathlib import Path
 
@@ -180,3 +181,75 @@ def test_tests__any_module__imports_no_mocks():
     offenders = [str(path) for path in TESTS.rglob("*.py") if _imports_mock(path)]
 
     assert offenders == [], "fake the outside world through its ports (tests/world.py)"
+
+
+def _snake(name: str) -> str:
+    """A type's name as a variable name: WarningPopupProtocol is warning_popup, LingQProtocol is lingq."""
+    name = name.removesuffix("Protocol")
+    return re.sub(r"(?<=[a-z0-9])(?=[A-Z][a-z])|(?<=[A-Z])(?=[A-Z][a-z])", "_", name).lower()
+
+
+def _classes() -> dict[str, ast.ClassDef]:
+    return {
+        node.name: node
+        for _, path in _modules()
+        for node in ast.walk(ast.parse(path.read_text()))
+        if isinstance(node, ast.ClassDef)
+    }
+
+
+def _own_type(annotation: ast.expr | None, classes: dict[str, ast.ClassDef]) -> str | None:
+    text = ast.unparse(annotation).replace(" | None", "").strip("'\"") if annotation else ""
+    return text if text in classes else None
+
+
+def _names_for(class_name: str, classes: dict[str, ast.ClassDef]) -> set[str]:
+    """The class's own name and the ports it implements, as variable names."""
+    bases = [ast.unparse(base) for base in classes[class_name].bases]
+    return {_snake(class_name)} | {_snake(base) for base in bases if base.endswith("Protocol")}
+
+
+def _built_class(value: ast.expr, classes: dict[str, ast.ClassDef]) -> str | None:
+    if isinstance(value, ast.BoolOp):
+        value = value.values[-1]
+    if isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id in classes:
+        return value.func.id
+    return None
+
+
+def _naming_problems(cls: ast.ClassDef, classes: dict[str, ast.ClassDef]) -> list[str]:
+    problems = []
+    for function in [node for node in cls.body if isinstance(node, ast.FunctionDef)]:
+        if function.name == "__init__":
+            for argument in function.args.args[1:] + function.args.kwonlyargs:
+                kind = _own_type(argument.annotation, classes)
+                if kind and not argument.arg.endswith(_snake(kind)):
+                    problems.append(f"{cls.name}({argument.arg}: {kind}) should be named {_snake(kind)}")
+        if any(ast.unparse(decorator).endswith("cached_property") for decorator in function.decorator_list):
+            kind = _own_type(function.returns, classes)
+            if kind and not any(function.name.endswith(name) for name in _names_for(kind, classes)):
+                problems.append(
+                    f"{cls.name}.{function.name} -> {kind} should end with one of {sorted(_names_for(kind, classes))}"
+                )
+        for node in ast.walk(function):
+            target = node.targets[0] if isinstance(node, ast.Assign) and len(node.targets) == 1 else None
+            if not (isinstance(target, ast.Attribute) and ast.unparse(target.value) == "self"):
+                continue
+            kind = _built_class(node.value, classes)
+            if (
+                kind
+                and not target.attr.startswith("_")
+                and not any(target.attr.endswith(name) for name in _names_for(kind, classes))
+            ):
+                problems.append(
+                    f"{cls.name}.{target.attr} = {kind}(...) should end with one of {sorted(_names_for(kind, classes))}"
+                )
+    return problems
+
+
+def test_dependencies__constructor_parameters_and_attributes__are_named_after_their_type():
+    classes = _classes()
+
+    problems = [problem for cls in classes.values() for problem in _naming_problems(cls, classes)]
+
+    assert problems == [], "see 'Names say the type' in ~/.agents/AGENTS.md"

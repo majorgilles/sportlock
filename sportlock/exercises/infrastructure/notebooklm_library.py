@@ -100,7 +100,7 @@ class NotebookLMLibraryBuilder:
         self.root = root
         self.notebook_id = notebook_id
         self.seed = {e.id: _spec(e) for e in catalogue.all()}
-        self.details = FileExerciseDetailsRepository(root)
+        self.exercise_details_repository = FileExerciseDetailsRepository(root)
 
     def get(self, exercise_id: str) -> dict:
         """The seed spec merged with the built entry (for `library show` and infographics)."""

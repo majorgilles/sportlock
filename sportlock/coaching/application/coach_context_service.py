@@ -25,22 +25,22 @@ class RecallCoachMemoryService:
 
     def __init__(
         self,
-        memory: CoachMemoryRepositoryProtocol,
-        answers: ReplacementAnswerRepositoryProtocol,
+        coach_memory_repository: CoachMemoryRepositoryProtocol,
+        replacement_answer_repository: ReplacementAnswerRepositoryProtocol,
         catalogue: Catalogue,
     ) -> None:
-        self.memory = memory
-        self.answers = answers
+        self.coach_memory_repository = coach_memory_repository
+        self.replacement_answer_repository = replacement_answer_repository
         self.catalogue = catalogue
 
     def execute(self) -> dict:
         """The memory part of the coach's context."""
-        memory = self.memory.load()
+        memory = self.coach_memory_repository.load()
         return {
             "coach_memory": [
                 {"id": n.id, "topic": n.topic, "note": n.text, "since": n.since.isoformat()} for n in memory.current()
             ],
-            "forgotten_by_user": self.memory.forgotten(FORGOTTEN_SHOWN),
+            "forgotten_by_user": self.coach_memory_repository.forgotten(FORGOTTEN_SHOWN),
             "answers_to_replacements": [
                 {
                     "on": a.answered_at[:10],
@@ -50,7 +50,7 @@ class RecallCoachMemoryService:
                     "answer": "agreed" if a.agreed else "kept the replaced exercise",
                     **({"note": a.note} if a.note else {}),
                 }
-                for a in self.answers.recent(ANSWERS_SHOWN)
+                for a in self.replacement_answer_repository.recent(ANSWERS_SHOWN)
             ],
         }
 
@@ -60,23 +60,23 @@ class BuildCoachContextService:
 
     def __init__(
         self,
-        profiles: ProfileRepositoryProtocol,
-        ladders: LadderRepositoryProtocol,
-        history: TrainingHistoryProtocol,
-        lock_events: LockEventRepositoryProtocol,
+        profile_repository: ProfileRepositoryProtocol,
+        ladder_repository: LadderRepositoryProtocol,
+        training_history: TrainingHistoryProtocol,
+        lock_event_repository: LockEventRepositoryProtocol,
         catalogue: Catalogue,
-        recall_memory: RecallCoachMemoryService,
+        recall_coach_memory_service: RecallCoachMemoryService,
     ) -> None:
-        self.profiles = profiles
-        self.ladders = ladders
-        self.history = history
-        self.lock_events = lock_events
+        self.profile_repository = profile_repository
+        self.ladder_repository = ladder_repository
+        self.training_history = training_history
+        self.lock_event_repository = lock_event_repository
         self.catalogue = catalogue
-        self.recall_memory = recall_memory
+        self.recall_coach_memory_service = recall_coach_memory_service
 
     def _ladders(self) -> list[dict]:
         ladders = []
-        for position in positions(self.ladders.saved()):
+        for position in positions(self.ladder_repository.saved()):
             exercise = self.catalogue.get(position.exercise)
             ladders.append(
                 {
@@ -107,22 +107,22 @@ class BuildCoachContextService:
 
     def execute(self, now: datetime, command: RunCoachCommand) -> dict:
         """The coach's context at this time."""
-        profile = self.profiles.get()
+        profile = self.profile_repository.get()
         ladders = self._ladders()
-        recent = self.history.recent_details((now - timedelta(days=HISTORY_DAYS)).date(), HISTORY_SESSIONS)
-        proposals = self.ladders.moves_for(self.history.last_counted_id() or 0) if recent else []
-        week = self.history.credited_since(now - timedelta(days=7))
+        recent = self.training_history.recent_details((now - timedelta(days=HISTORY_DAYS)).date(), HISTORY_SESSIONS)
+        proposals = self.ladder_repository.moves_for(self.training_history.last_counted_id() or 0) if recent else []
+        week = self.training_history.credited_since(now - timedelta(days=7))
         catalogue = self._catalogue(command.equipment)
-        last_hard = self.history.last_hard()
+        last_hard = self.training_history.last_hard()
         return {
             "now": iso(now),
             "profile": {k: v for k, v in profile.to_dict().items() if k != "updated_at"} if profile else {},
-            **self.recall_memory.execute(),
+            **self.recall_coach_memory_service.execute(),
             "equipment": sorted(command.equipment),
             "last_hard_session": iso(last_hard) if last_hard else None,
             "ladders": ladders,
             "rule_proposals_from_last_session": proposals,
-            "load": load_summary(week, rest_days_in_a_row(self.lock_events.rest_days(), now.date()), now),
+            "load": load_summary(week, rest_days_in_a_row(self.lock_event_repository.rest_days(), now.date()), now),
             "upcoming_locks": list(command.upcoming_locks),
             "rest_policy": command.rest_policy,
             "recent_sessions": recent,

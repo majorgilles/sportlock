@@ -10,7 +10,7 @@ HOUSE = frozenset({"chair", "table", "bench", "doorway"})
 
 
 def _ladder(world, chain):
-    return {p.chain: p for p in positions(world.c.ladders.saved())}[chain]
+    return {p.chain: p for p in positions(world.container.ladder_repository.saved())}[chain]
 
 
 def _do_set(world, seconds, reps=None):
@@ -26,7 +26,7 @@ def _session_with_push(world, push_reps, push_rpe):
     world.at("18:00")
     _do_set(world, 300)
     assert world.train("rate", rpe=3)["ok"]
-    for _ in range(world.c.sessions.active().exercises[1].target.sets):
+    for _ in range(world.container.training_session_repository.active().exercises[1].target.sets):
         _do_set(world, 30, push_reps)
     assert world.train("rate", rpe=push_rpe)["ok"]
     return world.finish_session()
@@ -39,7 +39,7 @@ def test_finish__easy_push_ups__ladder_moves_up_and_the_next_plan_uses_it(world)
     position = _ladder(world, "push-horizontal")
     assert position.exercise == "knee-push-up" and "Knee push-up" in position.reason
     world.clock.time += timedelta(days=3)
-    session = world.c.begin_session.execute(
+    session = world.container.begin_training_session_service.execute(
         BeginTrainingSessionCommand(kind="manual", lock_key=None, minutes=60, equipment=HOUSE), world.clock.time
     )
     [push] = [e for e in session.exercises if e.exercise == "knee-push-up"]
@@ -52,7 +52,7 @@ def test_swap_easier__during_a_session__ladder_moves_down_as_too_hard(world):
     assert world.train("swap_easier")["ok"]
     assert world.finish_session()["ok"]
     assert _ladder(world, "push-horizontal").exercise == "wall-push-up"
-    assert world.c.database.execute("SELECT rule FROM proposals").fetchone()[0] == "too-hard"
+    assert world.container.database.execute("SELECT rule FROM proposals").fetchone()[0] == "too-hard"
 
 
 def test_test_session__finished__ladders_untouched(world):
@@ -67,22 +67,22 @@ def test_test_session__finished__ladders_untouched(world):
 
 def test_close__time_runs_out_in_the_cool_down__counts_as_a_session(world):
     world.at("18:00")
-    session = world.c.sessions.active()
+    session = world.container.training_session_repository.active()
     for exercise in session.exercises[:-1]:
         for _ in range(exercise.target.sets):
             _do_set(world, 20, 10 if exercise.kind == "reps" else None)
         assert world.train("rate", rpe=6)["ok"]
     world.at("18:30")
-    status, notes = world.c.database.execute("SELECT status, notes FROM sessions").fetchone()
+    status, notes = world.container.database.execute("SELECT status, notes FROM sessions").fetchone()
     assert status == "finished" and "main work" in notes
-    assert world.clock.time.date() in world.c.history.trained_days()
+    assert world.clock.time.date() in world.container.training_history.trained_days()
 
 
 def test_close__main_work_skipped__does_not_count(world):
     world.at("18:00")
     assert world.train("skip", reason="shoulder")["ok"]
     world.at("18:30")
-    assert world.c.database.execute("SELECT status FROM sessions").fetchone()[0] == "abandoned"
+    assert world.container.database.execute("SELECT status FROM sessions").fetchone()[0] == "abandoned"
 
 
 def test_snapshot__running_set__phase_timer_and_exercise_details(world):
@@ -97,9 +97,9 @@ def test_snapshot__running_set__phase_timer_and_exercise_details(world):
 
 def test_snapshot__exercises_on_both_sides__sides_shown(world):
     world.at("18:00")
-    session = world.c.sessions.active()
+    session = world.container.training_session_repository.active()
     session.exercises[1].target = session.exercises[1].target.with_(sides="each")
-    world.c.sessions.save(session)
+    world.container.training_session_repository.save(session)
     exercises = world.at("18:01")["training"]["exercises"]
     assert exercises[1]["target"]["sides"] == "each"
 
@@ -118,7 +118,7 @@ def test_session__service_restarted__resumes(world, tmp_path, catalogue):
         library_dir=tmp_path / "library",
         desktop=world.desktop,
         lock_screen=world.lock_screen,
-        popup=world.popup,
+        warning_popup=world.popup,
         coach=world.coach,
         clock=world.clock,
         catalogue=catalogue,

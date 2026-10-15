@@ -12,16 +12,16 @@ from tests.world import GOOD_PLAN, item
 
 def _run(world, output=None):
     world.coach.output = copy.deepcopy(output if output is not None else GOOD_PLAN)
-    return world.c.run_coach.execute(world.daemon.coach_command(world.clock.time))
+    return world.container.run_coach_service.execute(world.daemon.coach_command(world.clock.time))
 
 
 def test_run_coach__good_answer__plan_stored_fresh_and_announced(world):
-    assert world.c.freshness.needs_run()
+    assert world.container.coach_plan_freshness.needs_run()
     plan = _run(world)
-    assert not world.c.freshness.needs_run()
-    assert world.c.freshness.fresh_plan().rationale == GOOD_PLAN["rationale"]
+    assert not world.container.coach_plan_freshness.needs_run()
+    assert world.container.coach_plan_freshness.fresh_plan().rationale == GOOD_PLAN["rationale"]
     assert plan.hard.items[3].target.seconds == 40
-    assert world.c.coach_runs.recent(1)[0].ok
+    assert world.container.coach_run_log.recent(1)[0].ok
     assert "Next session planned" in world.desktop.notifications
 
 
@@ -30,20 +30,20 @@ def test_run_coach__bad_answer__rejected_and_logged(world):
     output["hard"]["exercises"][1] = item("burpee-deluxe", 3, (8, 12))
     with pytest.raises(CoachOutputError):
         _run(world, output)
-    assert world.c.freshness.fresh_plan() is None
-    assert not world.c.coach_runs.recent(1)[0].ok
+    assert world.container.coach_plan_freshness.fresh_plan() is None
+    assert not world.container.coach_run_log.recent(1)[0].ok
 
 
 def test_run_coach__coach_unavailable__logged(world):
     world.coach.output = None
     with pytest.raises(CoachUnavailableError):
-        world.c.run_coach.execute(world.daemon.coach_command(world.clock.time))
-    assert world.c.coach_runs.recent(1)[0].error == "no answer prepared"
+        world.container.run_coach_service.execute(world.daemon.coach_command(world.clock.time))
+    assert world.container.coach_run_log.recent(1)[0].error == "no answer prepared"
 
 
 def test_run_coach__recommendations__answer_the_last_session_and_are_notified(world):
     world.add_session(world.clock.time - timedelta(hours=20))
-    session_id = world.c.history.last_counted_id()
+    session_id = world.container.training_history.last_counted_id()
     plan = _run(world, {**GOOD_PLAN, "recommendations": [{"about": "Push-ups too easy", "advice": "Use a desk."}]})
     assert plan.feedback_session == session_id
     assert "Coach's feedback on your session" in world.desktop.notifications
@@ -53,12 +53,14 @@ def test_run_coach__recommendations__answer_the_last_session_and_are_notified(wo
 def test_fresh_plan__after_a_new_session__stale(world):
     _run(world)
     world.add_session(world.clock.time)
-    assert world.c.freshness.fresh_plan() is None and world.c.freshness.needs_run()
+    assert (
+        world.container.coach_plan_freshness.fresh_plan() is None and world.container.coach_plan_freshness.needs_run()
+    )
 
 
 def test_run_coach__override__moves_the_ladder_and_marks_the_rule_move(world):
     # given: the rules moved the squat up after the last session
-    world.c.database.execute(
+    world.container.database.execute(
         "INSERT INTO proposals (session_id, chain, rule, from_exercise, from_target, to_exercise, to_target, reason,"
         " status, decided_by, created_at) VALUES (1, 'squat', 'up', 'bodyweight-squat', '{}', 'split-squat', '{}',"
         " 'top of range', 'applied', 'rules', '2026-10-05T17:00:00')"
@@ -70,9 +72,11 @@ def test_run_coach__override__moves_the_ladder_and_marks_the_rule_move(world):
     # when
     _run(world, output)
     # then
-    squat = {p.chain: p for p in positions(world.c.ladders.saved())}["squat"]
+    squat = {p.chain: p for p in positions(world.container.ladder_repository.saved())}["squat"]
     assert (squat.exercise, squat.reason) == ("bodyweight-squat", "Coach: Knee pain in notes")
-    rows = world.c.database.execute("SELECT status, decided_by, override_reason FROM proposals ORDER BY id").fetchall()
+    rows = world.container.database.execute(
+        "SELECT status, decided_by, override_reason FROM proposals ORDER BY id"
+    ).fetchall()
     assert [tuple(r) for r in rows] == [("overridden", "rules", "Knee pain in notes"), ("applied", "agent", None)]
 
 

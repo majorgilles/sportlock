@@ -37,16 +37,16 @@ class BuildCalendarService:
 
     def __init__(
         self,
-        history: TrainingHistoryProtocol,
-        lock_events: LockEventRepositoryProtocol,
-        lock_state: LockStateRepositoryProtocol,
-        freshness: CoachPlanFreshness,
+        training_history: TrainingHistoryProtocol,
+        lock_event_repository: LockEventRepositoryProtocol,
+        lock_state_repository: LockStateRepositoryProtocol,
+        coach_plan_freshness: CoachPlanFreshness,
         catalogue: Catalogue,
     ) -> None:
-        self.history = history
-        self.lock_events = lock_events
-        self.lock_state = lock_state
-        self.freshness = freshness
+        self.training_history = training_history
+        self.lock_event_repository = lock_event_repository
+        self.lock_state_repository = lock_state_repository
+        self.coach_plan_freshness = coach_plan_freshness
         self.catalogue = catalogue
 
     def execute(self, settings: Settings, now: datetime, *, days_back: int = 14, days_ahead: int = 14) -> dict:
@@ -58,21 +58,21 @@ class BuildCalendarService:
         last += timedelta(days=6 - last.weekday())
         days = _empty_days(first, last, today)
 
-        coach = self.freshness.fresh_plan()
-        plans = self.lock_state.plans()
+        coach = self.coach_plan_freshness.fresh_plan()
+        plans = self.lock_state_repository.plans()
         self._add_sessions(days, first, last, coach)
         self._add_lock_outcomes(days, first, last, plans)
         self._add_upcoming_locks(days, settings, now, coach, plans)
 
-        week = self.history.credited_since(now - timedelta(days=7))
+        week = self.training_history.credited_since(now - timedelta(days=7))
         return {
             "today": today.isoformat(),
             "days": list(days.values()),
-            "load": load_summary(week, rest_days_in_a_row(self.lock_events.rest_days(), today), now),
+            "load": load_summary(week, rest_days_in_a_row(self.lock_event_repository.rest_days(), today), now),
         }
 
     def _add_sessions(self, days: dict[str, dict], first: date, last: date, coach: CoachPlan | None) -> None:
-        for s in self.history.between(first, last):
+        for s in self.training_history.between(first, last):
             started = s["started_at"] and datetime.fromisoformat(s["started_at"])
             finished = datetime.fromisoformat(s["finished_at"])
             days[s["day"]]["sessions"].append(
@@ -95,7 +95,7 @@ class BuildCalendarService:
             )
 
     def _add_lock_outcomes(self, days: dict[str, dict], first: date, last: date, plans: dict) -> None:
-        for event in self.lock_events.between(first, last):
+        for event in self.lock_event_repository.between(first, last):
             key_day = event["start"][:10]
             if key_day in days and event["outcome"] in ("rest", "override", "expired"):
                 plan = plans.get(event["key"])
@@ -107,7 +107,7 @@ class BuildCalendarService:
         self, days: dict[str, dict], settings: Settings, now: datetime, coach: CoachPlan | None, plans: dict
     ) -> None:
         last = date.fromisoformat(next(reversed(days)))
-        trained, ended = self.history.trained_days(), self.lock_events.ended_early()
+        trained, ended = self.training_history.trained_days(), self.lock_event_repository.ended_early()
         advice = CoachAdvice(**coach.next_lock.model_dump()) if coach else None
         next_done = False
         day = now.date()
@@ -157,10 +157,10 @@ class BuildCalendarService:
 
     def _state(self, at: datetime) -> RecoveryState:
         return RecoveryState(
-            last_credited=self.history.last_credited(),
-            last_hard=self.history.last_hard(),
-            sessions_last_7_days=len(self.history.credited_since(at - timedelta(days=7))),
-            rest_days_in_a_row=rest_days_in_a_row(self.lock_events.rest_days(), at.date()),
+            last_credited=self.training_history.last_credited(),
+            last_hard=self.training_history.last_hard(),
+            sessions_last_7_days=len(self.training_history.credited_since(at - timedelta(days=7))),
+            rest_days_in_a_row=rest_days_in_a_row(self.lock_event_repository.rest_days(), at.date()),
         )
 
     def _planned(self, item: PlannedExercise) -> dict:

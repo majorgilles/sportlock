@@ -22,8 +22,8 @@ def test_tick__scheduled_lock__warns_locks_then_expires_and_restores(world):
 
     assert not world.at("18:30")["locked"]
     assert world.desktop.playing == ["org.mpris.MediaPlayer2.spotify"] and not world.desktop.stay_awake
-    assert world.c.lock_events.recent(1)[0]["outcome"] == "expired"
-    assert world.c.database.execute("SELECT status FROM sessions").fetchone()[0] == "abandoned"
+    assert world.container.lock_event_repository.recent(1)[0]["outcome"] == "expired"
+    assert world.container.database.execute("SELECT status FROM sessions").fetchone()[0] == "abandoned"
 
 
 def test_train__actions_over_the_socket__follow_the_session_phases(world):
@@ -42,7 +42,7 @@ def test_finish__a_session__unlocks_counts_and_says_what_changes(world):
     assert world.finish_session()["ok"]
     assert not world.at("18:06")["locked"]
     assert world.daemon.state["trained_today"]
-    assert world.c.lock_events.recent(1)[0]["outcome"] == "completed"
+    assert world.container.lock_event_repository.recent(1)[0]["outcome"] == "completed"
     assert "Session done ✓" in world.desktop.notifications
 
 
@@ -52,9 +52,9 @@ def test_override__phrase_typed_exactly__ends_the_lock_after_the_countdown(world
     assert world.cmd(cmd="override", phrase="i am choosing  to skip my training TODAY")["ok"]
     assert world.at("18:04")["locked"]
     assert not world.at("18:05")["locked"]
-    assert world.c.lock_events.recent(1)[0]["outcome"] == "override"
+    assert world.container.lock_event_repository.recent(1)[0]["outcome"] == "override"
     assert not world.at("18:10")["locked"]  # stays ended
-    assert world.c.database.execute("SELECT status FROM sessions").fetchone()[0] == "overridden"
+    assert world.container.database.execute("SELECT status FROM sessions").fetchone()[0] == "overridden"
 
 
 def test_cancel_override__during_the_countdown__keeps_the_lock(world):
@@ -85,7 +85,7 @@ def test_settings__changed_during_a_lock__applied_after_it(world):
     state = world.at("18:10")
     assert state["locked"] and state["config_pending"]
     world.at("18:30")
-    assert not world.c.settings.pending and world.c.settings.settings.locks[0].minutes == 5
+    assert not world.container.settings_state.pending and world.container.settings_state.settings.locks[0].minutes == 5
 
 
 def test_test_lock__one_minute__not_overridable_and_never_counts(world):
@@ -128,14 +128,14 @@ def test_settings_save__from_the_app__applied_or_waiting_for_the_lock(world):
     settings["locks"].append({"days": ["mon"], "at": "07:00", "minutes": 15})
     world.at("12:00")
     assert world.cmd(cmd="settings-save", settings=settings) == {"ok": True, "pending": False}
-    assert len(world.c.settings.settings.locks) == 2
+    assert len(world.container.settings_state.settings.locks) == 2
 
     world.at("18:05")  # locked: a change now waits
     settings["locks"] = settings["locks"][:1]
     assert world.cmd(cmd="settings-save", settings=settings)["pending"]
-    assert len(world.c.settings.settings.locks) == 2
+    assert len(world.container.settings_state.settings.locks) == 2
     world.at("18:30")
-    assert len(world.c.settings.settings.locks) == 1
+    assert len(world.container.settings_state.settings.locks) == 1
 
 
 def test_tick__hard_session_yesterday__shorter_recovery_lock_that_does_not_relock(world):
@@ -152,13 +152,13 @@ def test_tick__coach_advises_rest_and_guardrails_allow__no_lock(world):
     for hours in (20, 70, 120):
         world.add_session(world.clock.time - timedelta(hours=hours))
     world.coach.output = {**GOAL_REST}
-    world.c.run_coach.execute(world.daemon.coach_command(world.clock.time))
+    world.container.run_coach_service.execute(world.daemon.coach_command(world.clock.time))
     # when
     world.at("17:50")  # decided 10 minutes before
     # then
     assert "Rest day: no lock at 18:00" in world.desktop.notifications
     assert not world.at("18:00")["locked"] and not world.at("18:10")["locked"]
-    assert world.c.lock_events.recent(1)[0]["outcome"] == "rest"
+    assert world.container.lock_event_repository.recent(1)[0]["outcome"] == "rest"
     assert "Training lock at 18:00" not in world.desktop.notifications
 
 
@@ -181,7 +181,7 @@ def test_tick__popup_off_in_settings__notification_only(tmp_path, catalogue):
 
 def test_tick__warning_popup__shows_the_coach_tips(world):
     world.coach.output = {**GOOD_PLAN, "recommendations": [{"about": "Push-ups too easy", "advice": "Use a desk."}]}
-    world.c.run_coach.execute(world.daemon.coach_command(world.clock.time))
+    world.container.run_coach_service.execute(world.daemon.coach_command(world.clock.time))
     world.at("17:50")
     [popup] = world.popup.shown
     assert popup["recommendations"] == [{"about": "Push-ups too easy", "advice": "Use a desk."}]

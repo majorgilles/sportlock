@@ -23,31 +23,31 @@ class ControlMusicCommand(ValueObject):
 class ControlMusicService:
     """Play, pause, skip, set the volume, or start a playlist; starts Spotify (at full volume) when it isn't running."""
 
-    def __init__(self, player: MusicPlayerProtocol) -> None:
-        self.player = player
+    def __init__(self, music_player: MusicPlayerProtocol) -> None:
+        self.music_player = music_player
 
     def execute(self, command: ControlMusicCommand) -> None:
         """Raises MusicError for a bad link, or a skip while Spotify isn't running."""
-        running = self.player.now_playing().running
+        running = self.music_player.now_playing().running
         if command.action == "play":
             uri = spotify_uri(command.link)
             if running:
-                self.player.open(uri)
+                self.music_player.open(uri)
             else:
-                self.player.launch(uri)
+                self.music_player.launch(uri)
         elif command.action == "toggle":
             if running:
-                self.player.toggle()
+                self.music_player.toggle()
             else:
-                self.player.launch()
+                self.music_player.launch()
         elif not running:
             raise MusicError("Spotify isn't running")
         elif command.action == "volume":
-            self.player.set_volume(command.volume)
+            self.music_player.set_volume(command.volume)
         elif command.action == "next":
-            self.player.next()
+            self.music_player.next()
         else:
-            self.player.previous()
+            self.music_player.previous()
 
 
 class MusicSnapshotService:
@@ -56,10 +56,12 @@ class MusicSnapshotService:
     The player, the favorites from the settings, and the playlists in the user's Spotify account.
     """
 
-    def __init__(self, player: MusicPlayerProtocol, library: MusicLibraryProtocol, settings: SettingsState) -> None:
-        self.player = player
-        self.library = library
-        self.settings = settings
+    def __init__(
+        self, music_player: MusicPlayerProtocol, music_library: MusicLibraryProtocol, settings_state: SettingsState
+    ) -> None:
+        self.music_player = music_player
+        self.music_library = music_library
+        self.settings_state = settings_state
 
     def execute(self) -> dict:
         """The music panel's data.
@@ -67,7 +69,7 @@ class MusicSnapshotService:
         Shaped {"player": {...}, "playlists": [favorites], "library": {"connected", "loading", "error", "playlists"}}.
         """
         return {
-            "player": self.player.now_playing().model_dump(),
-            "playlists": [p.model_dump() for p in self.settings.settings.music_playlists],
-            "library": self.library.library().model_dump(mode="json"),
+            "player": self.music_player.now_playing().model_dump(),
+            "playlists": [p.model_dump() for p in self.settings_state.settings.music_playlists],
+            "library": self.music_library.library().model_dump(mode="json"),
         }

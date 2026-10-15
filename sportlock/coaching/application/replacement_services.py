@@ -23,24 +23,24 @@ class PendingReplacementsService:
 
     def __init__(
         self,
-        history: TrainingHistoryProtocol,
-        ladders: LadderRepositoryProtocol,
-        answers: ReplacementAnswerRepositoryProtocol,
+        training_history: TrainingHistoryProtocol,
+        ladder_repository: LadderRepositoryProtocol,
+        replacement_answer_repository: ReplacementAnswerRepositoryProtocol,
         catalogue: Catalogue,
     ) -> None:
-        self.history = history
-        self.ladders = ladders
-        self.answers = answers
+        self.training_history = training_history
+        self.ladder_repository = ladder_repository
+        self.replacement_answer_repository = replacement_answer_repository
         self.catalogue = catalogue
 
     def execute(self) -> list[Replacement]:
         """Oldest chain first; [] before the first session."""
-        session_id = self.history.last_counted_id()
+        session_id = self.training_history.last_counted_id()
         if session_id is None:
             return []
-        current = {p.chain: p.exercise for p in positions(self.ladders.saved())}
-        answered = self.answers.answered(session_id)
-        found = replacements_after(session_id, self.ladders.moves_for(session_id), current, self.catalogue)
+        current = {p.chain: p.exercise for p in positions(self.ladder_repository.saved())}
+        answered = self.replacement_answer_repository.answered(session_id)
+        found = replacements_after(session_id, self.ladder_repository.moves_for(session_id), current, self.catalogue)
         return [r for r in found if r.chain not in answered]
 
 
@@ -57,16 +57,16 @@ class KeepReplacedExerciseService:
 
     def __init__(
         self,
-        ladders: LadderRepositoryProtocol,
-        plans: CoachPlanRepositoryProtocol,
-        freshness: CoachPlanFreshness,
-        sessions: TrainingSessionRepositoryProtocol,
+        ladder_repository: LadderRepositoryProtocol,
+        coach_plan_repository: CoachPlanRepositoryProtocol,
+        coach_plan_freshness: CoachPlanFreshness,
+        training_session_repository: TrainingSessionRepositoryProtocol,
         catalogue: Catalogue,
     ) -> None:
-        self.ladders = ladders
-        self.plans = plans
-        self.freshness = freshness
-        self.sessions = sessions
+        self.ladder_repository = ladder_repository
+        self.coach_plan_repository = coach_plan_repository
+        self.coach_plan_freshness = coach_plan_freshness
+        self.training_session_repository = training_session_repository
         self.catalogue = catalogue
 
     def execute(self, replacement: Replacement, answer: ReplacementAnswer, now: datetime) -> None:
@@ -75,8 +75,8 @@ class KeepReplacedExerciseService:
             f": {answer.note}" if answer.note else "."
         )
         target = replacement.from_target.with_(progress=None)
-        current = {p.chain: p for p in positions(self.ladders.saved())}[replacement.chain]
-        self.ladders.record_move(
+        current = {p.chain: p for p in positions(self.ladder_repository.saved())}[replacement.chain]
+        self.ladder_repository.record_move(
             replacement.session_id,
             LadderMove(
                 chain=replacement.chain,
@@ -88,18 +88,20 @@ class KeepReplacedExerciseService:
             decided_by="athlete",
             now=now,
         )
-        self.ladders.set(
+        self.ladder_repository.set(
             LadderPosition(chain=replacement.chain, exercise=replacement.from_exercise, target=target, reason=reason),
             now,
         )
-        plan = self.freshness.fresh_plan()
+        plan = self.coach_plan_freshness.fresh_plan()
         if plan is not None:  # still fresh afterwards: its basis doesn't change
-            self.plans.save(plan.keeping(replacement.to_exercise, replacement.from_exercise, target, reason))
-        session = self.sessions.active()
+            self.coach_plan_repository.save(
+                plan.keeping(replacement.to_exercise, replacement.from_exercise, target, reason)
+            )
+        session = self.training_session_repository.active()
         if session is not None and session.keep_instead(
             replacement.to_exercise, replacement.from_exercise, target.with_(progress=reason), self.catalogue
         ):
-            self.sessions.save(session)
+            self.training_session_repository.save(session)
 
 
 class AnswerReplacementService:
@@ -107,21 +109,21 @@ class AnswerReplacementService:
 
     def __init__(
         self,
-        pending: PendingReplacementsService,
-        answers: ReplacementAnswerRepositoryProtocol,
-        keep: KeepReplacedExerciseService,
+        pending_replacements_service: PendingReplacementsService,
+        replacement_answer_repository: ReplacementAnswerRepositoryProtocol,
+        keep_replaced_exercise_service: KeepReplacedExerciseService,
     ) -> None:
-        self.pending = pending
-        self.answers = answers
-        self.keep = keep
+        self.pending_replacements_service = pending_replacements_service
+        self.replacement_answer_repository = replacement_answer_repository
+        self.keep_replaced_exercise_service = keep_replaced_exercise_service
 
     def execute(self, command: AnswerReplacementCommand, now: datetime) -> Replacement:
         """The replacement answered. Raises ReplacementError when there is none on that chain."""
-        replacement = next((r for r in self.pending.execute() if r.chain == command.chain), None)
+        replacement = next((r for r in self.pending_replacements_service.execute() if r.chain == command.chain), None)
         if replacement is None:
             raise ReplacementError("no replaced exercise to answer on that chain")
         answer = ReplacementAnswer.to(replacement, agreed=command.agree, note=command.note, answered_at=iso(now))
-        self.answers.add(answer)
+        self.replacement_answer_repository.add(answer)
         if not command.agree:
-            self.keep.execute(replacement, answer, now)
+            self.keep_replaced_exercise_service.execute(replacement, answer, now)
         return replacement

@@ -127,7 +127,7 @@ class Container:
         state_path: Path | None = None,
         desktop: DesktopProtocol | None = None,
         lock_screen: LockScreenProtocol | None = None,
-        popup: WarningPopupProtocol | None = None,
+        warning_popup: WarningPopupProtocol | None = None,
         coach: CoachProtocol | None = None,
         clock: ClockProtocol | None = None,
         catalogue: Catalogue | None = None,
@@ -139,14 +139,14 @@ class Container:
         self.desktop = desktop or OmarchyDesktop()
         self.database = Database(db_path)
         self.catalogue = catalogue or load_catalogue()
-        self.details = FileExerciseDetailsRepository(library_dir)
+        self.exercise_details_repository = FileExerciseDetailsRepository(library_dir)
 
         self._build_settings(config_path)
         self._build_repositories()
         self._build_adapters(
             state_path=state_path,
             lock_screen=lock_screen,
-            popup=popup,
+            popup=warning_popup,
             coach=coach,
             music_player=music_player,
             music_library=music_library,
@@ -158,27 +158,31 @@ class Container:
         self._build_music_services()
 
     def _build_settings(self, config_path: Path) -> None:
-        self.settings = SettingsState()
+        self.settings_state = SettingsState()
         self.settings_repository = TomlSettingsRepository(config_path)
-        self.reload_settings = ReloadSettingsService(self.settings, self.settings_repository, self.desktop)
-        self.reload_settings.execute(decision=None, now=self.clock.now(), force=True)
-        self.get_settings = GetSettingsService(self.settings, self.settings_repository)
-        self.save_settings = SaveSettingsService(self.settings, self.settings_repository, self.reload_settings)
+        self.reload_settings_service = ReloadSettingsService(
+            self.settings_state, self.settings_repository, self.desktop
+        )
+        self.reload_settings_service.execute(decision=None, now=self.clock.now(), force=True)
+        self.get_settings_service = GetSettingsService(self.settings_state, self.settings_repository)
+        self.save_settings_service = SaveSettingsService(
+            self.settings_state, self.settings_repository, self.reload_settings_service
+        )
 
     def _build_repositories(self) -> None:
-        self.profiles = KvProfileRepository(self.database)
-        self.ladders = SqliteLadderRepository(self.database)
-        self.sessions = SqliteTrainingSessionRepository(self.database)
-        self.history = SqliteTrainingHistory(self.database)
-        self.lock_events = SqliteLockEventRepository(self.database)
-        self.overrides = SqliteOverrideRepository(self.database)
-        self.lock_state = KvLockStateRepository(self.database)
-        self.coach_plans = KvCoachPlanRepository(self.database)
-        self.coach_runs = SqliteCoachRunLog(self.database)
-        self.memory = SqliteCoachMemoryRepository(self.database)
-        self.replacement_answers = SqliteReplacementAnswerRepository(self.database)
-        self.coach_reviews = SqliteCoachReviewRepository(self.database)
-        self.runtime = InMemoryLockRuntime()
+        self.profile_repository = KvProfileRepository(self.database)
+        self.ladder_repository = SqliteLadderRepository(self.database)
+        self.training_session_repository = SqliteTrainingSessionRepository(self.database)
+        self.training_history = SqliteTrainingHistory(self.database)
+        self.lock_event_repository = SqliteLockEventRepository(self.database)
+        self.override_repository = SqliteOverrideRepository(self.database)
+        self.lock_state_repository = KvLockStateRepository(self.database)
+        self.coach_plan_repository = KvCoachPlanRepository(self.database)
+        self.coach_run_log = SqliteCoachRunLog(self.database)
+        self.coach_memory_repository = SqliteCoachMemoryRepository(self.database)
+        self.replacement_answer_repository = SqliteReplacementAnswerRepository(self.database)
+        self.coach_review_repository = SqliteCoachReviewRepository(self.database)
+        self.lock_runtime = InMemoryLockRuntime()
 
     def _build_adapters(  # noqa: PLR0913 (one keyword per replaceable adapter, as in __init__)
         self,
@@ -192,103 +196,159 @@ class Container:
         music_account: MusicAccountProtocol | None,
     ) -> None:
         self.lock_screen = lock_screen or QuickshellLockScreen(state_path or Path("/dev/null"), CLI)
-        self.popup = popup or QuickshellWarningPopup(CLI)
+        self.warning_popup = popup or QuickshellWarningPopup(CLI)
         self.music_player = music_player or SpotifyMprisPlayer()
         spotify_web = SpotifyWebLibrary(self.database)
         self.music_library = music_library or spotify_web
         self.music_account = music_account or spotify_web
-        self.coach = coach or ClaudeCoach(self.settings.settings.notebook_id, SEARCH_TOOL)
+        self.coach = coach or ClaudeCoach(self.settings_state.settings.notebook_id, SEARCH_TOOL)
 
     def _build_training_services(self) -> None:
-        self.freshness = CoachPlanFreshness(self.coach_plans, self.history, self.profiles)
-        self.progression = ApplySessionProgressionService(self.ladders, self.catalogue)
-        self.save_profile = SaveProfileService(self.profiles, self.ladders)
-        self.begin_session = BeginTrainingSessionService(
-            self.sessions, self.history, self.ladders, self.freshness, self.catalogue
+        self.coach_plan_freshness = CoachPlanFreshness(
+            self.coach_plan_repository, self.training_history, self.profile_repository
         )
-        self.close_session = CloseTrainingSessionService(self.sessions, self.progression)
-        self.record_training_action = RecordTrainingActionService(self.sessions, self.catalogue, self.progression)
-        self.training_snapshot = TrainingSnapshotService(self.sessions, self.history, self.catalogue, self.details)
-        self.pending_replacements = PendingReplacementsService(
-            self.history, self.ladders, self.replacement_answers, self.catalogue
+        self.apply_session_progression_service = ApplySessionProgressionService(self.ladder_repository, self.catalogue)
+        self.save_profile_service = SaveProfileService(self.profile_repository, self.ladder_repository)
+        self.begin_training_session_service = BeginTrainingSessionService(
+            self.training_session_repository,
+            self.training_history,
+            self.ladder_repository,
+            self.coach_plan_freshness,
+            self.catalogue,
         )
-        self.answer_replacement = AnswerReplacementService(
-            self.pending_replacements,
-            self.replacement_answers,
-            KeepReplacedExerciseService(self.ladders, self.coach_plans, self.freshness, self.sessions, self.catalogue),
+        self.close_training_session_service = CloseTrainingSessionService(
+            self.training_session_repository, self.apply_session_progression_service
+        )
+        self.record_training_action_service = RecordTrainingActionService(
+            self.training_session_repository, self.catalogue, self.apply_session_progression_service
+        )
+        self.training_snapshot_service = TrainingSnapshotService(
+            self.training_session_repository, self.training_history, self.catalogue, self.exercise_details_repository
+        )
+        self.pending_replacements_service = PendingReplacementsService(
+            self.training_history, self.ladder_repository, self.replacement_answer_repository, self.catalogue
+        )
+        self.answer_replacement_service = AnswerReplacementService(
+            self.pending_replacements_service,
+            self.replacement_answer_repository,
+            KeepReplacedExerciseService(
+                self.ladder_repository,
+                self.coach_plan_repository,
+                self.coach_plan_freshness,
+                self.training_session_repository,
+                self.catalogue,
+            ),
         )
 
     def _build_lock_services(self) -> None:
-        self.plan_lock = PlanScheduledLockService(
-            self.lock_state, self.freshness, self.history, self.lock_events, self.desktop
+        self.plan_scheduled_lock_service = PlanScheduledLockService(
+            self.lock_state_repository,
+            self.coach_plan_freshness,
+            self.training_history,
+            self.lock_event_repository,
+            self.desktop,
         )
-        self.schedule_decision = GetScheduleDecisionService(self.settings, self.history, self.lock_events)
-        self.check_setup = CheckSetupCompleteService(self.profiles)
-        prepare_desktop = PrepareDesktopForLockService(self.lock_state, self.desktop, self.music_player, self.popup)
+        self.get_schedule_decision_service = GetScheduleDecisionService(
+            self.settings_state, self.training_history, self.lock_event_repository
+        )
+        self.check_setup_complete_service = CheckSetupCompleteService(self.profile_repository)
+        prepare_desktop = PrepareDesktopForLockService(
+            self.lock_state_repository, self.desktop, self.music_player, self.warning_popup
+        )
         enter_lock = EnterLockService(
-            self.runtime, prepare_desktop, self.lock_events, self.begin_session, self.profiles, self.settings
+            self.lock_runtime,
+            prepare_desktop,
+            self.lock_event_repository,
+            self.begin_training_session_service,
+            self.profile_repository,
+            self.settings_state,
         )
-        self.leave_lock = LeaveLockService(
-            self.runtime, self.lock_events, self.close_session, self.lock_state, self.desktop, self.music_player
+        self.leave_lock_service = LeaveLockService(
+            self.lock_runtime,
+            self.lock_event_repository,
+            self.close_training_session_service,
+            self.lock_state_repository,
+            self.desktop,
+            self.music_player,
         )
-        self.tick = RunLockTickService(
-            SettleOverrideService(self.runtime, self.overrides, self.lock_events),
-            self.schedule_decision,
+        self.run_lock_tick_service = RunLockTickService(
+            SettleOverrideService(self.lock_runtime, self.override_repository, self.lock_event_repository),
+            self.get_schedule_decision_service,
             ChooseLockService(
-                self.runtime, self.lock_state, self.lock_events, self.plan_lock, self.check_setup, self.settings
+                self.lock_runtime,
+                self.lock_state_repository,
+                self.lock_event_repository,
+                self.plan_scheduled_lock_service,
+                self.check_setup_complete_service,
+                self.settings_state,
             ),
             WarnOfNextLockService(
-                self.settings, self.lock_state, self.freshness, self.pending_replacements, self.desktop, self.popup
+                self.settings_state,
+                self.lock_state_repository,
+                self.coach_plan_freshness,
+                self.pending_replacements_service,
+                self.desktop,
+                self.warning_popup,
             ),
-            SwitchLockService(self.runtime, enter_lock, self.leave_lock, self.lock_screen),
+            SwitchLockService(self.lock_runtime, enter_lock, self.leave_lock_service, self.lock_screen),
         )
-        self.start_test_lock = StartTestLockService(self.runtime)
-        self.start_manual_lock = StartManualLockService(self.runtime, self.lock_state)
-        self.request_override = RequestOverrideService(self.runtime, self.overrides, self.settings)
-        self.cancel_override = CancelOverrideService(self.runtime, self.overrides)
-        self.end_lock_on_finish = EndLockOnSessionFinishedService(
-            self.runtime, self.lock_events, self.catalogue, self.desktop
+        self.start_test_lock_service = StartTestLockService(self.lock_runtime)
+        self.start_manual_lock_service = StartManualLockService(self.lock_runtime, self.lock_state_repository)
+        self.request_override_service = RequestOverrideService(
+            self.lock_runtime, self.override_repository, self.settings_state
+        )
+        self.cancel_override_service = CancelOverrideService(self.lock_runtime, self.override_repository)
+        self.end_lock_on_session_finished_service = EndLockOnSessionFinishedService(
+            self.lock_runtime, self.lock_event_repository, self.catalogue, self.desktop
         )
 
     def _build_coach_services(self) -> None:
         build_context = BuildCoachContextService(
-            self.profiles,
-            self.ladders,
-            self.history,
-            self.lock_events,
+            self.profile_repository,
+            self.ladder_repository,
+            self.training_history,
+            self.lock_event_repository,
             self.catalogue,
-            RecallCoachMemoryService(self.memory, self.replacement_answers, self.catalogue),
+            RecallCoachMemoryService(self.coach_memory_repository, self.replacement_answer_repository, self.catalogue),
         )
         store_plan = StoreCoachPlanService(
-            ApplyLadderOverridesService(self.ladders),
-            self.history,
-            self.memory,
-            self.coach_plans,
-            self.coach_reviews,
+            ApplyLadderOverridesService(self.ladder_repository),
+            self.training_history,
+            self.coach_memory_repository,
+            self.coach_plan_repository,
+            self.coach_review_repository,
             self.clock,
         )
-        self.run_coach = RunCoachService(
+        self.run_coach_service = RunCoachService(
             self.coach,
             self.catalogue,
-            PrepareCoachRunService(self.clock, self.freshness, build_context),
-            LogCoachRunService(self.coach_runs, self.clock),
+            PrepareCoachRunService(self.clock, self.coach_plan_freshness, build_context),
+            LogCoachRunService(self.coach_run_log, self.clock),
             store_plan,
             self.desktop,
         )
-        records = TrainingRecords(self.history, self.ladders, self.lock_events, self.catalogue, self.clock)
-        self.report = BuildReportService(records, self.profiles, self.memory, self.coach_reviews, self.clock)
-        self.write_review = WriteCoachReviewService(
-            self.coach, build_context, records, self.coach_reviews, self.history, self.clock
+        records = TrainingRecords(
+            self.training_history, self.ladder_repository, self.lock_event_repository, self.catalogue, self.clock
         )
-        self.get_memory = GetMemoryService(self.memory)
-        self.forget_memory_note = ForgetMemoryNoteService(self.memory, self.clock)
-        self.calendar = BuildCalendarService(
-            self.history, self.lock_events, self.lock_state, self.freshness, self.catalogue
+        self.build_report_service = BuildReportService(
+            records, self.profile_repository, self.coach_memory_repository, self.coach_review_repository, self.clock
+        )
+        self.write_coach_review_service = WriteCoachReviewService(
+            self.coach, build_context, records, self.coach_review_repository, self.training_history, self.clock
+        )
+        self.get_memory_service = GetMemoryService(self.coach_memory_repository)
+        self.forget_memory_note_service = ForgetMemoryNoteService(self.coach_memory_repository, self.clock)
+        self.build_calendar_service = BuildCalendarService(
+            self.training_history,
+            self.lock_event_repository,
+            self.lock_state_repository,
+            self.coach_plan_freshness,
+            self.catalogue,
         )
 
     def _build_music_services(self) -> None:
-        self.control_music = ControlMusicService(self.music_player)
-        self.music_snapshot = MusicSnapshotService(self.music_player, self.music_library, self.settings)
-        self.connect_music_account = ConnectMusicAccountService(self.music_account)
-        self.disconnect_music_account = DisconnectMusicAccountService(self.music_account)
-        self.get_music_account = GetMusicAccountService(self.music_account)
+        self.control_music_service = ControlMusicService(self.music_player)
+        self.music_snapshot_service = MusicSnapshotService(self.music_player, self.music_library, self.settings_state)
+        self.connect_music_account_service = ConnectMusicAccountService(self.music_account)
+        self.disconnect_music_account_service = DisconnectMusicAccountService(self.music_account)
+        self.get_music_account_service = GetMusicAccountService(self.music_account)

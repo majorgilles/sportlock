@@ -29,7 +29,7 @@ def test_write_review__coach_answers__dossier_advice_and_the_session_review_show
     _trained(world)
     world.coach.review = REVIEW
     # when
-    world.c.write_review.execute(world.daemon.coach_command(world.clock.time))
+    world.container.write_coach_review_service.execute(world.daemon.coach_command(world.clock.time))
     # then
     body = world.cmd(cmd="trainee-report")["report"]
     assert body["dossier"]["text"] == "A careful beginner with a sore knee."
@@ -45,10 +45,10 @@ def test_run_coach__recommendations__kept_in_the_journal_with_a_later_review(wor
         **copy.deepcopy(GOOD_PLAN),
         "recommendations": [{"about": "Abs", "advice": "Lift the knees."}],
     }
-    world.c.run_coach.execute(world.daemon.coach_command(world.clock.time))
+    world.container.run_coach_service.execute(world.daemon.coach_command(world.clock.time))
     # when
     world.coach.review = REVIEW
-    world.c.write_review.execute(world.daemon.coach_command(world.clock.time))
+    world.container.write_coach_review_service.execute(world.daemon.coach_command(world.clock.time))
     # then
     coach = world.cmd(cmd="trainee-report")["report"]["journal"][0]["coach"]
     assert coach["recommendations"] == [{"about": "Abs", "advice": "Lift the knees."}]

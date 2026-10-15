@@ -45,7 +45,7 @@ class Daemon:
 
     def __init__(self, container: Container | None = None, *, state_path: Path = STATE_PATH) -> None:
         self.state_path = state_path
-        self.c = container or Container(state_path=state_path)
+        self.container = container or Container(state_path=state_path)
         self.mutex = threading.RLock()
         self.running = True
         self.coach_enabled = True
@@ -62,10 +62,12 @@ class Daemon:
     def tick(self) -> None:
         """Reload settings, back up, lock or unlock, refresh the state file, maybe run the coach."""
         with self.mutex:
-            now = self.c.clock.now()
-            self.c.reload_settings.execute(decision=self.c.schedule_decision.execute(now), now=now)
-            self.c.database.backup_daily(now.date())
-            decision = self.c.tick.execute(now)
+            now = self.container.clock.now()
+            self.container.reload_settings_service.execute(
+                decision=self.container.get_schedule_decision_service.execute(now), now=now
+            )
+            self.container.database.backup_daily(now.date())
+            decision = self.container.run_lock_tick_service.execute(now)
             self.write_state(now, decision)
             self.maybe_run_coach(now)
 
@@ -78,7 +80,7 @@ class Daemon:
 
     def coach_command(self, now: datetime) -> RunCoachCommand:
         """What the coach should plan for: the next scheduled locks and the rest guardrails."""
-        settings = self.c.settings.settings
+        settings = self.container.settings_state.settings
         upcoming = (
             [
                 {"start": w.start.isoformat(timespec="minutes"), "minutes": w.minutes}
@@ -90,7 +92,7 @@ class Daemon:
         )
         policy = policy_of(settings)
         return RunCoachCommand(
-            equipment=equipment_of(self.c.profiles, settings),
+            equipment=equipment_of(self.container.profile_repository, settings),
             upcoming_locks=tuple(upcoming),
             rest_policy={
                 "allow_rest_days": policy.allow_rest_days,
@@ -108,7 +110,7 @@ class Daemon:
         """Start a background coach run when the plan is stale (not while one runs or waits to retry)."""
         if not self.coach_enabled or self.coach_running() or (self.coach_retry_at and now < self.coach_retry_at):
             return
-        if not self.c.freshness.needs_run():
+        if not self.container.coach_plan_freshness.needs_run():
             return
         self.coach_thread = threading.Thread(target=self._run_coach, args=(self.coach_command(now),), daemon=True)
         self.coach_thread.start()
@@ -116,14 +118,14 @@ class Daemon:
     def _run_coach(self, command: RunCoachCommand) -> None:
         # Claude can take minutes: run without holding the mutex; SQLite is safe to share.
         try:
-            plan = self.c.run_coach.execute(command)
+            plan = self.container.run_coach_service.execute(command)
             log.info("coach planned: hard=%s recovery=%s", plan.hard.title, plan.recovery.title)
             self.coach_retry_at = None
             self._write_review(command)  # the Report tab's dossier and advice, after the plan
         except (CoachUnavailableError, CoachOutputError) as error:
             log.warning("coach failed: %s", error)
-            self.coach_retry_at = self.c.clock.now() + COACH_RETRY
-            self.c.desktop.notify(
+            self.coach_retry_at = self.container.clock.now() + COACH_RETRY
+            self.container.desktop.notify(
                 "Coach couldn't plan your next session", f"{error}. Using the built-in planner; retrying in 30 min."
             )
 
@@ -135,7 +137,7 @@ class Daemon:
         """Ask the coach to rewrite the report now, in the background."""
         if self.review_running() or self.coach_running():
             raise ReviewError("the coach is already working; the report updates when it's done")
-        if self.c.history.last_counted_id() is None:
+        if self.container.training_history.last_counted_id() is None:
             raise ReviewError("train once first: the coach reviews your sessions")
         self.review_error = ""
         self.review_thread = threading.Thread(target=self._write_review, args=(self.coach_command(now),), daemon=True)
@@ -143,7 +145,7 @@ class Daemon:
 
     def _write_review(self, command: RunCoachCommand) -> None:
         try:
-            self.c.write_review.execute(command)
+            self.container.write_coach_review_service.execute(command)
             log.info("coach reviewed the trainee")
             self.review_error = ""
         except (CoachUnavailableError, CoachOutputError, ReviewError) as error:
@@ -167,7 +169,7 @@ class Daemon:
 
     def _music_login(self, client_id: str) -> None:
         try:
-            name = self.c.connect_music_account.execute(ConnectMusicAccountCommand(client_id=client_id))
+            name = self.container.connect_music_account_service.execute(ConnectMusicAccountCommand(client_id=client_id))
             log.info("spotify: connected as %s", name)
         except (MusicError, OSError) as error:
             log.warning("spotify login failed: %s", error)
@@ -177,15 +179,15 @@ class Daemon:
 
     def write_state(self, now: datetime, decision: Decision) -> None:
         """The state-file contract read by locks/ui/lock_screen and app/window."""
-        lock = self.c.runtime.current
-        settings = self.c.settings.settings
+        lock = self.container.lock_runtime.current
+        settings = self.container.settings_state.settings
         override = None
-        if lock and lock.overridable and (pending := self.c.overrides.pending(lock.key)):
+        if lock and lock.overridable and (pending := self.container.override_repository.pending(lock.key)):
             override = {"unlock_at": epoch_ms(pending.unlock_at)}
         state = {
             "updated_at": epoch_ms(datetime.now()),
             "locked": lock is not None,
-            "waiting_for_omarchy_lock": self.c.runtime.waiting_for_omarchy,
+            "waiting_for_omarchy_lock": self.container.lock_runtime.waiting_for_omarchy,
             "lock": lock
             and {
                 "key": lock.key,
@@ -199,18 +201,20 @@ class Daemon:
             "override_phrase": settings.override_phrase,
             "override_wait_seconds": settings.override_wait_seconds,
             "next_lock": decision.next and {"start": epoch_ms(decision.next.start), "end": epoch_ms(decision.next.end)},
-            "trained_today": now.date() in self.c.history.trained_days(),
-            "training": self.c.training_snapshot.execute() if lock else None,
-            "music": self.c.music_snapshot.execute() if lock else None,
-            "replacements": [r.to_dict() for r in self.c.pending_replacements.execute()] if lock else [],
-            "theme": self.c.desktop.theme(),
+            "trained_today": now.date() in self.container.training_history.trained_days(),
+            "training": self.container.training_snapshot_service.execute() if lock else None,
+            "music": self.container.music_snapshot_service.execute() if lock else None,
+            "replacements": [r.to_dict() for r in self.container.pending_replacements_service.execute()]
+            if lock
+            else [],
+            "theme": self.container.desktop.theme(),
             "setup": {
-                "profile": self.c.check_setup.execute(),
+                "profile": self.container.check_setup_complete_service.execute(),
                 "agent_running": self.coach_running(),
-                "plan_ready": self.c.freshness.fresh_plan() is not None,
+                "plan_ready": self.container.coach_plan_freshness.fresh_plan() is not None,
             },
-            "config_error": self.c.settings.error,
-            "config_pending": self.c.settings.pending,
+            "config_error": self.container.settings_state.error,
+            "config_pending": self.container.settings_state.pending,
         }
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.state_path.with_suffix(".tmp")
@@ -220,15 +224,17 @@ class Daemon:
 
     def frozen(self, now: datetime) -> bool:
         """Whether settings edits wait for the current lock."""
-        return settings_frozen(self.c.schedule_decision.execute(now), now)
+        return settings_frozen(self.container.get_schedule_decision_service.execute(now), now)
 
     # -- lifecycle ---------------------------------------------------------------------------
 
     def run(self) -> None:
         """Serve until SIGTERM/SIGINT; leaving always unlocks."""
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        if self.c.runtime.current is None:
-            restore_desktop(self.c.lock_state, self.c.desktop, self.c.music_player)  # left over from a crash mid-lock
+        if self.container.lock_runtime.current is None:
+            restore_desktop(
+                self.container.lock_state_repository, self.container.desktop, self.container.music_player
+            )  # left over from a crash mid-lock
         server = SocketServer(self, SOCKET_PATH)
         threading.Thread(target=server.serve_forever, daemon=True).start()
 
@@ -245,9 +251,9 @@ class Daemon:
                 log.exception("tick failed")
             time.sleep(TICK_SECONDS)
         with self.mutex:
-            now = self.c.clock.now()
-            self.c.leave_lock.execute(now)
-            self.write_state(now, self.c.schedule_decision.execute(now))
+            now = self.container.clock.now()
+            self.container.leave_lock_service.execute(now)
+            self.write_state(now, self.container.get_schedule_decision_service.execute(now))
         server.shutdown()
         SOCKET_PATH.unlink(missing_ok=True)
 

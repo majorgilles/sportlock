@@ -232,7 +232,7 @@ def cmd_app(args: argparse.Namespace) -> None:
     ).stdout.split()
     if running:
         clients = subprocess.run(["hyprctl", "clients", "-j"], capture_output=True, text=True, check=False).stdout
-        with_window = {str(c["pid"]) for c in json.loads(clients or "[]")}
+        with_window = {str(client["pid"]) for client in json.loads(clients or "[]")}
         for pid in running:
             if pid in with_window:
                 subprocess.run(["hyprctl", "dispatch", "focuswindow", f"pid:{pid}"], capture_output=True, check=False)
@@ -276,7 +276,7 @@ def cmd_agent(args: argparse.Namespace) -> None:
         return
 
     daemon = Daemon(Container())
-    plan = daemon.c.run_coach.execute(daemon.coach_command(daemon.c.clock.now()))
+    plan = daemon.container.run_coach_service.execute(daemon.coach_command(daemon.container.clock.now()))
     _print_plan(plan.to_dict())
 
 
